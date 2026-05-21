@@ -511,7 +511,7 @@ export default function QuotationPage() {
   }
 
   function handleSave() {
-    if (!paytermScheme || !C) return;
+    if (!paytermScheme || !C || !unit) return;
     const time = new Date().toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
     const suffix = dpPct ? ` ${dpPct}%` : deferredTerm ? ` ${deferredTerm}mo` : '';
     const label = `${SCHEME_LABELS[paytermScheme] ?? paytermScheme}${suffix} · ${fmtM(C.tcp)} · ${time}`;
