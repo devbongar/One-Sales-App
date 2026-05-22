@@ -4,13 +4,19 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'One Sales App',
   description: 'Sales management platform',
+  manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'OneSales',
+  },
 };
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
-  themeColor: '#080810',
+  themeColor: '#E8634A',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

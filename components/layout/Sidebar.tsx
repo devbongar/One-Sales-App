@@ -7,7 +7,7 @@ import {
   UserPlus, CalendarCheck, BookOpen, DollarSign,
   ShieldCheck, FolderOpen, MessageSquare, Receipt, CreditCard,
   Wallet, Banknote, BookMarked, Users, UserCog, LayoutDashboard,
-  X, ChevronDown, LogOut, Home, Settings,
+  X, ChevronDown, LogOut, Home, Settings, Calculator,
 } from 'lucide-react';
 import { NavGroup } from '@/types';
 import { clearSession } from '@/lib/auth';
@@ -20,7 +20,8 @@ const NAV: NavGroup[] = [
       { label: 'Client Registration', href: '/sales/client-registration', icon: 'UserPlus' },
       { label: 'Reservation',         href: '/sales/reservation',          icon: 'CalendarCheck' },
       { label: 'Booking',             href: '/sales/booking',              icon: 'BookOpen' },
-      { label: 'Sales Commission',    href: '/sales/sales-commission',     icon: 'DollarSign' },
+      { label: 'Sales Commission',             href: '/sales/sales-commission',      icon: 'DollarSign'  },
+      { label: 'Generate Sample Computation', href: '/sales/sample-computation',    icon: 'Calculator'  },
     ],
   },
   {
@@ -55,7 +56,7 @@ const NAV: NavGroup[] = [
 const ICONS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
   UserPlus, CalendarCheck, BookOpen, DollarSign,
   ShieldCheck, FolderOpen, MessageSquare, Receipt, CreditCard,
-  Wallet, Banknote, BookMarked, Users, UserCog, LayoutDashboard,
+  Wallet, Banknote, BookMarked, Users, UserCog, LayoutDashboard, Calculator,
 };
 
 interface SidebarProps {
