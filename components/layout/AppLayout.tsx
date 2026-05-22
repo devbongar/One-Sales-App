@@ -14,9 +14,10 @@ interface AppLayoutProps {
   title?: string;
   transparent?: boolean;
   backButton?: boolean;
+  onBack?: () => void;
 }
 
-export default function AppLayout({ children, showHeader = true, title, transparent = false, backButton = false }: AppLayoutProps) {
+export default function AppLayout({ children, showHeader = true, title, transparent = false, backButton = false, onBack }: AppLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [user, setUser] = useState<AppUser | null>(null);
   const router = useRouter();
@@ -57,7 +58,7 @@ export default function AppLayout({ children, showHeader = true, title, transpar
         >
           {backButton ? (
             <button
-              onClick={() => router.back()}
+              onClick={() => onBack ? onBack() : router.back()}
               className={`p-2.5 rounded-2xl ${isLight ? 'bg-gray-100 text-[#1C1C1E]' : 'glass text-white'}`}
             >
               <ChevronLeft size={20} />

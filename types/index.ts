@@ -33,6 +33,7 @@ export interface NavItem {
   label: string;
   href: string;
   icon?: string;
+  comingSoon?: boolean;
 }
 
 export interface NavGroup {

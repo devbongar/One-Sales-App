@@ -17,38 +17,38 @@ const NAV: NavGroup[] = [
   {
     title: 'Sales Transaction',
     items: [
-      { label: 'Client Registration', href: '/sales/client-registration', icon: 'UserPlus' },
-      { label: 'Reservation',         href: '/sales/reservation',          icon: 'CalendarCheck' },
-      { label: 'Booking',             href: '/sales/booking',              icon: 'BookOpen' },
-      { label: 'Sales Commission',             href: '/sales/sales-commission',      icon: 'DollarSign'  },
-      { label: 'Generate Sample Computation', href: '/sales/sample-computation',    icon: 'Calculator'  },
+      { label: 'Client Registration',          href: '/sales/client-registration', icon: 'UserPlus',      comingSoon: true },
+      { label: 'Reservation',                  href: '/sales/reservation',          icon: 'CalendarCheck', comingSoon: true },
+      { label: 'Booking',                      href: '/sales/booking',              icon: 'BookOpen',      comingSoon: true },
+      { label: 'Sales Commission',             href: '/sales/sales-commission',     icon: 'DollarSign',    comingSoon: true },
+      { label: 'Generate Sample Computation',  href: '/sales/sample-computation',   icon: 'Calculator'  },
     ],
   },
   {
     title: 'Account Management',
     items: [
-      { label: "Buyer's Verification",  href: '/account/buyers-verification', icon: 'ShieldCheck' },
-      { label: "Buyer's Foldering",     href: '/account/buyers-foldering',    icon: 'FolderOpen' },
-      { label: 'Request and Inquiry',   href: '/account/request-inquiry',     icon: 'MessageSquare' },
-      { label: 'Billing and Collection',href: '/account/billing-collection',  icon: 'Receipt' },
-      { label: 'End-Use Financing',     href: '/account/end-use-financing',   icon: 'CreditCard' },
+      { label: "Buyer's Verification",   href: '/account/buyers-verification', icon: 'ShieldCheck',   comingSoon: true },
+      { label: "Buyer's Foldering",      href: '/account/buyers-foldering',    icon: 'FolderOpen',    comingSoon: true },
+      { label: 'Request and Inquiry',    href: '/account/request-inquiry',     icon: 'MessageSquare', comingSoon: true },
+      { label: 'Billing and Collection', href: '/account/billing-collection',  icon: 'Receipt',       comingSoon: true },
+      { label: 'End-Use Financing',      href: '/account/end-use-financing',   icon: 'CreditCard',    comingSoon: true },
     ],
   },
   {
     title: 'Finance',
     items: [
-      { label: 'Commission Payout',  href: '/finance/commission-payout',  icon: 'Wallet' },
-      { label: "Buyer's Payment",    href: '/finance/buyers-payment',     icon: 'Banknote' },
-      { label: 'Collection Posting', href: '/finance/collection-posting', icon: 'BookMarked' },
+      { label: 'Commission Payout',  href: '/finance/commission-payout',  icon: 'Wallet',    comingSoon: true },
+      { label: "Buyer's Payment",    href: '/finance/buyers-payment',     icon: 'Banknote',  comingSoon: true },
+      { label: 'Collection Posting', href: '/finance/collection-posting', icon: 'BookMarked',comingSoon: true },
     ],
   },
   {
     title: "User's Registration",
     items: [
-      { label: 'Broker Accreditation', href: '/users/broker-accreditation', icon: 'ShieldCheck' },
-      { label: 'Seller Recruitment',   href: '/users/seller-recruitment',   icon: 'Users' },
-      { label: "User's Profile",       href: '/users/profile',              icon: 'UserCog' },
-      { label: 'Admin User',           href: '/users/admin',                icon: 'LayoutDashboard' },
+      { label: 'Broker Accreditation', href: '/users/broker-accreditation', icon: 'ShieldCheck',    comingSoon: true },
+      { label: 'Seller Recruitment',   href: '/users/seller-recruitment',   icon: 'Users',          comingSoon: true },
+      { label: "User's Profile",       href: '/users/profile',              icon: 'UserCog',        comingSoon: true },
+      { label: 'Admin User',           href: '/users/admin',                icon: 'LayoutDashboard', comingSoon: true },
     ],
   },
 ];
@@ -177,6 +177,21 @@ export default function Sidebar({ open, onClose, userName, userRole }: SidebarPr
                     {group.items.map((item) => {
                       const Icon = ICONS[item.icon ?? ''];
                       const active = pathname === item.href;
+
+                      if (item.comingSoon) {
+                        return (
+                          <li key={item.href}>
+                            <div className="flex items-center gap-3 px-3 py-2.5 rounded-2xl text-sm font-medium text-white/35 cursor-default">
+                              {Icon && <Icon size={16} className="text-white/25 shrink-0" />}
+                              <span className="flex-1 truncate">{item.label}</span>
+                              <span className="text-[9px] font-semibold bg-white/15 text-white/50 px-1.5 py-0.5 rounded-full shrink-0 whitespace-nowrap">
+                                Soon
+                              </span>
+                            </div>
+                          </li>
+                        );
+                      }
+
                       return (
                         <li key={item.href}>
                           <Link
