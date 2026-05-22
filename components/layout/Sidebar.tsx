@@ -18,7 +18,7 @@ const NAV: NavGroup[] = [
     title: 'Sales Transaction',
     items: [
       { label: 'Client Registration',          href: '/sales/client-registration', icon: 'UserPlus',      comingSoon: true },
-      { label: 'Reservation',                  href: '/sales/reservation',          icon: 'CalendarCheck', comingSoon: true },
+      { label: 'Reservation',                  href: '/sales/reservation',          icon: 'CalendarCheck' },
       { label: 'Booking',                      href: '/sales/booking',              icon: 'BookOpen',      comingSoon: true },
       { label: 'Sales Commission',             href: '/sales/sales-commission',     icon: 'DollarSign',    comingSoon: true },
       { label: 'Generate Sample Computation',  href: '/sales/sample-computation',   icon: 'Calculator'  },

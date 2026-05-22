@@ -1,17 +1,19 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import GlassButton from '@/components/ui/GlassButton';
 import { fetchProjects, fetchTowers, fetchFloors, fetchFloorsByCategory, fetchUnitTypes, fetchInventoryUnits, InventoryUnit } from '@/lib/inventory';
+import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
 import {
   Check, ChevronDown, Calculator,
   User, Phone, Mail, Briefcase,
   Users, UserCog, UserCheck, UserPlus,
   Building2, Layers, Home, Car, Bike, LayoutGrid,
   BarChart3, Grid3X3,
-  Banknote, Clock, CreditCard, CalendarRange, Plus, Ruler, X, GitCompare,
+  Banknote, Clock, CreditCard, CalendarRange, Plus, Ruler, X, GitCompare, AlertTriangle,
 } from 'lucide-react';
 
 // ─── Payment Schemes ──────────────────────────────────────────────────────────
@@ -48,6 +50,7 @@ const RESERVATION_FEE = 25_000;
 const RETENTION_FEE   = 50_000;
 const VAT_RATE        = 0.12;
 const OTHER_CHARGES_RATE = 0.07;
+const EMPLOYEE_DISCOUNT_RATE = 0.10;
 
 function calcMonthlyAmort(principal: number, annualRate: number, years: number): number {
   if (principal <= 0) return 0;
@@ -64,29 +67,17 @@ const UNIT_CATEGORIES = [
 ] as const;
 type UnitCategory = typeof UNIT_CATEGORIES[number]['value'] | '';
 
-const DIRECTORS: string[] = ['John Santos', 'Jane Dela Cruz', 'Mark Reyes'];
-const MANAGERS: Record<string, string[]> = {
-  'John Santos':   ['Maria Cruz', 'Pedro Garcia'],
-  'Jane Dela Cruz':['Rosa Mendoza', 'Tony Ramos'],
-  'Mark Reyes':    ['Leo Tan', 'Anna Lim'],
-};
-const SPECIALISTS: Record<string, string[]> = {
-  'Maria Cruz':   ['Ana Bautista', 'Ben Lopez'],
-  'Pedro Garcia': ['Carlo Tan', 'Dana Lim'],
-  'Rosa Mendoza': ['Eric Ng', 'Faye Ong'],
-  'Tony Ramos':   ['Glen Sy', 'Helen Wu'],
-  'Leo Tan':      ['Ivan Lee', 'Julia Chan'],
-  'Anna Lim':     ['Kevin Yu', 'Lisa Ho'],
-};
 
 // ─── Comparison types ─────────────────────────────────────────────────────────
 interface ComparisonItem {
   id: string;
   project: string; tower: string; floor: string; unitNo: string;
+  inventoryCode: string | null;
   unitType: string; unitArea: number; unitCategory: string;
   paymentScheme: PaymentScheme; schemeName: string;
   dpRate: string; paymentTerm: string; termMonths: number;
   listPrice: number; promoAmount: number; promoPct: number;
+  employeeAmount: number;
   paytermAmount: number; paytermPctDisplay: number;
   netListPrice: number; vat: number; otherCharges: number;
   totalContractPrice: number; netAmount: number;
@@ -109,8 +100,9 @@ const COMP_SECTIONS: { title: string; rows: CompRow[] }[] = [
   ]},
   { title: 'Price Computation', rows: [
     { label: 'List Price',    value: c => `₱${c.listPrice.toLocaleString()}` },
-    { label: 'Promo Disc.',   value: c => c.promoAmount > 0 ? `(₱${c.promoAmount.toLocaleString()})` : '—', green: true },
-    { label: 'Payterm Disc.', value: c => c.paytermAmount > 0 ? `(₱${c.paytermAmount.toLocaleString()})` : '—', green: true },
+    { label: 'Promo Disc.',     value: c => c.promoAmount > 0    ? `(₱${c.promoAmount.toLocaleString()})` : '—', green: true },
+    { label: 'Employee Disc.', value: c => c.employeeAmount > 0 ? `(₱${c.employeeAmount.toLocaleString()})` : '—', green: true },
+    { label: 'Payterm Disc.',  value: c => c.paytermAmount > 0  ? `(₱${c.paytermAmount.toLocaleString()})` : '—', green: true },
     { label: 'Net List Price',value: c => `₱${c.netListPrice.toLocaleString()}`, bold: true },
   ]},
   { title: 'Taxes & Charges', rows: [
@@ -136,34 +128,45 @@ const COMP_SECTIONS: { title: string; rows: CompRow[] }[] = [
 ];
 
 // ─── Step indicator ───────────────────────────────────────────────────────────
-const STEPS = ['Client Info', 'Inventory', 'Computation', 'Comparison'];
+const STEPS = [
+  { label: 'Client Info',  icon: <User       size={14} /> },
+  { label: 'Inventory',    icon: <Building2  size={14} /> },
+  { label: 'Computation',  icon: <Calculator size={14} /> },
+  { label: 'Comparison',   icon: <GitCompare size={14} /> },
+];
 
-function StepIndicator({ current }: { current: number }) {
+function StepIndicator({ current, onNavigate, hasComparisons }: { current: number; onNavigate: (step: number) => void; hasComparisons: boolean }) {
   return (
     <div className="flex items-center justify-between px-1">
-      {STEPS.map((label, i) => {
-        const done    = i < current;
-        const active  = i === current;
+      {STEPS.map(({ label, icon }, i) => {
+        const done      = i < current;
+        const active    = i === current;
+        const clickable = hasComparisons ? i !== current : done; // all steps if comparisons exist, else only done
         return (
           <div key={label} className="flex flex-col items-center flex-1">
             <div className="flex items-center w-full">
               {/* Left line */}
               <div className={`flex-1 h-0.5 ${i === 0 ? 'opacity-0' : done || active ? 'bg-[#E8634A]' : 'bg-[#E5E5EA]'}`} />
               {/* Circle */}
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 border-2 transition-colors ${
-                done   ? 'bg-[#E8634A] border-[#E8634A]' :
-                active ? 'bg-white border-[#E8634A]'     :
-                         'bg-white border-[#E5E5EA]'
-              }`}>
+              <button
+                type="button"
+                disabled={!clickable}
+                onClick={() => clickable && onNavigate(i)}
+                className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 border-2 transition-all duration-200 ${
+                  done   ? 'bg-[#E8634A] border-[#E8634A] shadow-[0_2px_8px_rgba(232,99,74,0.35)] active:opacity-70' :
+                  active ? 'bg-white border-[#E8634A] shadow-[0_2px_8px_rgba(232,99,74,0.25)]' :
+                           'bg-white border-[#E5E5EA]'
+                } ${clickable ? 'cursor-pointer' : 'cursor-default'}`}
+              >
                 {done
-                  ? <Check size={13} className="text-white" />
-                  : <span className={`text-xs font-bold ${active ? 'text-[#E8634A]' : 'text-[#C7C7CC]'}`}>{i + 1}</span>
+                  ? <Check size={14} className="text-white" />
+                  : <span className={active ? 'text-[#E8634A]' : 'text-[#C7C7CC]'}>{icon}</span>
                 }
-              </div>
+              </button>
               {/* Right line */}
               <div className={`flex-1 h-0.5 ${i === STEPS.length - 1 ? 'opacity-0' : done ? 'bg-[#E8634A]' : 'bg-[#E5E5EA]'}`} />
             </div>
-            <span className={`text-[10px] mt-1 font-medium text-center leading-tight ${active ? 'text-[#E8634A]' : done ? 'text-[#6C6C70]' : 'text-[#C7C7CC]'}`}>
+            <span className={`text-[10px] mt-1.5 font-semibold text-center leading-tight ${active ? 'text-[#E8634A]' : done ? 'text-[#6C6C70]' : 'text-[#C7C7CC]'}`}>
               {label}
             </span>
           </div>
@@ -344,7 +347,9 @@ const STEP_HEADERS = [
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function SampleComputationPage() {
+  const router = useRouter();
   const [step, setStep] = useState(0);
+  const [reservationTarget, setReservationTarget] = useState<ComparisonItem | null>(null);
 
   // Client Info
   const [fullName,    setFullName]    = useState('');
@@ -353,9 +358,9 @@ export default function SampleComputationPage() {
   const [isMegawide,  setIsMegawide]  = useState(false);
 
   // Seller Info
-  const [director,    setDirector]    = useState('');
-  const [manager,     setManager]     = useState('');
-  const [specialist,  setSpecialist]  = useState('');
+  const [sellerSearch,  setSellerSearch]  = useState('');
+  const [sellerRecord,  setSellerRecord]  = useState<SalespersonRecord | null>(null);
+  const [sellerDropdownOpen, setSellerDropdownOpen] = useState(false);
 
   // Inventory preferences
   const [project,      setProject]      = useState('');
@@ -370,6 +375,16 @@ export default function SampleComputationPage() {
   const [dpRate,       setDpRate]       = useState<string>('15%');
   const [comparisons,  setComparisons]  = useState<ComparisonItem[]>([]);
   const [duplicateAlert, setDuplicateAlert] = useState(false);
+  const compHeaderRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  // Equalize comparison card header heights to the tallest one
+  useLayoutEffect(() => {
+    const els = compHeaderRefs.current.filter(Boolean) as HTMLDivElement[];
+    if (els.length === 0) return;
+    els.forEach(el => { el.style.minHeight = ''; }); // reset first
+    const maxH = Math.max(...els.map(el => el.offsetHeight));
+    els.forEach(el => { el.style.minHeight = `${maxH}px`; });
+  }, [comparisons, step]);
 
   // Validation errors
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -382,12 +397,17 @@ export default function SampleComputationPage() {
   const [inventoryUnits, setInventoryUnits] = useState<InventoryUnit[]>([]);
   const [loading,        setLoading]        = useState(false);
 
-  const managerOptions    = director ? (MANAGERS[director]    ?? []) : [];
-  const specialistOptions = manager  ? (SPECIALISTS[manager]  ?? []) : [];
+  // Salesperson data from DB
+  const [allSalespersons, setAllSalespersons] = useState<SalespersonRecord[]>([]);
+
+  // Fetch all salespersons on mount
+  useEffect(() => {
+    fetchAllSalespersons().then(setAllSalespersons).catch(console.error);
+  }, []);
 
   function handleClearForm() {
     setFullName(''); setContact(''); setEmail(''); setIsMegawide(false);
-    setDirector(''); setManager(''); setSpecialist('');
+    setSellerSearch(''); setSellerRecord(null); setSellerDropdownOpen(false);
     setErrors({});
   }
 
@@ -411,20 +431,17 @@ export default function SampleComputationPage() {
     return Object.keys(e).length === 0;
   }
 
+  function goToStep(n: number) {
+    setStep(n);
+    document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
   function handleContinue() {
-    if (validateStep0()) setStep(1);
+    if (validateStep0()) goToStep(1);
   }
 
   function handleContinueInventory() {
-    if (validateStep1()) setStep(2);
-  }
-
-  function handleDirectorChange(v: string) {
-    setDirector(v); setManager(''); setSpecialist('');
-  }
-
-  function handleManagerChange(v: string) {
-    setManager(v); setSpecialist('');
+    if (validateStep1()) goToStep(2);
   }
 
   function handleProjectChange(v: string) {
@@ -524,7 +541,7 @@ export default function SampleComputationPage() {
   }, [project, tower, unitCategory]);
 
   return (
-    <PageShell title="Sample Computation" backButton={step > 0} onBack={() => setStep(step - 1)}>
+    <PageShell title="Sample Computation" backButton={step > 0} onBack={() => goToStep(step - 1)}>
 
       {/* Header card */}
       <GlassCard strong className="p-5 flex items-center gap-4">
@@ -538,7 +555,7 @@ export default function SampleComputationPage() {
       </GlassCard>
 
       {/* Step indicator */}
-      <StepIndicator current={step} />
+      <StepIndicator current={step} onNavigate={goToStep} hasComparisons={comparisons.length > 0} />
 
       {/* ── Step 1: Client Info ── */}
       {step === 0 && (
@@ -555,32 +572,102 @@ export default function SampleComputationPage() {
           {/* Seller Information */}
           <SectionHeader icon={<Users size={13} />}>Seller Information</SectionHeader>
           <GlassCard className="px-4 py-1">
-            <InlineSelect
-              label="Sales Director"
-              value={director}
-              options={DIRECTORS}
-              onChange={handleDirectorChange}
-              placeholder="Select director"
-              icon={<UserCog size={16} />}
-            />
-            <InlineSelect
-              label="Sales Manager"
-              value={manager}
-              options={managerOptions}
-              onChange={handleManagerChange}
-              placeholder={director ? 'Select manager' : 'Select director first'}
-              disabled={!director}
-              icon={<UserCheck size={16} />}
-            />
-            <InlineSelect
-              label="Property Specialist"
-              value={specialist}
-              options={specialistOptions}
-              onChange={setSpecialist}
-              placeholder={manager ? 'Select specialist' : 'Select manager first'}
-              disabled={!manager}
-              icon={<UserPlus size={16} />}
-            />
+            {/* Searchable seller dropdown */}
+            <div className="border-b border-black/[0.06] last:border-0">
+              {/* Closed state — tap to open */}
+              <button
+                type="button"
+                onClick={() => { setSellerDropdownOpen(p => !p); setSellerSearch(''); }}
+                className="w-full flex items-center gap-3 py-3 px-1"
+              >
+                <span className="text-[#E8634A] shrink-0"><UserPlus size={16} /></span>
+                <span className="text-sm font-medium text-[#1C1C1E] flex-1 text-left">Seller</span>
+                <span className={`text-sm text-right truncate max-w-[160px] ${sellerRecord ? 'text-[#1C1C1E]' : 'text-[#8E8E93]'}`}>
+                  {sellerRecord ? sellerRecord.seller_name : 'Search name'}
+                </span>
+                {sellerRecord
+                  ? <X size={14} className="text-[#C7C7CC] shrink-0" onClickCapture={e => { e.stopPropagation(); setSellerRecord(null); setSellerDropdownOpen(false); }} />
+                  : <ChevronDown size={14} className={`text-[#C7C7CC] shrink-0 transition-transform duration-200 ${sellerDropdownOpen ? 'rotate-180' : ''}`} />
+                }
+              </button>
+              {/* Open state — search + list */}
+              {sellerDropdownOpen && (
+                <div className="pb-2">
+                  <div className="flex items-center gap-2 mx-1 mb-2 px-3 py-2 bg-[#F2F2F7] rounded-xl">
+                    <input
+                      autoFocus
+                      type="text"
+                      value={sellerSearch}
+                      onChange={e => setSellerSearch(e.target.value)}
+                      placeholder="Type to search..."
+                      className="flex-1 text-sm bg-transparent outline-none text-[#1C1C1E] placeholder:text-[#C7C7CC]"
+                    />
+                    {sellerSearch && (
+                      <button type="button" onClick={() => setSellerSearch('')}>
+                        <X size={12} className="text-[#C7C7CC]" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="max-h-48 overflow-y-auto space-y-0.5">
+                    {(() => {
+                      const q = sellerSearch.trim().toLowerCase();
+                      const filtered = q.length === 0
+                        ? allSalespersons
+                        : allSalespersons.filter(s => s.seller_name.toLowerCase().includes(q));
+                      return filtered.length > 0
+                        ? filtered.map(s => (
+                            <button
+                              key={s.seller_name}
+                              type="button"
+                              onClick={() => { setSellerRecord(s); setSellerSearch(''); setSellerDropdownOpen(false); }}
+                              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm active:bg-gray-100"
+                            >
+                              <span className="font-medium text-[#1C1C1E] text-left">{s.seller_name}</span>
+                              <span className="text-[#8E8E93] text-xs shrink-0 ml-2">{s.position_code}</span>
+                            </button>
+                          ))
+                        : <p className="text-center text-xs text-[#8E8E93] py-3">No results found</p>;
+                    })()}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Selected seller details */}
+            {sellerRecord && (
+              <>
+                {/* Position */}
+                <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
+                  <span className="text-[#E8634A] shrink-0"><UserCog size={16} /></span>
+                  <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Position</span>
+                  <span className="text-sm text-right max-w-[160px] text-[#8E8E93]">{sellerRecord.position_code}</span>
+                </div>
+                {/* Sales Manager — shown for Property Specialist */}
+                {sellerRecord.position_code === 'Property Specialist' && sellerRecord.sales_manager && (
+                  <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
+                    <span className="text-[#E8634A] shrink-0"><UserCheck size={16} /></span>
+                    <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Sales Manager</span>
+                    <span className="text-sm text-right max-w-[160px] text-[#8E8E93]">{sellerRecord.sales_manager}</span>
+                  </div>
+                )}
+                {/* Sales Director — shown for Specialist and Manager */}
+                {['Property Specialist', 'Sales Manager'].includes(sellerRecord.position_code) && sellerRecord.sales_director && (
+                  <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
+                    <span className="text-[#E8634A] shrink-0"><UserCog size={16} /></span>
+                    <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Sales Director</span>
+                    <span className="text-sm text-right max-w-[160px] text-[#8E8E93]">{sellerRecord.sales_director}</span>
+                  </div>
+                )}
+                {/* Sales Division Head — shown for Specialist, Manager, and Director */}
+                {['Property Specialist', 'Sales Manager', 'Sales Director'].includes(sellerRecord.position_code) && sellerRecord.sales_division_head && (
+                  <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
+                    <span className="text-[#E8634A] shrink-0"><Users size={16} /></span>
+                    <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Division Head</span>
+                    <span className="text-sm text-right max-w-[160px] text-[#8E8E93]">{sellerRecord.sales_division_head}</span>
+                  </div>
+                )}
+              </>
+            )}
           </GlassCard>
 
           {/* Actions */}
@@ -809,7 +896,7 @@ export default function SampleComputationPage() {
                                     onClick={() => {
                                       if (hasUnit) {
                                         const unit = filtered.find(u => u.floor === fl && u.unit_no === unitNo);
-                                        if (unit) { setSelectedUnit(unit); setStep(2); }
+                                        if (unit) { setSelectedUnit(unit); goToStep(2); }
                                       }
                                     }}
                                     className={`px-1 py-2.5 border-b border-r border-white/60 text-center whitespace-nowrap min-w-[64px] font-medium ${hasUnit ? statusColor(status) + ' cursor-pointer active:opacity-60' : 'bg-[#374151]'}`}
@@ -838,7 +925,7 @@ export default function SampleComputationPage() {
                   {availableUnits.map((u) => {
                     const catIcon = UNIT_CATEGORIES.find(c => c.value === unitCategory)?.icon;
                     return (
-                    <div key={`${u.floor}-${u.unit_no}`} onClick={() => { setSelectedUnit(u); setStep(2); }} className="bg-[#F2F2F7] rounded-2xl p-4 flex flex-col gap-2.5 shadow-md shadow-black/10 relative overflow-hidden cursor-pointer active:opacity-70">
+                    <div key={`${u.floor}-${u.unit_no}`} onClick={() => { setSelectedUnit(u); goToStep(2); }} className="bg-[#F2F2F7] rounded-2xl p-4 flex flex-col gap-2.5 shadow-md shadow-black/10 relative overflow-hidden cursor-pointer active:opacity-70">
                       {/* Ribbon badge — upper right corner */}
                       {u.promo_discount && (() => {
                         const n = parseFloat(u.promo_discount);
@@ -907,8 +994,9 @@ export default function SampleComputationPage() {
           : paymentScheme === 'stretched_dp'
           ? (STRETCHED_DP_DISCOUNTS[dpRate] ?? 0) * 100
           : Math.round(paytermRate * 100);
-        const paytermAmount = Math.round(listPrice * paytermRate);
-        const netListPrice = listPrice - promoAmount - paytermAmount;
+        const paytermAmount   = Math.round(listPrice * paytermRate);
+        const employeeAmount  = isMegawide ? Math.round(listPrice * EMPLOYEE_DISCOUNT_RATE) : 0;
+        const netListPrice    = listPrice - promoAmount - employeeAmount - paytermAmount;
         const vat          = Math.round(netListPrice * VAT_RATE);
         const otherCharges = Math.round(netListPrice * OTHER_CHARGES_RATE);
         const totalContractPrice = netListPrice + vat + otherCharges;
@@ -936,14 +1024,15 @@ export default function SampleComputationPage() {
           setComparisons(prev => [...prev, {
             id, project, tower,
             floor: selectedUnit.floor, unitNo: selectedUnit.unit_no,
+            inventoryCode: selectedUnit.inventory_code ?? null,
             unitType: selectedUnit.unit_type || '', unitArea: selectedUnit.unit_area,
             unitCategory, paymentScheme, schemeName, dpRate, paymentTerm, termMonths,
-            listPrice, promoAmount, promoPct, paytermAmount, paytermPctDisplay,
+            listPrice, promoAmount, promoPct, employeeAmount, paytermAmount, paytermPctDisplay,
             netListPrice, vat, otherCharges, totalContractPrice,
             netAmount, monthlyDeferred, dpAmount, netSpotDP,
             balanceForFinancing, monthlyStretchedDP, bankMonthly, hdmfMonthly,
           }]);
-          setStep(3);
+          goToStep(3);
         };
 
         const pct = promoPct > 0 ? promoPct : null;
@@ -1100,6 +1189,12 @@ export default function SampleComputationPage() {
                       <span className="text-sm font-medium text-[#166534]">(₱{promoAmount.toLocaleString()})</span>
                     </div>
                   )}
+                  {isMegawide && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[#166534]">Less: Employee Discount (10%)</span>
+                      <span className="text-sm font-medium text-[#166534]">(₱{employeeAmount.toLocaleString()})</span>
+                    </div>
+                  )}
                   {paytermAmount > 0 && (
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-[#166534]">Less: Payterm Discount ({Number(paytermPctDisplay).toFixed(1)}%)</span>
@@ -1238,7 +1333,7 @@ export default function SampleComputationPage() {
             {comparisons.length > 0 && (
               <button
                 type="button"
-                onClick={() => setStep(3)}
+                onClick={() => goToStep(3)}
                 className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-[#E8634A] text-[#E8634A] text-sm font-semibold active:bg-[#E8634A]/10"
               >
                 <GitCompare size={16} />
@@ -1254,30 +1349,37 @@ export default function SampleComputationPage() {
             <GitCompare size={32} className="text-[#C7C7CC] mx-auto" />
             <p className="text-[#6C6C70] text-sm">No comparisons yet.</p>
             <p className="text-[#8E8E93] text-xs">Go back to the computation tab and tap "+ Add to Comparison".</p>
-            <button onClick={() => setStep(2)} className="text-[#E8634A] text-sm font-semibold">← Back to Computation</button>
+            <button onClick={() => goToStep(2)} className="text-[#E8634A] text-sm font-semibold">← Back to Computation</button>
           </GlassCard>
         ) : (
           <div className="overflow-x-auto pb-2" style={{ WebkitOverflowScrolling: 'touch' }}>
             <div className="flex gap-2" style={{ minWidth: `${comparisons.length * 172 + (comparisons.length - 1) * 8}px` }}>
-              {comparisons.map(c => (
-                <div key={c.id} className="shrink-0 w-[172px] bg-white rounded-2xl border border-black/[0.06] shadow-md flex flex-col overflow-hidden" style={{ maxHeight: '72vh' }}>
+              {comparisons.map((c, ci) => (
+                <div key={c.id} onClick={() => setReservationTarget(c)} className="shrink-0 w-[172px] bg-white rounded-2xl border border-black/[0.06] shadow-md flex flex-col overflow-hidden cursor-pointer active:opacity-70" style={{ maxHeight: '72vh' }}>
 
                   {/* ── Card header (fixed, not scrollable) ── */}
-                  <div className="relative flex-shrink-0 px-4 pt-4 pb-3 bg-[rgba(232,99,74,0.06)] border-b border-black/[0.08]">
+                  <div ref={el => { compHeaderRefs.current[ci] = el; }} className="relative flex-shrink-0 px-4 pt-4 pb-3 bg-[rgba(232,99,74,0.06)] border-b border-black/[0.08]">
                     <button
                       type="button"
-                      onClick={() => setComparisons(prev => prev.filter(x => x.id !== c.id))}
+                      onClick={e => { e.stopPropagation(); setComparisons(prev => prev.filter(x => x.id !== c.id)); }}
                       className="absolute top-3 right-3 w-6 h-6 rounded-full bg-[#F2F2F7] flex items-center justify-center text-[#6C6C70]"
                     >
                       <X size={12} />
                     </button>
-                    <p className="text-base font-bold text-[#1C1C1E] pr-7 leading-tight">{c.floor}{c.unitNo}</p>
-                    <p className="text-[12px] text-[#E8634A] font-semibold mt-0.5">{c.schemeName}</p>
-                    <p className="text-[11px] text-[#8E8E93] mt-1">{c.tower} · {c.unitArea} sqm</p>
-                    <p className="text-[10px] text-[#8E8E93]">
-                      {c.unitCategory}
-                      {['spot_dp','stretched_dp'].includes(c.paymentScheme) && ` · DP ${c.dpRate}`}
-                      {c.paymentScheme === 'deferred_cash' && ` · ${c.termMonths} mo`}
+                    {/* Row 1: category icon + project name */}
+                    <div className="flex items-center gap-1.5 pr-7">
+                      <span className="text-[#E8634A] shrink-0">
+                        {UNIT_CATEGORIES.find(cat => cat.value === c.unitCategory)?.icon}
+                      </span>
+                      <p className="text-sm font-bold text-[#1C1C1E] leading-tight">{c.project}</p>
+                    </div>
+                    {/* Row 2: unit type */}
+                    <p className="text-[11px] text-[#8E8E93] mt-1">{c.unitType || '—'}</p>
+                    {/* Row 3: payment scheme — bold red */}
+                    <p className="text-[12px] font-bold text-[#E8634A] mt-0.5">{c.schemeName}</p>
+                    {/* Row 4: promo discount — always rendered to keep uniform height */}
+                    <p className={`text-[11px] font-semibold mt-0.5 ${c.promoPct > 0 ? 'text-[#166534]' : 'invisible'}`}>
+                      {Math.round(c.promoPct)}% discount
                     </p>
                   </div>
 
@@ -1314,6 +1416,67 @@ export default function SampleComputationPage() {
             </div>
           </div>
         )
+      )}
+
+      {/* ── Reservation Confirmation Modal ── */}
+      {reservationTarget && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center px-4 pb-8"
+          style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}>
+          <div className="w-full max-w-sm bg-white rounded-3xl overflow-hidden shadow-2xl animate-fade-in">
+            {/* Header */}
+            <div className="flex flex-col items-center px-6 pt-7 pb-4 border-b border-black/[0.06]">
+              <div className="w-12 h-12 rounded-full bg-amber-50 flex items-center justify-center mb-3">
+                <AlertTriangle size={24} className="text-amber-500" />
+              </div>
+              <p className="text-base font-bold text-[#1C1C1E] text-center">Proceed with Reservation?</p>
+              <p className="text-xs text-[#8E8E93] mt-1 text-center">Please confirm the unit details below.</p>
+            </div>
+            {/* Details */}
+            <div className="px-6 py-4 space-y-2.5">
+              {[
+                { label: 'Project',         value: reservationTarget.project },
+                { label: 'Inventory Code',  value: reservationTarget.inventoryCode ?? `${reservationTarget.floor}${reservationTarget.unitNo}` },
+                { label: 'Unit Type',       value: reservationTarget.unitType || '—' },
+                { label: 'Unit Area',       value: `${reservationTarget.unitArea} sqm` },
+                { label: 'Payment Scheme',  value: reservationTarget.schemeName },
+                { label: 'Total Contract',  value: `₱${reservationTarget.totalContractPrice.toLocaleString()}` },
+              ].map(({ label, value }) => (
+                <div key={label} className="flex items-center justify-between">
+                  <span className="text-sm text-[#8E8E93]">{label}</span>
+                  <span className="text-sm font-semibold text-[#1C1C1E] text-right max-w-[180px]">{value}</span>
+                </div>
+              ))}
+            </div>
+            {/* Actions */}
+            <div className="px-6 pb-7 pt-2 flex flex-col gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  sessionStorage.setItem('reservationData', JSON.stringify({
+                    ...reservationTarget,
+                    clientName: fullName,
+                    sellerName: sellerRecord?.seller_name ?? '',
+                    salesManager: sellerRecord?.sales_manager ?? '',
+                    salesDirector: sellerRecord?.sales_director ?? '',
+                    salesDivisionHead: sellerRecord?.sales_division_head ?? '',
+                  }));
+                  setReservationTarget(null);
+                  router.push('/sales/reservation/agreement');
+                }}
+                className="w-full py-3.5 rounded-2xl bg-[#E8634A] text-white text-sm font-bold active:opacity-80"
+              >
+                Yes, Proceed to Reservation
+              </button>
+              <button
+                type="button"
+                onClick={() => setReservationTarget(null)}
+                className="w-full py-3.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-70"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
     </PageShell>

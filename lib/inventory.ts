@@ -80,6 +80,7 @@ export async function fetchFloorsByCategory(projectName: string, tower: string, 
 export interface InventoryUnit {
   floor: string;
   unit_no: string;
+  inventory_code: string | null;
   unit_type: string;
   unit_area: number;
   total_list_price: string;
@@ -101,6 +102,14 @@ export async function fetchInventoryUnits(projectName: string, tower: string): P
     console.error('Error fetching inventory units:', err);
     throw err;
   }
+}
+
+export async function updateInventoryUnitStatus(inventoryCode: string, status: string): Promise<void> {
+  const { error } = await supabase.rpc('update_inventory_status', {
+    p_inventory_code: inventoryCode,
+    p_status: status,
+  });
+  if (error) throw error;
 }
 
 export async function fetchUnitTypes(projectName: string, tower: string) {

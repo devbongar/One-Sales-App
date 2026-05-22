@@ -1,0 +1,90 @@
+import { supabase } from '@/lib/supabase';
+
+export async function generateReservationId(): Promise<string> {
+  const { data, error } = await supabase.rpc('generate_reservation_id');
+  if (error) throw error;
+  return data as string;
+}
+
+export interface ReservationPayload {
+  reservation_id: string;
+  // Client
+  client_name: string;
+  signature_base64: string;
+  // Unit Info
+  project: string;
+  tower: string;
+  floor: string;
+  unit_no: string;
+  inventory_code: string | null;
+  unit_type: string;
+  unit_area: number;
+  unit_category: string;
+  // Payment Scheme
+  payment_scheme: string;
+  scheme_name: string;
+  payment_term: string;
+  dp_rate: string;
+  term_months: number;
+  // Price Computation
+  list_price: number;
+  promo_discount_pct: number;
+  promo_discount_amount: number;
+  employee_discount_amount: number;
+  payterm_discount_pct: number;
+  payterm_discount_amount: number;
+  net_list_price: number;
+  // Taxes & Charges
+  vat: number;
+  other_charges: number;
+  total_contract_price: number;
+  // Fees & Summary
+  reservation_fee: number;
+  retention_fee: number;
+  net_amount: number;
+  dp_amount: number;
+  net_spot_dp: number;
+  balance_for_financing: number;
+  monthly_deferred: number;
+  monthly_stretched_dp: number;
+  // Financing
+  bank_monthly: number;
+  hdmf_monthly: number;
+  // Seller
+  seller_name: string;
+  sales_manager: string;
+  sales_director: string;
+  sales_division_head: string;
+  // Status
+  status: string;
+}
+
+export async function saveReservation(payload: ReservationPayload): Promise<void> {
+  const { error } = await supabase.from('reservations').insert(payload);
+  if (error) throw error;
+}
+
+export async function uploadPaymentProof(reservationId: string, file: Blob, fileName: string): Promise<string> {
+  const path = `${reservationId}/${fileName}`;
+  const { error } = await supabase.storage.from('payment-proofs').upload(path, file, {
+    contentType: file.type,
+    upsert: true,
+  });
+  if (error) throw error;
+  const { data } = supabase.storage.from('payment-proofs').getPublicUrl(path);
+  return data.publicUrl;
+}
+
+export async function updateReservationPayment(
+  reservationId: string,
+  paymentDate: string,
+  paymentProofUrls: string[],
+): Promise<void> {
+  const { error } = await supabase.rpc('update_reservation_payment', {
+    p_reservation_id:       reservationId,
+    p_payment_date:         paymentDate,
+    p_payment_proof_url:    JSON.stringify(paymentProofUrls),
+    p_status:               'Reserved-paid',
+  });
+  if (error) throw error;
+}
