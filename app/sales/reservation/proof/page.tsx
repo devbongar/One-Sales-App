@@ -57,6 +57,7 @@ export default function ProofOfPaymentPage() {
   const router = useRouter();
   const [reservationId, setReservationId] = useState('');
   const [reservation, setReservation] = useState<SelectedReservation | null>(null);
+  const [fromList, setFromList] = useState(false);
   const [paymentDate, setPaymentDate] = useState(today());
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [showOptions, setShowOptions] = useState(false);
@@ -83,6 +84,7 @@ export default function ProofOfPaymentPage() {
     if (raw) {
       try { setReservation(JSON.parse(raw)); } catch {}
     }
+    setFromList(sessionStorage.getItem('proofEntrySource') === 'list');
   }, []);
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -165,7 +167,7 @@ export default function ProofOfPaymentPage() {
   const canAddMore = files.length < MAX_FILES;
 
   return (
-    <PageShell title="Proof of Reservation Payment" backButton onBack={() => router.back()}>
+    <PageShell title="Proof of Reservation Payment" backButton={fromList} onBack={fromList ? () => router.back() : undefined}>
 
       {/* Hero card */}
       <GlassCard className="p-5 space-y-4">

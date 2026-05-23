@@ -195,6 +195,7 @@ export default function ReservationPage() {
               onClick={() => {
                 sessionStorage.setItem('currentReservationId', r.reservation_id);
                 sessionStorage.setItem('selectedReservation', JSON.stringify(r));
+                sessionStorage.setItem('proofEntrySource', 'list');
                 router.push('/sales/reservation/proof');
               }}
             >

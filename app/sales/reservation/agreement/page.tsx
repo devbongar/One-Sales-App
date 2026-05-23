@@ -223,6 +223,7 @@ export default function ReservationAgreementPage() {
         status: 'Reserved-unpaid',
       });
       sessionStorage.setItem('currentReservationId', reservationId);
+      sessionStorage.setItem('proofEntrySource', 'agreement');
       setShowConfirm(false);
       router.push('/sales/reservation/proof');
     } catch (e: any) {
