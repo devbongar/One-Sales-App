@@ -384,23 +384,27 @@ export default function SettingsPage() {
       {showProjectForm && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={closeForm} />
-          <div className="relative bg-white rounded-t-[2.5rem] max-h-[92vh] overflow-y-auto">
+          {/* Modal panel — flex column so header/footer are fixed, middle scrolls */}
+          <div className="relative bg-white rounded-t-[2.5rem] flex flex-col" style={{ maxHeight: '92dvh' }}>
 
+            {/* Drag handle — never scrolls */}
             <div className="flex justify-center pt-3 pb-1 shrink-0">
               <div className="w-10 h-1 rounded-full bg-black/10" />
             </div>
 
-            <div className="px-5 pt-2 pb-10 space-y-5">
-              {/* Header */}
-              <div className="flex items-center justify-between">
-                <p className="text-lg font-bold text-[#1C1C1E]">
-                  {editingProject ? 'Edit Project' : 'Add Project'}
-                </p>
-                <button type="button" onClick={closeForm}
-                  className="p-2 rounded-2xl bg-[#F2F2F7] text-[#6C6C70] active:opacity-70">
-                  <X size={18} />
-                </button>
-              </div>
+            {/* Header — never scrolls */}
+            <div className="flex items-center justify-between px-5 pb-3 shrink-0">
+              <p className="text-lg font-bold text-[#1C1C1E]">
+                {editingProject ? 'Edit Project' : 'Add Project'}
+              </p>
+              <button type="button" onClick={closeForm}
+                className="p-2 rounded-2xl bg-[#F2F2F7] text-[#6C6C70] active:opacity-70">
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Scrollable content */}
+            <div className="flex-1 overflow-y-auto px-5 space-y-5 pb-4">
 
               {/* Cover photo */}
               <div className="space-y-2">
@@ -432,26 +436,26 @@ export default function SettingsPage() {
               {/* Basic Info */}
               <div className="space-y-3">
                 <p className="text-xs font-bold text-[#E8634A] uppercase tracking-wider">Basic Info</p>
-                {field('name',     'Project Name',    <Building2 size={11} />)}
-                {field('location', 'Location',        <MapPin size={11} />)}
+                {field('name',     'Project Name', <Building2 size={11} />)}
+                {field('location', 'Location',     <MapPin size={11} />)}
               </div>
 
               {/* Classification */}
               <div className="space-y-3">
                 <p className="text-xs font-bold text-[#E8634A] uppercase tracking-wider">Classification</p>
                 <div className="grid grid-cols-2 gap-3">
-                  {field('property_type',  'Property Type',   <Tag size={11} />)}
-                  {field('residence_type', 'Residence Type',  <Tag size={11} />)}
+                  {field('property_type',  'Property Type',  <Tag size={11} />)}
+                  {field('residence_type', 'Residence Type', <Tag size={11} />)}
                 </div>
               </div>
 
-              {/* Numbers */}
+              {/* Details */}
               <div className="space-y-3">
                 <p className="text-xs font-bold text-[#E8634A] uppercase tracking-wider">Details</p>
                 <div className="grid grid-cols-3 gap-3">
-                  {field('floors',         'Floors',   <Layers size={11} />,  'number')}
-                  {field('no_of_units',    'Units',    <Hash size={11} />,    'number')}
-                  {field('no_of_parkings', 'Parking',  <CarFront size={11} />, 'number')}
+                  {field('floors',         'Floors',  <Layers size={11} />,   'number')}
+                  {field('no_of_units',    'Units',   <Hash size={11} />,     'number')}
+                  {field('no_of_parkings', 'Parking', <CarFront size={11} />, 'number')}
                 </div>
               </div>
 
@@ -480,8 +484,10 @@ export default function SettingsPage() {
                   />
                 ))}
               </div>
+            </div>
 
-              {/* Save button */}
+            {/* Save button — pinned at bottom, never scrolls */}
+            <div className="px-5 pt-3 pb-8 shrink-0 border-t border-black/[0.06]">
               <button type="button" onClick={saveProject}
                 disabled={savingProject || !form.name || !form.location}
                 className="w-full py-4 rounded-2xl bg-[#E8634A] text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-50 active:opacity-80">
