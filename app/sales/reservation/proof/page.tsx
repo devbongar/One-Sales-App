@@ -6,13 +6,31 @@ import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import {
   Receipt, CalendarDays, Upload, Camera, ScanLine,
-  ImagePlus, X, AlertTriangle, Loader2, CheckCircle2,
+  ImagePlus, X, AlertTriangle, Loader2, Check, CheckCircle2,
   User, Building2, Tag, LayoutGrid, BadgeCheck, FileText,
+  ChevronDown, CreditCard, FileImage, ShieldCheck,
 } from 'lucide-react';
-import { uploadPaymentProof, updateReservationPayment } from '@/lib/reservations';
+import { uploadPaymentProof, uploadDocumentFile, updateReservationPayment } from '@/lib/reservations';
 import { updateInventoryUnitStatus } from '@/lib/inventory';
 
 const MAX_FILES = 5;
+const MAX_DOC_FILES = 3;
+
+const PAYMENT_MODES = [
+  'Post-Dated Checks (PDC)',
+  'Straight Cash or Check Payment',
+  'Auto-Debit Arrangement (ADA)',
+] as const;
+
+const ADA_BANKS = [
+  'Aqwire Payment',
+  'Bank of the Philippine Islands (BPI)',
+  'BDO Unibank Inc. (BDO)',
+  'China Banking Corporation (CBC)',
+  'Philippine National Bank (PNB)',
+] as const;
+
+type UploadTarget = 'payment' | 'billing' | 'income' | 'valid-id';
 
 interface SelectedReservation {
   reservation_id: string;
@@ -60,7 +78,15 @@ export default function ProofOfPaymentPage() {
   const [fromList, setFromList] = useState(false);
   const [paymentDate, setPaymentDate] = useState(today());
   const [files, setFiles] = useState<UploadedFile[]>([]);
-  const [showOptions, setShowOptions] = useState(false);
+  const [billingFiles, setBillingFiles]   = useState<UploadedFile[]>([]);
+  const [incomeFiles, setIncomeFiles]     = useState<UploadedFile[]>([]);
+  const [validIdFiles, setValidIdFiles]   = useState<UploadedFile[]>([]);
+  const [subsequentMode, setSubsequentMode] = useState('');
+  const [adaBank, setAdaBank]               = useState('');
+  const [modeDropdownOpen, setModeDropdownOpen]     = useState(false);
+  const [adaBankDropdownOpen, setAdaBankDropdownOpen] = useState(false);
+  const [showOptions, setShowOptions]               = useState(false);
+  const [activeUploadTarget, setActiveUploadTarget] = useState<UploadTarget>('payment');
   const [showConfirm, setShowConfirm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -90,9 +116,16 @@ export default function ProofOfPaymentPage() {
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const selected = Array.from(e.target.files ?? []);
     if (!selected.length) return;
-    setShowOptions(false);
 
-    const remaining = MAX_FILES - files.length;
+    const isPayment = activeUploadTarget === 'payment';
+    const maxAllowed = isPayment ? MAX_FILES : MAX_DOC_FILES;
+    const currentCount =
+      activeUploadTarget === 'payment'  ? files.length :
+      activeUploadTarget === 'billing'  ? billingFiles.length :
+      activeUploadTarget === 'income'   ? incomeFiles.length :
+      validIdFiles.length;
+
+    const remaining = maxAllowed - currentCount;
     const toProcess = selected.slice(0, remaining);
 
     const processed: UploadedFile[] = await Promise.all(
@@ -107,8 +140,28 @@ export default function ProofOfPaymentPage() {
       })
     );
 
-    setFiles(prev => [...prev, ...processed]);
+    if (activeUploadTarget === 'payment')   setFiles(prev => [...prev, ...processed]);
+    else if (activeUploadTarget === 'billing')  setBillingFiles(prev => [...prev, ...processed]);
+    else if (activeUploadTarget === 'income')   setIncomeFiles(prev => [...prev, ...processed]);
+    else if (activeUploadTarget === 'valid-id') setValidIdFiles(prev => [...prev, ...processed]);
+
     e.target.value = '';
+  }
+
+  function openUpload(target: UploadTarget) {
+    setActiveUploadTarget(target);
+    setShowOptions(true);
+  }
+
+  function removeDocFile(target: UploadTarget, index: number) {
+    const setter =
+      target === 'billing'  ? setBillingFiles :
+      target === 'income'   ? setIncomeFiles  :
+      setValidIdFiles;
+    setter(prev => {
+      URL.revokeObjectURL(prev[index].preview);
+      return prev.filter((_, i) => i !== index);
+    });
   }
 
   function removeFile(index: number) {
@@ -142,10 +195,28 @@ export default function ProofOfPaymentPage() {
     setSaving(true);
     setSaveError('');
     try {
-      const urls = await Promise.all(
-        files.map((f, i) => uploadPaymentProof(reservationId, f.blob, `${i + 1}_${f.name}`))
-      );
-      await updateReservationPayment(reservationId, paymentDate, urls);
+      const [paymentUrls, billingUrls, incomeUrls, validIdUrls] = await Promise.all([
+        Promise.all(files.map((f, i) =>
+          uploadPaymentProof(reservationId, f.blob, `${i + 1}_${f.name}`)
+        )),
+        Promise.all(billingFiles.map((f, i) =>
+          uploadDocumentFile(reservationId, 'billing', f.blob, `${i + 1}_${f.name}`)
+        )),
+        Promise.all(incomeFiles.map((f, i) =>
+          uploadDocumentFile(reservationId, 'income', f.blob, `${i + 1}_${f.name}`)
+        )),
+        Promise.all(validIdFiles.map((f, i) =>
+          uploadDocumentFile(reservationId, 'valid-id', f.blob, `${i + 1}_${f.name}`)
+        )),
+      ]);
+
+      await updateReservationPayment(reservationId, paymentDate, paymentUrls, {
+        subsequentMode: subsequentMode,
+        adaBank:        adaBank || undefined,
+        billingUrls,
+        incomeUrls,
+        validIdUrls,
+      });
 
       // Update inventory unit status to Reserved
       const inventoryCode = getInventoryCode();
@@ -163,7 +234,10 @@ export default function ProofOfPaymentPage() {
     }
   }
 
-  const canConfirm = files.length > 0 && !!paymentDate;
+  const adaSelected = subsequentMode === 'Auto-Debit Arrangement (ADA)';
+  const canConfirm  = files.length > 0 && !!paymentDate
+    && !!subsequentMode && (!adaSelected || !!adaBank)
+    && billingFiles.length > 0 && incomeFiles.length > 0 && validIdFiles.length > 0;
   const canAddMore = files.length < MAX_FILES;
 
   return (
@@ -251,6 +325,139 @@ export default function ProofOfPaymentPage() {
         </GlassCard>
       )}
 
+      {/* ── New fields (hidden for already-paid) ── */}
+      {!alreadyPaid && (
+        <GlassCard className="px-4 py-1">
+
+          {/* Subsequent Mode of Payment */}
+          <div className="border-b border-black/[0.06] py-3 px-1 space-y-2">
+            <p className="text-xs font-semibold text-[#8E8E93] flex items-center gap-1.5">
+              <CreditCard size={11} className="text-[#8E8E93]" />
+              Subsequent Mode of Payment
+              <span className="text-[#E8634A] text-xs leading-none">*</span>
+            </p>
+            <button
+              type="button"
+              onClick={() => setModeDropdownOpen(p => !p)}
+              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7]"
+            >
+              <span className={`text-sm ${subsequentMode ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
+                {subsequentMode || 'Select mode of payment'}
+              </span>
+              <ChevronDown size={14} className={`text-[#C7C7CC] shrink-0 transition-transform duration-200 ${modeDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {modeDropdownOpen && (
+              <div className="space-y-0.5">
+                {PAYMENT_MODES.map(mode => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => {
+                      setSubsequentMode(mode);
+                      if (mode !== 'Auto-Debit Arrangement (ADA)') setAdaBank('');
+                      setModeDropdownOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm ${
+                      subsequentMode === mode
+                        ? 'bg-[#E8634A]/10 text-[#E8634A] font-semibold'
+                        : 'text-[#1C1C1E] hover:bg-gray-50 active:bg-gray-100'
+                    }`}
+                  >
+                    {mode}
+                    {subsequentMode === mode && <Check size={14} className="shrink-0" />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ADA Bank — only when ADA selected */}
+          {adaSelected && (
+            <div className="border-b border-black/[0.06] py-3 px-1 space-y-2">
+              <p className="text-xs font-semibold text-[#8E8E93] flex items-center gap-1.5">
+                <Building2 size={11} className="text-[#8E8E93]" />
+                ADA Bank / Platform
+                <span className="text-[#E8634A] text-xs leading-none">*</span>
+              </p>
+              <button
+                type="button"
+                onClick={() => setAdaBankDropdownOpen(p => !p)}
+                className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7]"
+              >
+                <span className={`text-sm ${adaBank ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
+                  {adaBank || 'Select bank or platform'}
+                </span>
+                <ChevronDown size={14} className={`text-[#C7C7CC] shrink-0 transition-transform duration-200 ${adaBankDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {adaBankDropdownOpen && (
+                <div className="space-y-0.5">
+                  {ADA_BANKS.map(bank => (
+                    <button
+                      key={bank}
+                      type="button"
+                      onClick={() => { setAdaBank(bank); setAdaBankDropdownOpen(false); }}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm ${
+                        adaBank === bank
+                          ? 'bg-[#E8634A]/10 text-[#E8634A] font-semibold'
+                          : 'text-[#1C1C1E] hover:bg-gray-50 active:bg-gray-100'
+                      }`}
+                    >
+                      {bank}
+                      {adaBank === bank && <Check size={14} className="shrink-0" />}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Proof of Billing */}
+          {(['billing', 'income', 'valid-id'] as const).map(target => {
+            const config = {
+              billing:  { label: 'Proof of Billing',   icon: <FileText size={16} />,   files: billingFiles,  setFiles: setBillingFiles },
+              income:   { label: 'Proof of Income',    icon: <FileImage size={16} />,  files: incomeFiles,   setFiles: setIncomeFiles  },
+              'valid-id': { label: 'Proof of Valid ID', icon: <ShieldCheck size={16} />, files: validIdFiles,  setFiles: setValidIdFiles },
+            }[target];
+            const canAdd = config.files.length < MAX_DOC_FILES;
+            return (
+              <div key={target} className="border-b border-black/[0.06] last:border-0 py-3 px-1 space-y-2">
+                <div className="flex items-center gap-3">
+                  <span className="text-[#E8634A] shrink-0">{config.icon}</span>
+                  <span className="text-sm font-medium text-[#1C1C1E] flex-1 flex items-center gap-0.5">
+                    {config.label}
+                    <span className="text-[#E8634A] text-xs leading-none">*</span>
+                  </span>
+                  {config.files.length > 0 && (
+                    <span className="text-xs text-[#8E8E93]">{config.files.length}/{MAX_DOC_FILES}</span>
+                  )}
+                </div>
+                {config.files.length > 0 && (
+                  <div className="grid grid-cols-3 gap-2">
+                    {config.files.map((f, i) => (
+                      <div key={i} className="relative aspect-square rounded-xl overflow-hidden border border-black/[0.08]">
+                        <img src={f.preview} alt={f.name} className="w-full h-full object-cover" />
+                        <button type="button" onClick={() => removeDocFile(target, i)}
+                          className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center">
+                          <X size={10} className="text-white" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {canAdd && (
+                  <button type="button" onClick={() => openUpload(target)}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl border-2 border-dashed border-[#E8634A]/40 text-[#E8634A] text-xs font-semibold active:bg-[#E8634A]/5">
+                    <Upload size={13} />
+                    {config.files.length === 0 ? `Upload ${config.label}` : 'Add More'}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+
+        </GlassCard>
+      )}
+
       {/* Payment details + upload — hidden for already-paid reservations */}
       {!alreadyPaid && <GlassCard className="px-4 py-1">
         {/* Payment Date */}
@@ -288,7 +495,7 @@ export default function ProofOfPaymentPage() {
           <div className="py-3 px-1">
             <button
               type="button"
-              onClick={() => setShowOptions(true)}
+              onClick={() => openUpload('payment')}
               className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-dashed border-[#E8634A]/40 text-[#E8634A] text-sm font-semibold active:bg-[#E8634A]/5"
             >
               <Upload size={16} />

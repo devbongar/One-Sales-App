@@ -7,6 +7,8 @@ import GlassCard from '@/components/ui/GlassCard';
 import GlassButton from '@/components/ui/GlassButton';
 import { fetchProjects, fetchTowers, fetchFloors, fetchFloorsByCategory, fetchUnitTypes, fetchInventoryUnits, InventoryUnit } from '@/lib/inventory';
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
+import { fetchAllClients, ClientRecord } from '@/lib/clients';
+import { fetchAllPayterms, PaytermRecord } from '@/lib/paytems';
 import {
   Check, ChevronDown, Calculator,
   User, Phone, Mail, Briefcase,
@@ -25,26 +27,6 @@ const PAYMENT_SCHEMES = [
 ] as const;
 type PaymentScheme = typeof PAYMENT_SCHEMES[number]['value'];
 
-const PAYTERM_RATES: Record<PaymentScheme, number> = {
-  spot_cash:     0.10,
-  deferred_cash: 0.00,
-  spot_dp:       0.05,
-  stretched_dp:  0.00,
-};
-
-const SPOT_DP_DISCOUNTS: Record<string, number> = {
-  '15%': 0.015, '20%': 0.02,  '25%': 0.02,  '30%': 0.03,
-  '35%': 0.03,  '40%': 0.05,  '45%': 0.05,  '50%': 0.07,
-  '55%': 0.07,  '60%': 0.07,  '65%': 0.07,  '70%': 0.07,
-  '75%': 0.07,  '80%': 0.07,
-};
-const STRETCHED_DP_DISCOUNTS: Record<string, number> = {
-  '15%': 0.000, '20%': 0.000, '25%': 0.000, '30%': 0.015,
-  '35%': 0.015, '40%': 0.03,  '45%': 0.03,  '50%': 0.035,
-  '55%': 0.035, '60%': 0.04,  '65%': 0.04,  '70%': 0.05,
-  '75%': 0.05,  '80%': 0.06,
-};
-const SPOT_DP_RATE_OPTIONS = Object.keys(SPOT_DP_DISCOUNTS);
 
 const RESERVATION_FEE = 25_000;
 const RETENTION_FEE   = 50_000;
@@ -357,6 +339,12 @@ export default function SampleComputationPage() {
   const [email,       setEmail]       = useState('');
   const [isMegawide,  setIsMegawide]  = useState(false);
 
+  // Client search
+  const [allClients,          setAllClients]          = useState<ClientRecord[]>([]);
+  const [clientSearch,        setClientSearch]        = useState('');
+  const [clientDropdownOpen,  setClientDropdownOpen]  = useState(false);
+  const [selectedClientRecord, setSelectedClientRecord] = useState<ClientRecord | null>(null);
+
   // Seller Info
   const [sellerSearch,  setSellerSearch]  = useState('');
   const [sellerRecord,  setSellerRecord]  = useState<SalespersonRecord | null>(null);
@@ -400,15 +388,89 @@ export default function SampleComputationPage() {
   // Salesperson data from DB
   const [allSalespersons, setAllSalespersons] = useState<SalespersonRecord[]>([]);
 
+  // Payterm data from DB
+  const [allPayterms, setAllPayterms] = useState<PaytermRecord[]>([]);
+
   // Fetch all salespersons on mount
   useEffect(() => {
     fetchAllSalespersons().then(setAllSalespersons).catch(console.error);
   }, []);
 
+  // Fetch all paytems on mount
+  useEffect(() => {
+    fetchAllPayterms().then(setAllPayterms).catch(console.error);
+  }, []);
+
+  // Auto-reset paymentTerm when project/tower changes and current term is no longer available
+  useEffect(() => {
+    if (!project || !tower || allPayterms.length === 0) return;
+    const deferredRecords = allPayterms.filter(
+      p => p.project === project && p.tower === tower && p.payterm_scheme === 'Deferred Cash'
+    );
+    const opts = deferredRecords
+      .map(p => p.payment_term ?? (p.term ? `${p.term} months` : null))
+      .filter(Boolean) as string[];
+    if (opts.length > 0 && !opts.includes(paymentTerm)) {
+      setPaymentTerm(opts[0]);
+    }
+  }, [allPayterms, project, tower]);
+
+  // Auto-reset dpRate when Spot DP or Stretched DP options change
+  useEffect(() => {
+    if (!project || !tower || allPayterms.length === 0) return;
+    const schemeLabel = paymentScheme === 'spot_dp' ? 'Spot DP'
+      : paymentScheme === 'stretched_dp' ? 'Stretched DP'
+      : null;
+    if (!schemeLabel) return;
+    const records = allPayterms.filter(
+      p => p.project === project && p.tower === tower && p.payterm_scheme === schemeLabel
+    );
+    const opts = records.map(p => p.dp_percent).filter(Boolean) as string[];
+    if (opts.length > 0 && !opts.includes(dpRate)) {
+      setDpRate(opts[0]);
+    }
+  }, [allPayterms, project, tower, paymentScheme]);
+
+  // Fetch all clients on mount
+  useEffect(() => {
+    fetchAllClients().then(setAllClients).catch(console.error);
+  }, []);
+
   function handleClearForm() {
     setFullName(''); setContact(''); setEmail(''); setIsMegawide(false);
+    setClientSearch(''); setSelectedClientRecord(null); setClientDropdownOpen(false);
     setSellerSearch(''); setSellerRecord(null); setSellerDropdownOpen(false);
     setErrors({});
+  }
+
+  function formatClientFullName(c: ClientRecord): string {
+    return [c.first_name, c.last_name, c.suffix]
+      .filter(Boolean).join(' ');
+  }
+
+  function handleSelectClient(c: ClientRecord) {
+    const name = formatClientFullName(c);
+    setFullName(name);
+    setSelectedClientRecord(c);
+    setClientDropdownOpen(false);
+    setClientSearch('');
+    // Auto-fill contact
+    const digits = c.mobile_number ?? '';
+    const cc = c.country_code ?? '+63';
+    setContact(digits ? `${cc}${digits}` : '');
+    setEmail(c.email ?? '');
+    setIsMegawide(c.is_megawide_employee ?? false);
+    setErrors(prev => ({ ...prev, fullName: '', contact: '', email: '' }));
+  }
+
+  function handleClearClient() {
+    setSelectedClientRecord(null);
+    setFullName('');
+    setContact('');
+    setEmail('');
+    setIsMegawide(false);
+    setClientDropdownOpen(false);
+    setClientSearch('');
   }
 
   function validateStep0(): boolean {
@@ -540,6 +602,11 @@ export default function SampleComputationPage() {
     loadUnitTypes();
   }, [project, tower, unitCategory]);
 
+  // Paytems filtered by selected project + tower
+  const filteredPayterms = (project && tower)
+    ? allPayterms.filter(p => p.project === project && p.tower === tower)
+    : [];
+
   return (
     <PageShell title="Sample Computation" backButton={step > 0} onBack={() => goToStep(step - 1)}>
 
@@ -563,10 +630,142 @@ export default function SampleComputationPage() {
           {/* Client Information */}
           <SectionHeader icon={<User size={13} />}>Client Information</SectionHeader>
           <GlassCard className="px-4 py-1">
-            <InputRow label="Full Name"     value={fullName} onChange={setFullName} placeholder="Enter full name" icon={<User size={16} />} error={errors.fullName} required />
-            <PhoneInputRow value={contact} onChange={setContact} error={errors.contact} />
-            <InputRow label="Email Address" value={email}    onChange={setEmail}    placeholder="Enter email"     icon={<Mail size={16} />} type="email" error={errors.email} required />
-            <CheckRow label="Megawide Employee" checked={isMegawide} onChange={setIsMegawide} icon={<Briefcase size={16} />} />
+            {/* Searchable client dropdown */}
+            <div className={`border-b border-black/[0.06] ${errors.fullName ? 'bg-red-50/50' : ''}`}>
+              <button
+                type="button"
+                onClick={() => { setClientDropdownOpen(p => !p); setClientSearch(''); }}
+                className="w-full flex items-center gap-3 py-3 px-1"
+              >
+                <span className={`shrink-0 ${errors.fullName ? 'text-red-400' : 'text-[#E8634A]'}`}><User size={16} /></span>
+                <span className="text-sm font-medium text-[#1C1C1E] flex-1 text-left flex items-center gap-0.5">
+                  Full Name
+                  <span className="text-[#E8634A] text-xs leading-none">*</span>
+                </span>
+                <span className={`text-sm text-right truncate max-w-[160px] ${selectedClientRecord ? 'text-[#1C1C1E]' : 'text-[#8E8E93]'}`}>
+                  {selectedClientRecord ? formatClientFullName(selectedClientRecord) : 'Search client'}
+                </span>
+                {selectedClientRecord
+                  ? <X size={14} className="text-[#C7C7CC] shrink-0" onClickCapture={e => { e.stopPropagation(); handleClearClient(); }} />
+                  : <ChevronDown size={14} className={`text-[#C7C7CC] shrink-0 transition-transform duration-200 ${clientDropdownOpen ? 'rotate-180' : ''}`} />
+                }
+              </button>
+              {clientDropdownOpen && (
+                <div className="pb-2">
+                  <div className="flex items-center gap-2 mx-1 mb-2 px-3 py-2 bg-[#F2F2F7] rounded-xl">
+                    <input
+                      autoFocus
+                      type="text"
+                      value={clientSearch}
+                      onChange={e => setClientSearch(e.target.value)}
+                      placeholder="Type to search..."
+                      className="flex-1 text-sm bg-transparent outline-none text-[#1C1C1E] placeholder:text-[#C7C7CC]"
+                    />
+                    {clientSearch && (
+                      <button type="button" onClick={() => setClientSearch('')}>
+                        <X size={12} className="text-[#C7C7CC]" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="max-h-48 overflow-y-auto space-y-0.5">
+                    {(() => {
+                      const q = clientSearch.trim().toLowerCase();
+                      const filtered = q.length === 0
+                        ? allClients
+                        : allClients.filter(c =>
+                            formatClientFullName(c).toLowerCase().includes(q)
+                          );
+                      if (filtered.length > 0) {
+                        return filtered.map(c => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => handleSelectClient(c)}
+                            className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm active:bg-gray-100"
+                          >
+                            <span className="font-medium text-[#1C1C1E] text-left">{formatClientFullName(c)}</span>
+                            <span className="text-[#8E8E93] text-xs shrink-0 ml-2">{c.client_id ?? ''}</span>
+                          </button>
+                        ));
+                      }
+                      return (
+                        <div className="flex flex-col items-center gap-2 py-3">
+                          <p className="text-center text-xs text-[#8E8E93]">No clients found</p>
+                          <button
+                            type="button"
+                            onClick={() => router.push('/sales/client-registration/new')}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#E8634A]/10 text-[#E8634A] text-xs font-semibold active:opacity-70"
+                          >
+                            <UserPlus size={13} />
+                            Add New Client
+                          </button>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              )}
+              {errors.fullName && <p className="text-red-400 text-[11px] px-1 pb-2 -mt-1">{errors.fullName}</p>}
+            </div>
+
+            {/* Client ID — always read-only, populated from selected client */}
+            <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
+              <span className="text-[#E8634A] shrink-0"><UserCheck size={16} /></span>
+              <span className="text-[#1C1C1E] text-sm font-medium flex-1">Client ID</span>
+              <span className={`text-sm text-right font-mono ${selectedClientRecord?.client_id ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
+                {selectedClientRecord?.client_id ?? 'Auto-filled from client'}
+              </span>
+            </div>
+
+            {/* Contact — always read-only, populated from selected client */}
+            <div className={`border-b border-black/[0.06] ${errors.contact ? 'bg-red-50/50' : ''}`}>
+              <div className="flex items-center gap-3 py-3 px-1">
+                <span className={`shrink-0 ${errors.contact ? 'text-red-400' : 'text-[#E8634A]'}`}><Phone size={16} /></span>
+                <span className="text-[#1C1C1E] text-sm font-medium flex-1 flex items-center gap-0.5">
+                  Contact Number
+                  <span className="text-[#E8634A] text-xs leading-none">*</span>
+                </span>
+                <span className={`text-sm text-right ${contact ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
+                  {contact && selectedClientRecord
+                    ? (() => {
+                        const cc = selectedClientRecord.country_code ?? '+63';
+                        const digits = contact.replace(cc, '').replace(/\D/g, '').slice(0, 10);
+                        const fmt = digits.length <= 3 ? digits
+                          : digits.length <= 6 ? `${digits.slice(0,3)} ${digits.slice(3)}`
+                          : `${digits.slice(0,3)} ${digits.slice(3,6)} ${digits.slice(6)}`;
+                        return `${cc} ${fmt}`;
+                      })()
+                    : 'Auto-filled from client'}
+                </span>
+              </div>
+              {errors.contact && <p className="text-red-400 text-[11px] px-1 pb-2 -mt-1">{errors.contact}</p>}
+            </div>
+
+            {/* Email — always read-only, populated from selected client */}
+            <div className={`border-b border-black/[0.06] ${errors.email ? 'bg-red-50/50' : ''}`}>
+              <div className="flex items-center gap-3 py-3 px-1">
+                <span className={`shrink-0 ${errors.email ? 'text-red-400' : 'text-[#E8634A]'}`}><Mail size={16} /></span>
+                <span className="text-[#1C1C1E] text-sm font-medium flex-1 flex items-center gap-0.5">
+                  Email Address
+                  <span className="text-[#E8634A] text-xs leading-none">*</span>
+                </span>
+                <span className={`text-sm text-right truncate max-w-[160px] ${email ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
+                  {email || 'Auto-filled from client'}
+                </span>
+              </div>
+              {errors.email && <p className="text-red-400 text-[11px] px-1 pb-2 -mt-1">{errors.email}</p>}
+            </div>
+
+            {/* Megawide — always read-only, populated from selected client */}
+            <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06] last:border-0">
+              <span className="text-[#E8634A] shrink-0"><Briefcase size={16} /></span>
+              <span className="flex-1 text-[#1C1C1E] text-sm font-medium">Megawide Employee</span>
+              <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 ${
+                isMegawide ? 'bg-[#E8634A] border-[#E8634A]' : 'border-[#C7C7CC]'
+              }`}>
+                {isMegawide && <Check size={11} className="text-white" />}
+              </div>
+            </div>
           </GlassCard>
 
           {/* Seller Information */}
@@ -980,20 +1179,47 @@ export default function SampleComputationPage() {
         const promoPct     = Math.round(promoRate * 100);
         const promoAmount  = Math.round(listPrice * promoRate);
         const termMonths   = parseInt(paymentTerm) || 12; // parseInt handles "12 months" → 12
+
+        // Spot Cash: look up discount from Payterm table
+        const spotCashRecord    = filteredPayterms.find(p => p.payterm_scheme === 'Spot Cash');
+        const spotCashDiscount  = spotCashRecord?.discount ?? 0;
+
+        // Deferred Cash: derive term options + discount from Payterm table
+        const deferredCashRecords = filteredPayterms.filter(p => p.payterm_scheme === 'Deferred Cash');
+        const deferredTermOptions = deferredCashRecords
+          .map(p => p.payment_term ?? (p.term ? `${p.term} months` : null))
+          .filter(Boolean) as string[];
+        const deferredRecord   = deferredCashRecords.find(
+          p => (p.payment_term ?? (p.term ? `${p.term} months` : '')) === paymentTerm
+        );
+        const deferredDiscount = deferredRecord?.discount ?? 0;
+
+        // Spot DP: derive rate options + discount from Payterm table
+        const spotDpRecords     = filteredPayterms.filter(p => p.payterm_scheme === 'Spot DP');
+        const spotDpRateOptions = spotDpRecords.map(p => p.dp_percent).filter(Boolean) as string[];
+        const spotDpRecord      = spotDpRecords.find(p => p.dp_percent === dpRate);
+        const spotDpDiscount    = spotDpRecord?.discount ?? 0;
+
+        // Stretched DP: derive rate options + discount from Payterm table
+        const stretchedDpRecords     = filteredPayterms.filter(p => p.payterm_scheme === 'Stretched DP');
+        const stretchedDpRateOptions = stretchedDpRecords.map(p => p.dp_percent).filter(Boolean) as string[];
+        const stretchedDpRecord      = stretchedDpRecords.find(p => p.dp_percent === dpRate);
+        const stretchedDpDiscount    = stretchedDpRecord?.discount ?? 0;
+
         const paytermRate  = paymentScheme === 'deferred_cash'
-          ? (termMonths === 12 ? 0.075 : 0.05)
+          ? deferredDiscount / 100
           : paymentScheme === 'spot_dp'
-          ? (SPOT_DP_DISCOUNTS[dpRate] ?? 0)
+          ? spotDpDiscount / 100
           : paymentScheme === 'stretched_dp'
-          ? (STRETCHED_DP_DISCOUNTS[dpRate] ?? 0)
-          : PAYTERM_RATES[paymentScheme];
+          ? stretchedDpDiscount / 100
+          : spotCashDiscount / 100;
         const paytermPctDisplay = paymentScheme === 'deferred_cash'
-          ? (termMonths === 12 ? 7.5 : 5)
+          ? deferredDiscount
           : paymentScheme === 'spot_dp'
-          ? (SPOT_DP_DISCOUNTS[dpRate] ?? 0) * 100
+          ? spotDpDiscount
           : paymentScheme === 'stretched_dp'
-          ? (STRETCHED_DP_DISCOUNTS[dpRate] ?? 0) * 100
-          : Math.round(paytermRate * 100);
+          ? stretchedDpDiscount
+          : spotCashDiscount;
         const paytermAmount   = Math.round(listPrice * paytermRate);
         const employeeAmount  = isMegawide ? Math.round(listPrice * EMPLOYEE_DISCOUNT_RATE) : 0;
         const netListPrice    = listPrice - promoAmount - employeeAmount - paytermAmount;
@@ -1142,7 +1368,7 @@ export default function SampleComputationPage() {
                   <InlineSelect
                     label="Payment Term"
                     value={paymentTerm}
-                    options={['12 months', '54 months']}
+                    options={deferredTermOptions}
                     onChange={setPaymentTerm}
                     placeholder="Select term"
                     icon={<Clock size={16} />}
@@ -1154,7 +1380,11 @@ export default function SampleComputationPage() {
                   <InlineSelect
                     label="DP Rate"
                     value={dpRate}
-                    options={SPOT_DP_RATE_OPTIONS}
+                    options={
+                      paymentScheme === 'spot_dp'
+                        ? spotDpRateOptions
+                        : stretchedDpRateOptions
+                    }
                     onChange={setDpRate}
                     placeholder="Select DP rate"
                     icon={<CreditCard size={16} />}

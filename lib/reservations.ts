@@ -75,16 +75,44 @@ export async function uploadPaymentProof(reservationId: string, file: Blob, file
   return data.publicUrl;
 }
 
+export async function uploadDocumentFile(
+  reservationId: string,
+  folder: string,
+  file: Blob,
+  fileName: string,
+): Promise<string> {
+  const path = `${reservationId}/${folder}/${fileName}`;
+  const { error } = await supabase.storage.from('payment-proofs').upload(path, file, {
+    contentType: file.type,
+    upsert: true,
+  });
+  if (error) throw error;
+  const { data } = supabase.storage.from('payment-proofs').getPublicUrl(path);
+  return data.publicUrl;
+}
+
 export async function updateReservationPayment(
   reservationId: string,
   paymentDate: string,
   paymentProofUrls: string[],
+  options?: {
+    subsequentMode?: string;
+    adaBank?: string;
+    billingUrls?: string[];
+    incomeUrls?: string[];
+    validIdUrls?: string[];
+  },
 ): Promise<void> {
   const { error } = await supabase.rpc('update_reservation_payment', {
-    p_reservation_id:       reservationId,
-    p_payment_date:         paymentDate,
-    p_payment_proof_url:    JSON.stringify(paymentProofUrls),
-    p_status:               'Reserved-paid',
+    p_reservation_id:         reservationId,
+    p_payment_date:           paymentDate,
+    p_payment_proof_url:      JSON.stringify(paymentProofUrls),
+    p_status:                 'Reserved-paid',
+    p_subsequent_mode:        options?.subsequentMode        ?? null,
+    p_ada_bank:               options?.adaBank               ?? null,
+    p_proof_of_billing_urls:  options?.billingUrls  ? JSON.stringify(options.billingUrls)  : null,
+    p_proof_of_income_urls:   options?.incomeUrls   ? JSON.stringify(options.incomeUrls)   : null,
+    p_proof_of_valid_id_urls: options?.validIdUrls  ? JSON.stringify(options.validIdUrls)  : null,
   });
   if (error) throw error;
 }
