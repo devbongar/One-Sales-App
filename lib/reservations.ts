@@ -91,6 +91,32 @@ export async function uploadDocumentFile(
   return data.publicUrl;
 }
 
+export async function approvePaymentReview(
+  reservationId: string,
+  acknowledgementReceiptNo: string,
+  salesInvoiceNo: string,
+  dateOfReservationFee: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from('reservations')
+    .update({
+      status: 'Approved',
+      acknowledgement_receipt_no: acknowledgementReceiptNo,
+      sales_invoice_no:           salesInvoiceNo,
+      date_of_reservation_fee:    dateOfReservationFee,
+    })
+    .eq('reservation_id', reservationId);
+  if (error) throw error;
+}
+
+export async function updateReservationStatus(reservationId: string, status: string): Promise<void> {
+  const { error } = await supabase
+    .from('reservations')
+    .update({ status })
+    .eq('reservation_id', reservationId);
+  if (error) throw error;
+}
+
 export async function updateReservationPayment(
   reservationId: string,
   paymentDate: string,
