@@ -211,7 +211,7 @@ function AgreementViewer({
 
   if (!open) return null;
 
-  const TOTAL = 4;
+  const TOTAL = 3;
   const resId = d.reservation_id ?? '—';
 
   return (
@@ -237,7 +237,7 @@ function AgreementViewer({
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
 
         {/* ── PAGE 1: Intro · Buyer Name · Property Info · Price & Terms · Reservation Provision ── */}
-        <A4Page pageNum={1} total={TOTAL} reservationId={resId} title="Reservation Agreement">
+        <A4Page pageNum={1} total={TOTAL} reservationId={resId} title="Reservation Agreement" branded>
 
           {/* Opening statement */}
           <p className="text-[9px] text-[#3A3A3C] leading-[1.75] text-justify mb-3">
@@ -351,7 +351,7 @@ function AgreementViewer({
         </A4Page>
 
         {/* ── PAGE 2: Payment & Payment Modes ── */}
-        <A4Page pageNum={2} total={TOTAL} reservationId={resId} title="Reservation Agreement">
+        <A4Page pageNum={2} total={TOTAL} reservationId={resId} title="Reservation Agreement" branded>
           <div className="space-y-5">
             {TERMS.slice(1, 2).map(({ title, items }) => (
               <div key={title} className="space-y-3">
@@ -375,12 +375,12 @@ function AgreementViewer({
           </div>
         </A4Page>
 
-        {/* ── PAGE 3: Sales Documents + Agreements & Other Provisions ── */}
-        <A4Page pageNum={3} total={TOTAL} reservationId={resId} title="Reservation Agreement">
-          <div className="space-y-5">
+        {/* ── PAGE 3: Sales Documents + Agreements + Signature ── */}
+        <A4Page pageNum={3} total={TOTAL} reservationId={resId} title="Reservation Agreement" branded>
+          <div className="space-y-3 mb-5">
             {TERMS.slice(2).map(({ title, items }) => (
-              <div key={title} className="space-y-3">
-                <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-[#1C1C1E] border-b border-gray-200 pb-1.5">
+              <div key={title} className="space-y-2">
+                <p className="text-[8px] font-bold uppercase tracking-[0.12em] text-[#1C1C1E] border-b border-gray-200 pb-1.5">
                   {title}
                 </p>
                 {items.map((item, i) => (
@@ -388,7 +388,7 @@ function AgreementViewer({
                     {item.split('\n\n').map((para, j) => (
                       <p
                         key={j}
-                        className="text-[10.5px] text-[#3A3A3C] leading-[1.85] text-justify whitespace-pre-line mb-2 last:mb-0"
+                        className="text-[9px] text-[#3A3A3C] leading-[1.7] text-justify whitespace-pre-line mb-1.5 last:mb-0"
                       >
                         {para.trim()}
                       </p>
@@ -398,59 +398,13 @@ function AgreementViewer({
               </div>
             ))}
           </div>
-        </A4Page>
 
-        {/* ── PAGE 4: Annex A + Signature ── */}
-        <A4Page pageNum={4} total={TOTAL} reservationId={resId} title="Reservation Agreement">
-
-          {/* Annex A */}
-          <div className="space-y-3 mb-8">
-            <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-[#1C1C1E] border-b border-gray-200 pb-1.5">
-              Annex A — Terms of Payment
-            </p>
-            <div className="border border-gray-200 overflow-hidden">
-              {([
-                ['Net Selling Price',     fmt(d.net_list_price)],
-                ['Value Added Tax (12%)', fmt(d.vat)],
-                ['Other Charges',         fmt(d.other_charges)],
-              ] as [string, string][]).map(([label, value]) => (
-                <div key={label} className="flex items-center justify-between px-3 py-2.5 border-b border-gray-100">
-                  <span className="text-[10px] text-gray-500">{label}</span>
-                  <span className="text-[10px] text-[#1C1C1E] font-medium">{value}</span>
-                </div>
-              ))}
-              <div className="flex items-center justify-between px-3 py-3 bg-[#1C1C1E]">
-                <span className="text-[10px] font-bold text-white uppercase tracking-wide">
-                  Total Contract Price
-                </span>
-                <span className="text-[10px] font-bold text-white">{fmt(d.total_contract_price)}</span>
-              </div>
-              {([
-                ['Payment Scheme', d.scheme_name  ?? '—'],
-                ['Payment Term',   d.payment_term ?? '—'],
-                ['Reservation Fee', fmt(d.reservation_fee ?? 25_000)],
-              ] as [string, string][]).map(([label, value]) => (
-                <div key={label} className="flex items-center justify-between px-3 py-2.5 border-t border-gray-100">
-                  <span className="text-[10px] text-gray-500 shrink-0">{label}</span>
-                  <span className="text-[10px] text-[#1C1C1E] font-medium text-right ml-3">{value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Witness clause */}
-          <p className="text-[10px] text-[#3A3A3C] leading-[1.85] text-justify mb-8">
-            IN WITNESS WHEREOF, I have hereunto set my hand this{' '}
-            <span className="font-semibold text-[#1C1C1E]">{formatDate(d.created_at)}</span> at
-            Metro Manila, Philippines.
-          </p>
-
-          {/* Signature block */}
-          <div className="space-y-2">
-            <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-gray-500">
+          {/* Signature block — directly after item 16 */}
+          <div className="space-y-1.5">
+            <p className="text-[8px] font-bold uppercase tracking-[0.12em] text-gray-500">
               Buyer&apos;s Signature
             </p>
-            <div className="h-24 border-b-2 border-gray-400 flex items-end pb-1 overflow-hidden">
+            <div className="h-20 border-b-2 border-gray-400 flex items-end pb-1 overflow-hidden">
               {d.signature_base64 ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -459,7 +413,7 @@ function AgreementViewer({
                   className="max-h-full object-contain"
                 />
               ) : (
-                <p className="text-[10px] text-gray-300 italic w-full text-center mb-4">
+                <p className="text-[10px] text-gray-300 italic w-full text-center mb-3">
                   No signature on file
                 </p>
               )}
@@ -467,7 +421,7 @@ function AgreementViewer({
             <p className="text-[11px] font-bold text-[#1C1C1E] uppercase tracking-wide pt-1">
               {d.client_name ?? '—'}
             </p>
-            <p className="text-[10px] text-gray-400">Buyer</p>
+            <p className="text-[9px] text-gray-400">Buyer</p>
           </div>
 
         </A4Page>
@@ -511,7 +465,7 @@ function AgreementPreviewCard({
           <div>
             <p className="text-[11px] font-semibold text-[#1C1C1E]">{d.client_name ?? '—'}</p>
             <p className="text-[10px] text-gray-400 mt-0.5">
-              {formatDate(d.created_at)} · 4 pages
+              {formatDate(d.created_at)} · 3 pages
             </p>
           </div>
           <div className="flex items-center gap-1 bg-[#E8634A] px-3 py-1.5 rounded-full">
