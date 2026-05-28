@@ -61,20 +61,23 @@ export default function BuyersPaymentPage() {
   const [bookings,       setBookings]       = useState<FinanceBooking[]>([]);
   const [loading,        setLoading]        = useState(true);
   const [projectOptions, setProjectOptions] = useState<string[]>([]);
+  const [sellerOptions,  setSellerOptions]  = useState<string[]>([]);
+  const [clientOptions,  setClientOptions]  = useState<string[]>([]);
   const [projectFilter,  setProjectFilter]  = useState('');
   const [statusFilter,   setStatusFilter]   = useState('All');
+  const [sellerFilter,   setSellerFilter]   = useState('');
+  const [clientFilter,   setClientFilter]   = useState('');
 
   useEffect(() => {
     async function loadOptions() {
       const [r1, r2] = await Promise.all([
-        supabase.from('reservations').select('project').in('booking_review_status', ['director-approved', 'finance-verified']),
-        supabase.from('reservations').select('project').eq('status', 'Pending Review'),
+        supabase.from('reservations').select('project, seller_name, client_name').in('booking_review_status', ['director-approved', 'finance-verified']),
+        supabase.from('reservations').select('project, seller_name, client_name').eq('status', 'Pending Review'),
       ]);
-      const projects = [
-        ...(r1.data ?? []).map(r => r.project),
-        ...(r2.data ?? []).map(r => r.project),
-      ].filter(Boolean) as string[];
-      setProjectOptions([...new Set(projects)]);
+      const rows = [...(r1.data ?? []), ...(r2.data ?? [])];
+      setProjectOptions([...new Set(rows.map(r => r.project).filter(Boolean))] as string[]);
+      setSellerOptions([...new Set(rows.map(r => r.seller_name).filter(Boolean))] as string[]);
+      setClientOptions([...new Set(rows.map(r => r.client_name).filter(Boolean))] as string[]);
     }
     loadOptions();
   }, []);
@@ -113,14 +116,16 @@ export default function BuyersPaymentPage() {
           .order('director_reviewed_at', { ascending: false });
       }
 
-      if (projectFilter) q = q.eq('project', projectFilter);
+      if (projectFilter) q = q.eq('project',     projectFilter);
+      if (sellerFilter)  q = q.eq('seller_name', sellerFilter);
+      if (clientFilter)  q = q.eq('client_name', clientFilter);
 
       const { data } = await q;
       setBookings((data ?? []) as FinanceBooking[]);
       setLoading(false);
     }
     load();
-  }, [projectFilter, statusFilter]);
+  }, [projectFilter, statusFilter, sellerFilter, clientFilter]);
 
   function fmtDate(iso: string | null) {
     if (!iso) return '—';
@@ -131,8 +136,10 @@ export default function BuyersPaymentPage() {
     <PageShell title="Buyer's Payment">
 
       <GlassCard className="px-4 py-1">
-        <FilterSelect label="Project" value={projectFilter} options={projectOptions} onChange={setProjectFilter} icon={<Building2 size={16} />} />
-        <FilterSelect label="Status"  value={statusFilter}  options={['Pending Review', 'Pending', 'Verified', 'All']} onChange={setStatusFilter} icon={<Banknote size={16} />} />
+        <FilterSelect label="Project"     value={projectFilter} options={projectOptions} onChange={setProjectFilter} icon={<Building2 size={16} />} />
+        <FilterSelect label="Status"      value={statusFilter}  options={['Pending Review', 'Pending', 'Verified', 'All']} onChange={setStatusFilter} icon={<Banknote size={16} />} />
+        <FilterSelect label="Seller"      value={sellerFilter}  options={sellerOptions}  onChange={setSellerFilter}  icon={<User size={16} />} />
+        <FilterSelect label="Client Name" value={clientFilter}  options={clientOptions}  onChange={setClientFilter}  icon={<User size={16} />} searchable />
       </GlassCard>
 
       {loading ? (
