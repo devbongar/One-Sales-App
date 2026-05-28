@@ -33,7 +33,10 @@ interface FinanceBooking {
   unit_area:             number | null;
   signature_base64:      string | null;
   created_at:            string | null;
-  finance_verified_at:   string | null;
+  finance_verified_at:          string | null;
+  acknowledgement_receipt_no:   string | null;
+  sales_invoice_no:             string | null;
+  date_of_reservation_fee:      string | null;
 }
 
 // ─── Badge ────────────────────────────────────────────────────────────────────
@@ -85,7 +88,8 @@ export default function BuyersPaymentPage() {
         seller_name, status, booking_review_status, director_reviewed_at,
         net_list_price, vat, other_charges, total_contract_price,
         scheme_name, payment_term, signature_base64, created_at,
-        tower, floor, unit_no, unit_area, payment_proof_url, finance_verified_at
+        tower, floor, unit_no, unit_area, payment_proof_url, finance_verified_at,
+        acknowledgement_receipt_no, sales_invoice_no, date_of_reservation_fee
       `;
 
       let q;

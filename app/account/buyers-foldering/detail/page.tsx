@@ -300,9 +300,9 @@ function AgreementViewer({
                 <p className="text-[6.5px] text-gray-400 uppercase tracking-wide leading-tight mb-0.5">Other Charges</p>
                 <p className="text-[9px] font-semibold text-[#1C1C1E]">{fmt(d.other_charges)}</p>
               </div>
-              <div className="px-2 py-2 bg-[#1C1C1E]">
-                <p className="text-[6.5px] text-white/60 uppercase tracking-wide leading-tight mb-0.5">Total Contract Price</p>
-                <p className="text-[9px] font-bold text-white">{fmt(d.total_contract_price)}</p>
+              <div className="px-2 py-2">
+                <p className="text-[6.5px] text-gray-400 uppercase tracking-wide leading-tight mb-0.5">Total Contract Price</p>
+                <p className="text-[9px] font-semibold text-[#1C1C1E]">{fmt(d.total_contract_price)}</p>
               </div>
               <div className="px-2 py-2">
                 <p className="text-[6.5px] text-gray-400 uppercase tracking-wide leading-tight mb-0.5">Chosen Payment Scheme</p>
@@ -680,11 +680,15 @@ function PrivacyPreviewCard({
 
 // ─── File tile ────────────────────────────────────────────────────────────────
 
-function FileTile({ url }: { url: string }) {
+function FileTile({ url, onOpen }: { url: string; onOpen: (url: string) => void }) {
   return (
-    <a href={url} target="_blank" rel="noopener noreferrer"
-      className="relative rounded-xl overflow-hidden border border-black/[0.08] bg-[#F2F2F7] aspect-square active:opacity-70">
+    <button
+      type="button"
+      onClick={() => onOpen(url)}
+      className="relative rounded-xl overflow-hidden border border-black/[0.08] bg-[#F2F2F7] aspect-square active:opacity-70 w-full"
+    >
       {isImage(url) ? (
+        // eslint-disable-next-line @next/next/no-img-element
         <img src={url} alt={fileName(url)} className="w-full h-full object-cover" />
       ) : (
         <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 p-2">
@@ -694,13 +698,13 @@ function FileTile({ url }: { url: string }) {
           </span>
         </div>
       )}
-    </a>
+    </button>
   );
 }
 
 // ─── Doc section ──────────────────────────────────────────────────────────────
 
-function DocSection({ label, urls }: { label: string; urls: string[] }) {
+function DocSection({ label, urls, onOpen }: { label: string; urls: string[]; onOpen: (url: string) => void }) {
   return (
     <GlassCard className="p-4 space-y-3">
       <div className="flex items-center justify-between">
@@ -718,7 +722,7 @@ function DocSection({ label, urls }: { label: string; urls: string[] }) {
         </div>
       ) : (
         <div className="grid grid-cols-3 gap-2">
-          {urls.map(url => <FileTile key={url} url={url} />)}
+          {urls.map(url => <FileTile key={url} url={url} onOpen={onOpen} />)}
         </div>
       )}
     </GlassCard>
@@ -1279,6 +1283,7 @@ export default function BuyersFolderDetailPage() {
 
   const [data,             setData]             = useState<FolderData | null>(null);
   const [loading,          setLoading]          = useState(true);
+  const [lightboxUrl,      setLightboxUrl]      = useState<string | null>(null);
   const [viewerOpen,       setViewerOpen]       = useState(false);
   const [privacyOpen,      setPrivacyOpen]      = useState(false);
   const [termsOpen,        setTermsOpen]        = useState(false);
@@ -1430,20 +1435,20 @@ export default function BuyersFolderDetailPage() {
 
             {/* Uploaded documents */}
             <GroupLabel label="Reservation Documents" />
-            <DocSection label="Proof of Payment" urls={parseJson(data.payment_proof_url)} />
-            <DocSection label="Proof of Billing"  urls={parseJson(data.proof_of_billing_urls)} />
-            <DocSection label="Proof of Income"   urls={parseJson(data.proof_of_income_urls)} />
-            <DocSection label="Buyer Valid ID"     urls={parseJson(data.proof_of_valid_id_urls)} />
+            <DocSection label="Proof of Payment" urls={parseJson(data.payment_proof_url)}         onOpen={setLightboxUrl} />
+            <DocSection label="Proof of Billing"  urls={parseJson(data.proof_of_billing_urls)}    onOpen={setLightboxUrl} />
+            <DocSection label="Proof of Income"   urls={parseJson(data.proof_of_income_urls)}     onOpen={setLightboxUrl} />
+            <DocSection label="Buyer Valid ID"     urls={parseJson(data.proof_of_valid_id_urls)}  onOpen={setLightboxUrl} />
 
             <GroupLabel label="Booking Documents" />
             {data.has_co_ownership && (
-              <DocSection label="Co-Owner Valid ID"         urls={data.co_owner_id_urls ?? []} />
+              <DocSection label="Co-Owner Valid ID"         urls={data.co_owner_id_urls ?? []}        onOpen={setLightboxUrl} />
             )}
             {data.has_spouse && (
-              <DocSection label="Spouse Valid ID"           urls={data.spouse_id_urls ?? []} />
+              <DocSection label="Spouse Valid ID"           urls={data.spouse_id_urls ?? []}           onOpen={setLightboxUrl} />
             )}
             {data.has_atty_in_fact && (
-              <DocSection label="Attorney in Fact Valid ID" urls={data.atty_in_fact_id_urls ?? []} />
+              <DocSection label="Attorney in Fact Valid ID" urls={data.atty_in_fact_id_urls ?? []}    onOpen={setLightboxUrl} />
             )}
           </>
         ) : (
@@ -1453,6 +1458,44 @@ export default function BuyersFolderDetailPage() {
         )}
 
       </div>
+      {/* Lightbox */}
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center"
+          style={{ background: 'rgba(0,0,0,0.92)' }}
+          onClick={() => setLightboxUrl(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setLightboxUrl(null)}
+            className="absolute top-14 right-4 w-9 h-9 rounded-full bg-white/15 flex items-center justify-center"
+          >
+            <X size={18} className="text-white" />
+          </button>
+          {!isImage(lightboxUrl) ? (
+            <div className="flex flex-col items-center gap-4 px-6" onClick={e => e.stopPropagation()}>
+              <FileText size={64} className="text-white/60" />
+              <p className="text-white text-sm font-semibold">PDF Document</p>
+              <a
+                href={lightboxUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-6 py-3 rounded-2xl bg-[#E8634A] text-white text-sm font-bold active:opacity-80"
+              >
+                Open PDF
+              </a>
+            </div>
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={lightboxUrl}
+              alt="Document"
+              className="max-w-full max-h-full object-contain"
+              onClick={e => e.stopPropagation()}
+            />
+          )}
+        </div>
+      )}
     </PageShell>
   );
 }

@@ -33,8 +33,11 @@ interface FinanceBooking {
   scheme_name:           string | null;
   payment_term:          string | null;
   payment_proof_url:     string | null;
-  director_reviewed_at:  string | null;
-  finance_verified_at:   string | null;
+  director_reviewed_at:         string | null;
+  finance_verified_at:          string | null;
+  acknowledgement_receipt_no:   string | null;
+  sales_invoice_no:             string | null;
+  date_of_reservation_fee:      string | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -98,7 +101,11 @@ export default function FinanceVerifyPage() {
   useEffect(() => {
     const raw = sessionStorage.getItem('financeBooking');
     if (!raw) { router.replace('/finance/buyers-payment'); return; }
-    setBooking(JSON.parse(raw) as FinanceBooking);
+    const b = JSON.parse(raw) as FinanceBooking;
+    setBooking(b);
+    if (b.acknowledgement_receipt_no) setAckReceiptNo(b.acknowledgement_receipt_no);
+    if (b.sales_invoice_no)           setSalesInvoiceNo(b.sales_invoice_no);
+    if (b.date_of_reservation_fee)    setDateOfResFee(b.date_of_reservation_fee);
   }, []);
 
   async function handleApprove() {
@@ -131,8 +138,9 @@ export default function FinanceVerifyPage() {
     }
   }
 
-  const proofUrls  = parseJson(booking?.payment_proof_url ?? null);
-  const canApprove = ackReceiptNo.trim().length > 0 && salesInvoiceNo.trim().length > 0 && !!dateOfResFee;
+  const proofUrls      = parseJson(booking?.payment_proof_url ?? null);
+  const alreadyVerified = booking?.booking_review_status === 'finance-verified' || !!booking?.finance_verified_at;
+  const canApprove     = !alreadyVerified && ackReceiptNo.trim().length > 0 && salesInvoiceNo.trim().length > 0 && !!dateOfResFee;
 
   // ── Done screens ──────────────────────────────────────────────────────────
 
@@ -247,9 +255,14 @@ export default function FinanceVerifyPage() {
             <input
               type="text"
               value={ackReceiptNo}
-              onChange={e => setAckReceiptNo(e.target.value)}
+              onChange={e => !alreadyVerified && setAckReceiptNo(e.target.value)}
+              readOnly={alreadyVerified}
               placeholder="Enter receipt number"
-              className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] placeholder-[#C7C7CC] outline-none focus:border-[#E8634A]/50"
+              className={`w-full px-3 py-2.5 rounded-xl border text-sm text-[#1C1C1E] placeholder-[#C7C7CC] outline-none ${
+                alreadyVerified
+                  ? 'border-black/[0.06] bg-white text-[#3A3A3C] cursor-default'
+                  : 'border-black/[0.1] bg-[#F2F2F7] focus:border-[#E8634A]/50'
+              }`}
             />
           </div>
 
@@ -258,16 +271,21 @@ export default function FinanceVerifyPage() {
             <FileDigit size={15} className="text-[#E8634A] shrink-0" />
             <span className="flex-1 text-sm font-medium text-[#1C1C1E]">
               Sales Invoice No.
-              <span className="text-[#E8634A] text-xs leading-none ml-0.5">*</span>
+              {!alreadyVerified && <span className="text-[#E8634A] text-xs leading-none ml-0.5">*</span>}
             </span>
           </div>
           <div className="px-1 pb-3 pt-1">
             <input
               type="text"
               value={salesInvoiceNo}
-              onChange={e => setSalesInvoiceNo(e.target.value)}
+              onChange={e => !alreadyVerified && setSalesInvoiceNo(e.target.value)}
+              readOnly={alreadyVerified}
               placeholder="Enter invoice number"
-              className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] placeholder-[#C7C7CC] outline-none focus:border-[#E8634A]/50"
+              className={`w-full px-3 py-2.5 rounded-xl border text-sm text-[#1C1C1E] placeholder-[#C7C7CC] outline-none ${
+                alreadyVerified
+                  ? 'border-black/[0.06] bg-white text-[#3A3A3C] cursor-default'
+                  : 'border-black/[0.1] bg-[#F2F2F7] focus:border-[#E8634A]/50'
+              }`}
             />
           </div>
 
@@ -276,13 +294,14 @@ export default function FinanceVerifyPage() {
             <CalendarDays size={15} className="text-[#E8634A] shrink-0" />
             <span className="flex-1 text-sm font-medium text-[#1C1C1E]">
               Date of Reservation Fee
-              <span className="text-[#E8634A] text-xs leading-none ml-0.5">*</span>
+              {!alreadyVerified && <span className="text-[#E8634A] text-xs leading-none ml-0.5">*</span>}
             </span>
             <input
               type="date"
               value={dateOfResFee}
-              onChange={e => setDateOfResFee(e.target.value)}
-              className="text-sm text-[#1C1C1E] bg-transparent outline-none text-right"
+              onChange={e => !alreadyVerified && setDateOfResFee(e.target.value)}
+              readOnly={alreadyVerified}
+              className={`text-sm text-[#1C1C1E] bg-transparent outline-none text-right ${alreadyVerified ? 'pointer-events-none' : ''}`}
             />
           </div>
         </GlassCard>
@@ -292,8 +311,16 @@ export default function FinanceVerifyPage() {
           <p className="text-red-500 text-xs text-center px-4">{actionError}</p>
         )}
 
+        {/* Already verified banner */}
+        {alreadyVerified && (
+          <GlassCard className="px-4 py-3 flex items-center gap-3 bg-green-50">
+            <CheckCircle2 size={18} className="text-green-500 shrink-0" />
+            <p className="text-sm font-semibold text-green-700">Payment already verified</p>
+          </GlassCard>
+        )}
+
         {/* Action buttons */}
-        <div className="space-y-2.5">
+        {!alreadyVerified && <div className="space-y-2.5">
           <button
             type="button"
             disabled={!canApprove || approving}
@@ -315,7 +342,7 @@ export default function FinanceVerifyPage() {
           >
             Reject
           </button>
-        </div>
+        </div>}
 
       </div>
 

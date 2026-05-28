@@ -81,9 +81,12 @@ export default function BookingPage() {
       if (clientFilter)  query = query.eq('client_name', clientFilter);
       if (projectFilter) query = query.eq('project', projectFilter);
 
-      const { data } = await query;
+      const [{ data }, progress] = await Promise.all([
+        query,
+        getAllBookingProgress().catch(() => ({}) as Record<string, BookingProgress>),
+      ]);
       setReservations((data ?? []) as Reservation[]);
-      getAllBookingProgress().then(setProgressMap).catch(console.error);
+      setProgressMap(progress);
       setLoading(false);
     }
     loadReservations();
