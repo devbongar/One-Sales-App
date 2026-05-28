@@ -7,47 +7,83 @@ import Image from 'next/image';
 import { MapPin, Building2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Project } from '@/types';
 
-const PLACEHOLDER_PROJECTS: Project[] = [
-  {
-    id: 'ph1',
-    name: 'Azure Heights',
-    description: 'Premium condominium with breathtaking city views',
-    location: 'BGC, Taguig City',
-    property_type: 'Condominium',
-    residence_type: 'High-Rise',
-    floors: 45, no_of_units: 320, no_of_parkings: 280,
-    cover_photo_url: 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=800&q=80',
-    photos: {
-      location: ['https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=800&q=80'],
-      units:    ['https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=800&q=80'],
-      amenities:['https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=800&q=80'],
-    },
-    created_at: '',
-  },
-  {
-    id: 'ph2',
-    name: 'Serene Villas',
-    description: 'Exclusive townhouse community surrounded by nature',
-    location: 'Alabang, Muntinlupa',
-    property_type: 'Townhouse',
-    residence_type: 'Low-Rise',
-    floors: 3, no_of_units: 80, no_of_parkings: 80,
-    cover_photo_url: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&q=80',
-    photos: {
-      location: ['https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=800&q=80'],
-      units:    ['https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?w=800&q=80'],
-      amenities:['https://images.unsplash.com/photo-1416331108676-a22ccb276e35?w=800&q=80'],
-    },
-    created_at: '',
-  },
-];
-
 interface ProjectCarouselProps {
   onProjectClick: (project: Project) => void;
 }
 
+// Tiny grey base64 pixel used as blur placeholder while real images load
+const BLUR_DATA_URL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+// ── Loading screen shown while projects fetch ─────────────────────────────────
+function CarouselLoader() {
+  return (
+    <div className="relative h-full w-full overflow-hidden"
+      style={{ background: '#E8634A' }}>
+
+      {/* Diagonal shimmer sweep */}
+      <div className="absolute inset-0 pointer-events-none"
+        style={{
+          background: 'linear-gradient(105deg, transparent 35%, rgba(255,255,255,0.15) 50%, transparent 65%)',
+          backgroundSize: '200% 100%',
+          animation: 'shimmerSweep 2.4s ease-in-out infinite',
+        }}
+      />
+
+
+      {/* Center content */}
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-5">
+
+        {/* Building icon with stroke-draw animation */}
+        <div className="relative flex items-center justify-center">
+          {/* Soft glow behind icon */}
+          <div className="absolute w-24 h-24 rounded-full"
+            style={{ background: 'rgba(255,255,255,0.2)', filter: 'blur(18px)' }} />
+          <Building2
+            size={64}
+            strokeWidth={1.2}
+            className="relative z-10 text-white"
+            style={{ animation: 'strokeDraw 2s ease-in-out infinite alternate' }}
+          />
+        </div>
+
+        {/* Text */}
+        <div className="flex flex-col items-center gap-1.5">
+          <p className="text-white text-base font-bold tracking-wide">
+            Preparing your properties
+            <span style={{ color: 'rgba(255,255,255,0.7)', animation: 'ellipsisDot 1.5s steps(4,end) infinite' }}>...</span>
+          </p>
+          <p className="text-white/50 text-xs font-medium tracking-widest uppercase">
+            One Sales App
+          </p>
+        </div>
+
+      </div>
+
+      {/* Keyframe styles injected inline */}
+      <style>{`
+        @keyframes shimmerSweep {
+          0%   { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+        @keyframes strokeDraw {
+          0%   { opacity: 0.4; transform: scale(0.92); filter: drop-shadow(0 0 0px rgba(255,255,255,0)); }
+          100% { opacity: 1;   transform: scale(1);    filter: drop-shadow(0 0 14px rgba(255,255,255,0.6)); }
+        }
+        @keyframes ellipsisDot {
+          0%  { content: ''; }
+          25% { content: '.'; }
+          50% { content: '..'; }
+          75% { content: '...'; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
 export default function ProjectCarousel({ onProjectClick }: ProjectCarouselProps) {
   const [projects, setProjects] = useState<Project[]>([]);
+  const [loading,  setLoading]  = useState(true);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true }, [
     Autoplay({ delay: 5000, stopOnInteraction: true }),
@@ -56,14 +92,17 @@ export default function ProjectCarousel({ onProjectClick }: ProjectCarouselProps
   const scrollPrev = useCallback(() => emblaApi?.scrollPrev(), [emblaApi]);
   const scrollNext = useCallback(() => emblaApi?.scrollNext(), [emblaApi]);
 
-  // Fetch real projects, fall back to placeholders
+  // Fetch real projects — enforce a minimum 1.5s loader duration to avoid flicker
   useEffect(() => {
-    fetch('/api/projects')
+    const minDelay = new Promise<void>(res => setTimeout(res, 1500));
+    const fetchData = fetch('/api/projects')
       .then((r) => r.json())
       .then((data: Project[]) => {
-        setProjects(Array.isArray(data) && data.length > 0 ? data : PLACEHOLDER_PROJECTS);
+        if (Array.isArray(data) && data.length > 0) setProjects(data);
       })
-      .catch(() => setProjects(PLACEHOLDER_PROJECTS));
+      .catch(() => {});
+
+    Promise.all([fetchData, minDelay]).finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
@@ -78,7 +117,17 @@ export default function ProjectCarousel({ onProjectClick }: ProjectCarouselProps
     emblaApi?.reInit();
   }, [projects, emblaApi]);
 
-  if (projects.length === 0) return <div className="h-full w-full bg-black" />;
+
+  if (loading) return <CarouselLoader />;
+
+  if (projects.length === 0) {
+    return (
+      <div className="relative h-full w-full flex items-center justify-center"
+        style={{ background: '#E8634A' }}>
+        <p className="text-white/60 text-sm">No projects available</p>
+      </div>
+    );
+  }
 
   return (
     <div className="relative h-full w-full bg-black">
@@ -93,7 +142,12 @@ export default function ProjectCarousel({ onProjectClick }: ProjectCarouselProps
               <Image
                 src={project.cover_photo_url || 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=800&q=80'}
                 alt={project.name}
-                fill className="object-cover" priority sizes="100vw"
+                fill
+                className="object-cover"
+                priority
+                sizes="100vw"
+                placeholder="blur"
+                blurDataURL={BLUR_DATA_URL}
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
               <div className="absolute bottom-0 left-0 right-0 p-6 pb-8">
