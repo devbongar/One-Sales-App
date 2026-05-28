@@ -64,7 +64,7 @@ export default function BuyersPaymentPage() {
   const [sellerOptions,  setSellerOptions]  = useState<string[]>([]);
   const [clientOptions,  setClientOptions]  = useState<string[]>([]);
   const [projectFilter,  setProjectFilter]  = useState('');
-  const [statusFilter,   setStatusFilter]   = useState('All');
+  const [statusFilter,   setStatusFilter]   = useState('');
   const [sellerFilter,   setSellerFilter]   = useState('');
   const [clientFilter,   setClientFilter]   = useState('');
 
@@ -96,7 +96,14 @@ export default function BuyersPaymentPage() {
       `;
 
       let q;
-      if (statusFilter === 'Pending Review') {
+      if (!statusFilter) {
+        // No filter — show all relevant records
+        q = supabase
+          .from('reservations')
+          .select(SELECT)
+          .or('status.eq.Pending Review,booking_review_status.in.(director-approved,finance-verified)')
+          .order('created_at', { ascending: false });
+      } else if (statusFilter === 'Pending Review') {
         q = supabase
           .from('reservations')
           .select(SELECT)
@@ -104,15 +111,13 @@ export default function BuyersPaymentPage() {
           .order('created_at', { ascending: false });
       } else {
         const statusValues: Record<string, string[]> = {
-          'Pending': ['director-approved'],
+          'Pending':  ['director-approved'],
           'Verified': ['finance-verified'],
-          'All':     ['director-approved', 'finance-verified'],
         };
-        const filter = statusValues[statusFilter] ?? ['director-approved'];
         q = supabase
           .from('reservations')
           .select(SELECT)
-          .in('booking_review_status', filter)
+          .in('booking_review_status', statusValues[statusFilter] ?? ['director-approved'])
           .order('director_reviewed_at', { ascending: false });
       }
 
@@ -137,7 +142,7 @@ export default function BuyersPaymentPage() {
 
       <GlassCard className="px-4 py-1">
         <FilterSelect label="Project"     value={projectFilter} options={projectOptions} onChange={setProjectFilter} icon={<Building2 size={16} />} />
-        <FilterSelect label="Status"      value={statusFilter}  options={['Pending Review', 'Pending', 'Verified', 'All']} onChange={setStatusFilter} icon={<Banknote size={16} />} />
+        <FilterSelect label="Status"      value={statusFilter}  options={['Pending Review', 'Pending', 'Verified']} onChange={setStatusFilter} icon={<Banknote size={16} />} />
         <FilterSelect label="Seller"      value={sellerFilter}  options={sellerOptions}  onChange={setSellerFilter}  icon={<User size={16} />} />
         <FilterSelect label="Client Name" value={clientFilter}  options={clientOptions}  onChange={setClientFilter}  icon={<User size={16} />} searchable />
       </GlassCard>
