@@ -138,8 +138,9 @@ export default function ProofOfPaymentPage() {
   const cameraScanRef  = useRef<HTMLInputElement>(null);
   const galleryRef     = useRef<HTMLInputElement>(null);
 
-  const PAID_STATUSES = ['Reserved-paid', 'Pending Review'];
+  const PAID_STATUSES = ['Reserved-paid', 'Pending Review', 'Approved'];
   const alreadyPaid = PAID_STATUSES.includes(reservation?.status ?? '');
+  const isApproved = reservation?.status === 'Approved';
 
   // Parse stored proof URLs (read-only view — immediate, from sessionStorage)
   const proofUrls: string[] = (() => {
@@ -453,11 +454,15 @@ export default function ProofOfPaymentPage() {
             <p className="text-base font-bold text-[#E8634A] tracking-wider">{reservationId || '—'}</p>
           </div>
           {reservation && (
-            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
-              alreadyPaid ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
-            }`}>
-              {reservation.status}
-            </span>
+            isApproved ? (
+              <img src="/approved-stamp.png" alt="Approved" className="w-20 h-20 object-contain shrink-0" />
+            ) : (
+              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
+                alreadyPaid ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+              }`}>
+                {reservation.status}
+              </span>
+            )
           )}
         </div>
 
@@ -487,6 +492,8 @@ export default function ProofOfPaymentPage() {
         <p className="text-xs text-[#8E8E93] leading-relaxed">
           {alreadyPaid && editMode
             ? 'Edit mode — you can remove or add files, then tap Save Changes.'
+            : isApproved
+            ? 'This reservation has been approved. All details are read-only.'
             : reservation?.status === 'Pending Review'
             ? 'This reservation has been submitted for verification and is currently under review.'
             : alreadyPaid
@@ -568,7 +575,7 @@ export default function ProofOfPaymentPage() {
       )}
 
       {/* Editable fields — new reservation OR edit mode */}
-      {(!alreadyPaid || editMode) && (
+      {(!alreadyPaid || editMode) && !isApproved && (
         <GlassCard className="px-4 py-1">
 
           {/* Subsequent Mode of Payment */}
@@ -695,7 +702,7 @@ export default function ProofOfPaymentPage() {
       )}
 
       {/* Payment date + proof upload */}
-      {(!alreadyPaid || editMode) && (
+      {(!alreadyPaid || editMode) && !isApproved && (
         <GlassCard className="px-4 py-1">
           {/* Payment Date */}
           <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
@@ -744,7 +751,7 @@ export default function ProofOfPaymentPage() {
       )}
 
       {/* Save / Confirm button */}
-      {(!alreadyPaid || editMode) && (
+      {(!alreadyPaid || editMode) && !isApproved && (
         <div className="space-y-2.5">
           <button
             type="button"
@@ -766,7 +773,7 @@ export default function ProofOfPaymentPage() {
       )}
 
       {/* Action buttons — paid view, not editing */}
-      {alreadyPaid && !editMode && reservation?.status === 'Reserved-paid' && (
+      {alreadyPaid && !editMode && !isApproved && reservation?.status === 'Reserved-paid' && (
         <div className="space-y-2.5 pb-2">
           <button
             type="button"
@@ -794,7 +801,7 @@ export default function ProofOfPaymentPage() {
       )}
 
       {/* Recall button — shown only when Pending Review */}
-      {alreadyPaid && !editMode && reservation?.status === 'Pending Review' && (
+      {alreadyPaid && !editMode && !isApproved && reservation?.status === 'Pending Review' && (
         <div className="space-y-2.5 pb-2">
           {actionError ? <p className="text-red-500 text-xs text-center">{actionError}</p> : null}
           <button

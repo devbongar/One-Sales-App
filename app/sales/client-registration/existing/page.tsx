@@ -115,10 +115,14 @@ function TextInput({ value, onChange, placeholder, disabled }: {
   );
 }
 
+const GENDER_OPTIONS       = ['Male', 'Female', 'Non-Binary'];
+const CIVIL_STATUS_OPTIONS = ['Single', 'Married', 'Widowed', 'Separated', 'Annulled'];
+
 // ── Types ─────────────────────────────────────────────────────
 type FormState = {
   clientType: 'Local' | 'International';
   lastName: string; firstName: string; middleName: string; suffix: string;
+  gender: string; civilStatus: string;
   dateOfBirth: string; citizenship: string;
   countryCode: string; mobileNumber: string; landlineNo: string; email: string;
   reasonForBuying: string; sourceOfSale: string; monthlyHouseholdIncome: string;
@@ -132,6 +136,8 @@ function mapClientToForm(c: ClientRecord): FormState {
     firstName:              c.first_name,
     middleName:             c.middle_name              ?? '',
     suffix:                 c.suffix                   ?? '',
+    gender:                 c.gender                   ?? '',
+    civilStatus:            c.civil_status             ?? '',
     dateOfBirth:            c.date_of_birth            ?? '',
     citizenship:            c.citizenship              ?? '',
     countryCode:            c.country_code             ?? '+63',
@@ -147,6 +153,7 @@ function mapClientToForm(c: ClientRecord): FormState {
 
 const EMPTY_FORM: FormState = {
   clientType: 'Local', lastName: '', firstName: '', middleName: '', suffix: '',
+  gender: '', civilStatus: '',
   dateOfBirth: '', citizenship: '', countryCode: '+63',
   mobileNumber: '', landlineNo: '', email: '',
   reasonForBuying: '', sourceOfSale: '', monthlyHouseholdIncome: '',
@@ -289,6 +296,8 @@ export default function ExistingClientPage() {
         first_name:               form.firstName,
         middle_name:              form.middleName,
         suffix:                   form.suffix,
+        gender:                   form.gender,
+        civil_status:             form.civilStatus,
         date_of_birth:            form.dateOfBirth,
         citizenship:              form.citizenship,
         country_code:             form.countryCode,
@@ -314,6 +323,8 @@ export default function ExistingClientPage() {
         first_name:               form.firstName,
         middle_name:              form.middleName             || null,
         suffix:                   form.suffix                 || null,
+        gender:                   form.gender                 || null,
+        civil_status:             form.civilStatus            || null,
         date_of_birth:            form.dateOfBirth            || null,
         citizenship:              form.citizenship            || null,
         country_code:             form.countryCode,
@@ -493,6 +504,14 @@ export default function ExistingClientPage() {
             <InputRow label="Suffix" icon={<User size={11} />}>
               <TextInput value={form.suffix} onChange={v => set('suffix')(toProperCase(v))} placeholder="e.g. Jr., Sr., III" disabled={!editMode} />
             </InputRow>
+            <InputRow label="Gender" icon={<User size={11} />}>
+              <SelectInput value={form.gender} options={GENDER_OPTIONS}
+                onChange={set('gender')} placeholder="Select gender" disabled={!editMode} />
+            </InputRow>
+            <InputRow label="Civil Status" icon={<Heart size={11} />}>
+              <SelectInput value={form.civilStatus} options={CIVIL_STATUS_OPTIONS}
+                onChange={set('civilStatus')} placeholder="Select civil status" disabled={!editMode} />
+            </InputRow>
 
             <InputRow label="Date of Birth" icon={<Calendar size={11} />} error={errors.dateOfBirth} required={editMode}>
               <div className={`w-full flex items-center px-3 py-2.5 rounded-xl border overflow-hidden transition-colors ${
@@ -511,8 +530,10 @@ export default function ExistingClientPage() {
             </InputRow>
             <InputRow label="Citizenship" icon={<Globe size={11} />} error={errors.citizenship} required={editMode}>
               {editMode ? (
-                <button type="button" onClick={() => { setCitizenshipSearch(''); setCitizenshipPickerOpen(true); }}
-                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] active:opacity-70">
+                <div role="button" tabIndex={0}
+                  onClick={() => { setCitizenshipSearch(''); setCitizenshipPickerOpen(true); }}
+                  onKeyDown={e => e.key === 'Enter' && (setCitizenshipSearch(''), setCitizenshipPickerOpen(true))}
+                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] active:opacity-70 cursor-pointer">
                   <span className={`text-sm ${form.citizenship ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
                     {form.citizenship || 'Select citizenship'}
                   </span>
@@ -522,7 +543,7 @@ export default function ExistingClientPage() {
                       </button>
                     : <ChevronDown size={14} className="text-[#C7C7CC] shrink-0" />
                   }
-                </button>
+                </div>
               ) : (
                 <div className="w-full px-3 py-2.5 rounded-xl border-transparent bg-[#F2F2F7] text-sm text-[#1C1C1E]">
                   {form.citizenship || '—'}

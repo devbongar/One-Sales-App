@@ -59,7 +59,7 @@ export default function BuyersPaymentPage() {
   const [loading,        setLoading]        = useState(true);
   const [projectOptions, setProjectOptions] = useState<string[]>([]);
   const [projectFilter,  setProjectFilter]  = useState('');
-  const [statusFilter,   setStatusFilter]   = useState('Pending Review');
+  const [statusFilter,   setStatusFilter]   = useState('All');
 
   useEffect(() => {
     async function loadOptions() {

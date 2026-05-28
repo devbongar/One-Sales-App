@@ -33,49 +33,39 @@ interface ReservationData {
 const TERMS = [
   {
     title: 'RESERVATION PROVISION',
-    body: `As proof of my interest to purchase the Property, I hereby tender the sum of: PHP 25,000 as Reservation Fee, exclusive of VAT, in order to reserve the Property for our intended purchase which shall be effective for a period of thirty (30) days from delivery of the Reservation Fee. I understand and acknowledge that the Reservation Fee is non-refundable. Should I decide to cancel my reservation; fail to submit all the documentary requirements, including this Reservation Agreement; or fail to pay the amounts due on the prescribed due dates, for any reason whatsoever, I agree that my reservation shall lapse and my Reservation Fee shall be forfeited in favor of the Company. I will hold the Company free and harmless for thereafter releasing and offering the Property to other interested buyers.
-
-I acknowledge that the Company reserves the right to accept or deny this request for reservation and that it is non-transferable. Subject to a written request by me, the Company, at its sole discretion, may extend this reservation for a period of more than fifteen (15) days within which to make the down payment, provided that I shall incur a penalty charge of three percent (3%) per month, or a fraction thereof.
-
-In the event the Property is found unavailable for sale for any reason whatsoever, I agree to hold the Company free and harmless from any liability and it shall have the option of exchanging the Property with another similar unit/lot/property, as applicable, or otherwise cancel this Reservation Agreement. Should there be no substitution or should the substituted Property be unacceptable to me, I shall hold the Company free and harmless from any liability for canceling the Reservation Agreement, subject to reimbursement to me of all payments made, without interest.`,
+    items: [
+      `1. As proof of my interest to purchase the Property, I hereby tender the sum of: PHP 10,000 as Reservation Fee, exclusive of VAT, in order to reserve the Property for our intended purchase which shall be effective for a period of thirty (30) days from delivery of the Reservation Fee. I understand and acknowledge that the Reservation Fee is non-refundable. Should I decide to cancel my reservation; fail to submit all the documentary requirements, including this Reservation Agreement; or fail to pay the amounts due on the prescribed due dates, for any reason whatsoever, I agree that my reservation shall lapse and my Reservation Fee shall be forfeited in favor of the Company. I will hold the Company free and harmless for thereafter releasing and offering the Property to other interested buyers.`,
+      `2. I acknowledge that the Company reserves the right to accept or deny this request for reservation and that it is non-transferable. Subject to a written request by me, the Company, at its sole discretion, may extend this reservation for a period of more than fifteen (15) days within which to make the down payment, provided that I shall incur a penalty charge of three percent (3%) per month, or a fraction thereof.`,
+      `3. In the event the Property is found unavailable for sale for any reason whatsoever, I agree to hold the Company free and harmless from any liability and it shall have the option of exchanging the Property with another similar unit/lot/property, as applicable, or otherwise cancel this Reservation Agreement. Should there be no substitution or should the substituted Property be unacceptable to me, I shall hold the Company free and harmless from any liability for canceling the Reservation Agreement, subject to reimbursement to me of all payments made, without interest.`,
+    ],
   },
   {
     title: 'PAYMENT AND PAYMENT MODES',
-    body: `I acknowledge that in the event my application to purchase the Property is accepted, the Reservation Fee shall automatically form part of the required down payment. Upon being notified of the acceptance of my offer to purchase the Property, I shall remit, within the period required by the Company, the down payment and/or balance, and the complete post-dated checks, in accordance with the Terms of Payment (inclusive of VAT and Other Charges), attached hereto as ANNEX A, without need of further demand. Any and all payments made to any individual, realtor, broker, employee, or to a party other than the Company for safekeeping in favor of or for transmittal to the Company shall be at my sole and exclusive risk and responsibility and shall not bind nor make the former answerable in any way unless and until actually received, receipted, and validated by the Company's Cashier or authorized officer. All checks shall be crossed and made payable only to the Companies.
-
-In case I am permitted to issue checks in foreign currencies, or if payments are made through foreign remittances in the manner authorized by the Company, such checks or remittances shall be credited only after conversion to Philippine currency based on the prevailing buying rate of the Company's designated bank upon clearing. Any underpayment shall be paid on the last installment or last payment due; any overpayment shall adjust the final installment accordingly. I shall shoulder all bank fees, charges, and taxes upon remittances or conversion of foreign currencies.
-
-All payments shall be made on or before their respective due dates without need of demand or legal action. In the event that I avail of bank financing, I shall be solely responsible for filing the loan application and all necessary requirements so that the loan may be processed and proceeds released to the Company on or before the due date.`,
+    items: [
+      `4. I acknowledge that in the event my application to purchase the Property is accepted, the Reservation Fee shall automatically form part of the required down payment. Upon being notified of the acceptance of my offer to purchase the Property, I shall remit, within the period required by the Company, the down payment and/or balance, and the complete post-dated checks, in accordance with the Terms of Payment (inclusive of VAT and Other Charges), attached hereto as ANNEX A, without need of further demand. Any and all payments made to any individual, realtor, broker, employee, or to a party other than the Company for safekeeping in favor of or for transmittal to the Company shall be at my sole and exclusive risk and responsibility and shall not bind nor make the former answerable in any way unless and until actually received, receipted, and validated by the Company's Cashier or authorized officer. All checks shall be crossed and made payable only to the Companies.`,
+      `5. In case I am permitted to issue checks in foreign currencies, or if payments are made through foreign remittances in the manner authorized by the Company, such checks or remittances shall be credited only after conversion to Philippine currency based on the prevailing buying rate of the Company's designated bank upon clearing. Any underpayment shall be paid on the last installment or last payment due; any overpayment shall adjust the final installment accordingly. I shall shoulder all bank fees, charges, and taxes upon remittances or conversion of foreign currencies.`,
+      `6. All payments shall be made on or before their respective due dates without need of demand or legal action. In the event that I avail of bank financing, I shall be solely responsible for filing the loan application and all necessary requirements so that the loan may be processed and proceeds released to the Company on or before the due date.`,
+    ],
   },
   {
     title: 'SALES DOCUMENT AND OTHER BUYER REQUIREMENTS',
-    body: `Should I fail to pay any of the amounts due in relation to my purchase of the Property, or fail to submit the required documents and execute the relevant Contract to Sell and Deed of Absolute Sale, or fail to comply with any terms of my purchase, the Company shall have the sole option to:
-
-Cancel the sale and forfeit in its favor all payments made, including the Reservation Fee, as liquidated damages; and/or
-
-Impose penalty charges at the rate of three percent (3%) per month (or fraction thereof) of delay on the unpaid amount.
-
-Late payments will only be accepted upon payment of interest and penalty charges. Should this reservation be cancelled, the Company shall have full authority to resell and dispose of the Property.
-
-Unless otherwise provided, my Contract to Sell shall be prepared only after I have submitted all necessary documents and post-dated checks in accordance with the Schedule of Payment. The Contract to Sell shall be executed by me within thirty (30) days from receipt; otherwise, this Reservation Agreement shall be cancelled.
-
-I understand that this Agreement only gives me the right to purchase the Property subject to fulfillment of all stated conditions. No other right, title, or ownership is vested upon me until the Property is fully paid. The Company retains title and ownership until full payment is made.
-
-I agree that my purchase of the Property is subject to the covenants and restrictions in the Project's Deed of Restrictions or Master Deed with Declaration of Restrictions, as applicable, which shall bind the Property and which I undertake to faithfully comply with.`,
+    items: [
+      `7. Should I fail to pay any of the amounts due in relation to my purchase of the Property, or fail to submit the required documents and execute the relevant Contract to Sell and Deed of Absolute Sale, or fail to comply with any terms of my purchase, the Company shall have the sole option to:\n\n   • Cancel the sale and forfeit in its favor all payments made, including the Reservation Fee, as liquidated damages; and/or\n\n   • Impose penalty charges at the rate of three percent (3%) per month (or fraction thereof) of delay on the unpaid amount.\n\nLate payments will only be accepted upon payment of interest and penalty charges. Should this reservation be cancelled, the Company shall have full authority to resell and dispose of the Property.`,
+      `8. Unless otherwise provided, my Contract to Sell shall be prepared only after I have submitted all necessary documents and post-dated checks in accordance with the Schedule of Payment. The Contract to Sell shall be executed by me within thirty (30) days from receipt; otherwise, this Reservation Agreement shall be cancelled.`,
+      `9. I understand that this Agreement only gives me the right to purchase the Property subject to fulfillment of all stated conditions. No other right, title, or ownership is vested upon me until the Property is fully paid. The Company retains title and ownership until full payment is made.`,
+      `10. I agree that my purchase of the Property is subject to the covenants and restrictions in the Project's Deed of Restrictions or Master Deed with Declaration of Restrictions, as applicable, which shall bind the Property and which I undertake to faithfully comply with.`,
+    ],
   },
   {
     title: 'AGREEMENTS AND OTHER PROVISIONS',
-    body: `I confirm that I have personally inspected the plans and specifications of the Property, studied and verified the Project site and the layout of my requested property, and find the same acceptable. I acknowledge that I have independently evaluated all material and technical information related to the Property and am satisfied with what was explained to me. I further understand that numbering, sizes, and layout may be subject to adjustments per approved plans, and I accept the Company's right to revise plans without my consent.
-
-I authorize the developer to organize the Project's Homeowners' Association or Condominium Corporation, as applicable.
-
-I warrant the truthfulness of all information provided and shall personally inform the Company in writing of any changes to my personal data.
-
-The address stated herein shall be the official address for all communications unless updated in writing. I hold the Company free from liability for any errors, miscommunication, or failure of communication arising from outdated or incorrect information provided by me. I also warrant that all funds used for purchasing the Property are legitimate and not from unlawful activity. I authorize the Company to disclose any required information to government bodies as required by law.
-
-This document constitutes the entire agreement on my reservation of the Property. Any stipulations or agreements not in writing and signed by the Company's authorized representative shall not be binding.
-
-If there are two (2) or more buyers signing, we understand that our obligations hereunder are joint and solidary.`,
+    items: [
+      `11. I confirm that I have personally inspected the plans and specifications of the Property, studied and verified the Project site and the layout of my requested property, and find the same acceptable. I acknowledge that I have independently evaluated all material and technical information related to the Property and am satisfied with what was explained to me. I further understand that numbering, sizes, and layout may be subject to adjustments per approved plans, and I accept the Company's right to revise plans without my consent.`,
+      `12. I authorize the developer to organize the Project's Homeowners' Association or Condominium Corporation, as applicable.`,
+      `13. I warrant the truthfulness of all information provided and shall personally inform the Company in writing of any changes to my personal data.`,
+      `14. The address stated herein shall be the official address for all communications unless updated in writing. I hold the Company free from liability for any errors, miscommunication, or failure of communication arising from outdated or incorrect information provided by me. I also warrant that all funds used for purchasing the Property are legitimate and not from unlawful activity. I authorize the Company to disclose any required information to government bodies as required by law.`,
+      `15. This document constitutes the entire agreement on my reservation of the Property. Any stipulations or agreements not in writing and signed by the Company's authorized representative shall not be binding.`,
+      `16. If there are two (2) or more buyers signing, we understand that our obligations hereunder are joint and solidary.`,
+    ],
   },
 ];
 
@@ -154,9 +144,7 @@ export default function ReservationAgreementPage() {
       canvas.removeEventListener('touchmove', onMove);
       canvas.removeEventListener('touchend', onStop);
     };
-  }, [checked1, checked2]); // re-attach when canvas mounts after checkboxes are ticked
-
-  function stopDraw() { drawing.current = false; lastPos.current = null; }
+  }, [checked1, checked2]);
 
   function clearSignature() {
     const canvas = canvasRef.current; if (!canvas) return;
@@ -206,7 +194,7 @@ export default function ReservationAgreementPage() {
         vat: data.vat,
         other_charges: data.otherCharges,
         total_contract_price: data.totalContractPrice,
-        reservation_fee: 25000,
+        reservation_fee: 10000,
         retention_fee: 50000,
         net_amount: data.netAmount,
         dp_amount: data.dpAmount,
@@ -224,10 +212,20 @@ export default function ReservationAgreementPage() {
       });
       sessionStorage.setItem('currentReservationId', reservationId);
       sessionStorage.setItem('proofEntrySource', 'agreement');
+      sessionStorage.setItem('selectedReservation', JSON.stringify({
+        reservation_id:   reservationId,
+        client_name:      data.clientName,
+        project:          data.project,
+        inventory_code:   data.inventoryCode,
+        unit_type:        data.unitType,
+        status:           'Reserved-unpaid',
+        seller_name:      data.sellerName,
+        payment_proof_url: null,
+      }));
       setShowConfirm(false);
       router.push('/sales/reservation/proof');
-    } catch (e: any) {
-      setSaveError(e.message ?? 'Failed to save. Please try again.');
+    } catch (e: unknown) {
+      setSaveError(e instanceof Error ? e.message : 'Failed to save. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -267,11 +265,15 @@ export default function ReservationAgreementPage() {
         </div>
 
         {/* Sections */}
-        {TERMS.map(({ title, body }) => (
-          <div key={title} className="space-y-2">
+        {TERMS.map(({ title, items }) => (
+          <div key={title} className="space-y-3">
             <p className="text-xs font-bold text-[#1C1C1E] uppercase tracking-wide">{title}</p>
-            {body.split('\n\n').map((para, i) => (
-              <p key={i} className="text-xs text-[#3A3A3C] leading-relaxed">{para.trim()}</p>
+            {items.map((item, i) => (
+              <div key={i} className="space-y-1">
+                {item.split('\n\n').map((para, j) => (
+                  <p key={j} className="text-xs text-[#3A3A3C] leading-relaxed whitespace-pre-line">{para.trim()}</p>
+                ))}
+              </div>
             ))}
           </div>
         ))}
@@ -279,12 +281,8 @@ export default function ReservationAgreementPage() {
 
       {/* Checkboxes */}
       <GlassCard className="px-4 py-2">
-        {/* Checkbox 1 */}
-        <button
-          type="button"
-          onClick={() => setChecked1(p => !p)}
-          className="w-full flex items-start gap-3 py-4 border-b border-black/[0.06] text-left"
-        >
+        <button type="button" onClick={() => setChecked1(p => !p)}
+          className="w-full flex items-start gap-3 py-4 border-b border-black/[0.06] text-left">
           <div className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
             checked1 ? 'bg-[#E8634A] border-[#E8634A]' : 'border-[#E8634A]'
           }`}>
@@ -295,12 +293,8 @@ export default function ReservationAgreementPage() {
           </p>
         </button>
 
-        {/* Checkbox 2 */}
-        <button
-          type="button"
-          onClick={() => setChecked2(p => !p)}
-          className="w-full flex items-start gap-3 py-4 text-left"
-        >
+        <button type="button" onClick={() => setChecked2(p => !p)}
+          className="w-full flex items-start gap-3 py-4 text-left">
           <div className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
             checked2 ? 'bg-[#E8634A] border-[#E8634A]' : 'border-[#E8634A]'
           }`}>
@@ -315,22 +309,16 @@ export default function ReservationAgreementPage() {
       {/* Signature Pad — shown when both checkboxes are ticked */}
       {checked1 && checked2 && (
         <GlassCard className="px-4 pt-4 pb-5 space-y-3">
-          {/* Client name */}
           <div className="space-y-0.5">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-[#8E8E93]">Client Name</p>
             <p className="text-sm font-bold text-[#1C1C1E]">{data?.clientName || '—'}</p>
           </div>
-          {/* Canvas */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-[#8E8E93]">Signature</p>
-              <button
-                type="button"
-                onClick={clearSignature}
-                className="flex items-center gap-1 text-[11px] text-[#E8634A] font-semibold"
-              >
-                <RotateCcw size={11} />
-                Clear
+              <button type="button" onClick={clearSignature}
+                className="flex items-center gap-1 text-[11px] text-[#E8634A] font-semibold">
+                <RotateCcw size={11} /> Clear
               </button>
             </div>
             <div className="relative rounded-2xl border-2 border-dashed border-[#E8634A]/40 overflow-hidden bg-white">
@@ -339,19 +327,14 @@ export default function ReservationAgreementPage() {
                   Sign here
                 </p>
               )}
-              <canvas
-                ref={canvasRef}
-                width={600}
-                height={200}
-                className="w-full touch-none"
-                style={{ height: '160px' }}
-              />
+              <canvas ref={canvasRef} width={600} height={200}
+                className="w-full touch-none" style={{ height: '160px' }} />
             </div>
           </div>
         </GlassCard>
       )}
 
-      {/* Reservation ID — shown after generated */}
+      {/* Reservation ID */}
       {reservationId && (
         <GlassCard className="px-4 py-3 flex items-center justify-between">
           <span className="text-sm font-medium text-[#1C1C1E]">Reservation ID</span>
@@ -359,17 +342,13 @@ export default function ReservationAgreementPage() {
         </GlassCard>
       )}
 
-      {/* Proceed to Payment button */}
-      <button
-        type="button"
-        disabled={!checked1 || !checked2 || !hasSigned}
-        onClick={handleProceed}
+      {/* Proceed button */}
+      <button type="button" disabled={!checked1 || !checked2 || !hasSigned} onClick={handleProceed}
         className={`w-full py-4 rounded-2xl text-sm font-bold transition-all ${
           checked1 && checked2 && hasSigned
             ? 'bg-[#E8634A] text-white active:opacity-80'
             : 'bg-[#E5E5EA] text-[#C7C7CC] cursor-not-allowed'
-        }`}
-      >
+        }`}>
         Proceed to Payment
       </button>
 
@@ -384,7 +363,7 @@ export default function ReservationAgreementPage() {
               </div>
               <p className="text-base font-bold text-[#1C1C1E] text-center">Confirm Payment</p>
               <p className="text-sm text-[#8E8E93] mt-1 text-center leading-relaxed">
-                Are you sure you want to proceed with the payment of the Reservation Fee of ₱25,000?
+                Are you sure you want to proceed with the payment of the Reservation Fee of ₱10,000?
               </p>
             </div>
             <div className="px-6 py-3 border-b border-black/[0.06]">
@@ -401,25 +380,15 @@ export default function ReservationAgreementPage() {
                 <span className="text-xs font-semibold text-[#1C1C1E]">{data?.inventoryCode ?? `${data?.floor}${data?.unitNo}`}</span>
               </div>
             </div>
-            {saveError && (
-              <p className="text-red-500 text-xs text-center px-6 pt-3">{saveError}</p>
-            )}
+            {saveError && <p className="text-red-500 text-xs text-center px-6 pt-3">{saveError}</p>}
             <div className="px-6 pb-7 pt-4 flex flex-col gap-2.5">
-              <button
-                type="button"
-                disabled={saving}
-                onClick={handleConfirm}
-                className="w-full py-3.5 rounded-2xl bg-[#E8634A] text-white text-sm font-bold active:opacity-80 flex items-center justify-center gap-2 disabled:opacity-60"
-              >
+              <button type="button" disabled={saving} onClick={handleConfirm}
+                className="w-full py-3.5 rounded-2xl bg-[#E8634A] text-white text-sm font-bold active:opacity-80 flex items-center justify-center gap-2 disabled:opacity-60">
                 {saving && <Loader2 size={15} className="animate-spin" />}
                 {saving ? 'Saving...' : 'Yes, Proceed to Payment'}
               </button>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => setShowConfirm(false)}
-                className="w-full py-3.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-70"
-              >
+              <button type="button" disabled={saving} onClick={() => setShowConfirm(false)}
+                className="w-full py-3.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-70">
                 Cancel
               </button>
             </div>

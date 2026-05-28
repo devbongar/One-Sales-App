@@ -17,9 +17,13 @@ import { saveClient } from '@/lib/clients';
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
 import { fetchAllBrokers, BrokerRecord } from '@/lib/brokers';
 
+const GENDER_OPTIONS    = ['Male', 'Female', 'Non-Binary'];
+const CIVIL_STATUS_OPTIONS = ['Single', 'Married', 'Widowed', 'Separated', 'Annulled'];
+
 const EMPTY_FORM = {
   clientType: 'Local' as 'Local' | 'International',
   lastName: '', firstName: '', middleName: '', suffix: '',
+  gender: '', civilStatus: '',
   dateOfBirth: '', citizenship: '', countryCode: '+63',
   mobileNumber: '', landlineNo: '', email: '',
   reasonForBuying: '', sourceOfSale: '', monthlyHouseholdIncome: '',
@@ -213,6 +217,8 @@ export default function NewClientPage() {
         first_name:               form.firstName,
         middle_name:              form.middleName,
         suffix:                   form.suffix,
+        gender:                   form.gender,
+        civil_status:             form.civilStatus,
         date_of_birth:            form.dateOfBirth,
         citizenship:              form.citizenship,
         country_code:             form.countryCode,
@@ -405,6 +411,14 @@ export default function NewClientPage() {
           <InputRow label="Suffix" icon={<User size={11} />}>
             <TextInput value={form.suffix} onChange={v => set('suffix')(toProperCase(v))} placeholder="e.g. Jr., Sr., III" />
           </InputRow>
+          <InputRow label="Gender" icon={<User size={11} />}>
+            <SelectInput value={form.gender} options={GENDER_OPTIONS}
+              onChange={set('gender')} placeholder="Select gender" />
+          </InputRow>
+          <InputRow label="Civil Status" icon={<Heart size={11} />}>
+            <SelectInput value={form.civilStatus} options={CIVIL_STATUS_OPTIONS}
+              onChange={set('civilStatus')} placeholder="Select civil status" />
+          </InputRow>
 
           <InputRow label="Date of Birth" icon={<Calendar size={11} />} error={errors.dateOfBirth} required>
             <div className="w-full flex items-center px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] overflow-hidden focus-within:border-[#E8634A]/50 focus-within:bg-white transition-colors">
@@ -414,8 +428,10 @@ export default function NewClientPage() {
             </div>
           </InputRow>
           <InputRow label="Citizenship" icon={<Globe size={11} />} error={errors.citizenship} required>
-            <button type="button" onClick={() => { setCitizenshipSearch(''); setCitizenshipPickerOpen(true); }}
-              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] active:opacity-70">
+            <div role="button" tabIndex={0}
+              onClick={() => { setCitizenshipSearch(''); setCitizenshipPickerOpen(true); }}
+              onKeyDown={e => e.key === 'Enter' && (setCitizenshipSearch(''), setCitizenshipPickerOpen(true))}
+              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] active:opacity-70 cursor-pointer">
               <span className={`text-sm ${form.citizenship ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
                 {form.citizenship || 'Select citizenship'}
               </span>
@@ -425,7 +441,7 @@ export default function NewClientPage() {
                   </button>
                 : <ChevronDown size={14} className="text-[#C7C7CC] shrink-0" />
               }
-            </button>
+            </div>
           </InputRow>
         </GlassCard>
 

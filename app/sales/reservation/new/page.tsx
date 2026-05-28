@@ -33,6 +33,7 @@ const RETENTION_FEE   = 50_000;
 const VAT_RATE        = 0.12;
 const OTHER_CHARGES_RATE = 0.07;
 const EMPLOYEE_DISCOUNT_RATE = 0.10;
+const HIC_TARGET      = 3_600_000;
 
 function calcMonthlyAmort(principal: number, annualRate: number, years: number): number {
   if (principal <= 0) return 0;
@@ -61,6 +62,7 @@ interface ComparisonItem {
   listPrice: number; promoAmount: number; promoPct: number;
   employeeAmount: number;
   paytermAmount: number; paytermPctDisplay: number;
+  hicDiscount: number;
   netListPrice: number; vat: number; otherCharges: number;
   totalContractPrice: number; netAmount: number;
   monthlyDeferred: number; dpAmount: number; netSpotDP: number;
@@ -82,9 +84,10 @@ const COMP_SECTIONS: { title: string; rows: CompRow[] }[] = [
   ]},
   { title: 'Price Computation', rows: [
     { label: 'List Price',    value: c => `₱${c.listPrice.toLocaleString()}` },
-    { label: 'Promo Disc.',     value: c => c.promoAmount > 0    ? `(₱${c.promoAmount.toLocaleString()})` : '—', green: true },
+    { label: 'Promo Disc.',    value: c => c.promoAmount > 0    ? `(₱${c.promoAmount.toLocaleString()})` : '—', green: true },
     { label: 'Employee Disc.', value: c => c.employeeAmount > 0 ? `(₱${c.employeeAmount.toLocaleString()})` : '—', green: true },
     { label: 'Payterm Disc.',  value: c => c.paytermAmount > 0  ? `(₱${c.paytermAmount.toLocaleString()})` : '—', green: true },
+    { label: 'HIC Disc.',      value: c => c.hicDiscount > 0    ? `(₱${c.hicDiscount.toLocaleString()})` : '—', green: true },
     { label: 'Net List Price', value: c => `₱${c.netListPrice.toLocaleString()}`, bold: true },
   ]},
   { title: 'Taxes & Charges', rows: [
@@ -362,6 +365,8 @@ export default function NewReservationPage() {
   const [dpRate,       setDpRate]       = useState<string>('15%');
   const [comparisons,  setComparisons]  = useState<ComparisonItem[]>([]);
   const [duplicateAlert, setDuplicateAlert] = useState(false);
+  const [useHIC,       setUseHIC]       = useState(false);
+  const [userRole,     setUserRole]     = useState('');
   const compHeaderRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   // Equalize comparison card header heights to the tallest one
@@ -398,6 +403,14 @@ export default function NewReservationPage() {
   // Fetch all paytems on mount
   useEffect(() => {
     fetchAllPayterms().then(setAllPayterms).catch(console.error);
+  }, []);
+
+  // Read user role from session
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('osa_session');
+      if (raw) setUserRole(JSON.parse(raw)?.role ?? '');
+    } catch {}
   }, []);
 
   // Auto-reset paymentTerm when project/tower changes and current term is no longer available
@@ -1177,7 +1190,10 @@ export default function NewReservationPage() {
           : spotCashDiscount;
         const paytermAmount   = Math.round(listPrice * paytermRate);
         const employeeAmount  = isMegawide ? Math.round(listPrice * EMPLOYEE_DISCOUNT_RATE) : 0;
-        const netListPrice    = listPrice - promoAmount - employeeAmount - paytermAmount;
+        const nlpBeforeHIC    = listPrice - promoAmount - employeeAmount - paytermAmount;
+        const showHIC         = userRole === 'admin' && unitCategory === 'Residential';
+        const hicDiscount     = (useHIC && showHIC) ? Math.max(0, nlpBeforeHIC - HIC_TARGET) : 0;
+        const netListPrice    = nlpBeforeHIC - hicDiscount;
         const vat          = Math.round(netListPrice * VAT_RATE);
         const otherCharges = Math.round(netListPrice * OTHER_CHARGES_RATE);
         const totalContractPrice = netListPrice + vat + otherCharges;
@@ -1208,6 +1224,7 @@ export default function NewReservationPage() {
             unitType: selectedUnit.unit_type || '', unitArea: selectedUnit.unit_area,
             unitCategory, paymentScheme, schemeName, dpRate, paymentTerm, termMonths,
             listPrice, promoAmount, promoPct, employeeAmount, paytermAmount, paytermPctDisplay,
+            hicDiscount,
             netListPrice, vat, otherCharges, totalContractPrice,
             netAmount, monthlyDeferred, dpAmount, netSpotDP,
             balanceForFinancing, monthlyStretchedDP, bankMonthly, hdmfMonthly,
@@ -1335,6 +1352,31 @@ export default function NewReservationPage() {
                 </div>
               )}
 
+              {/* HIC Checkbox — Sales Director + Residential only */}
+              {showHIC && (
+                <button
+                  type="button"
+                  onClick={() => setUseHIC(p => !p)}
+                  className={`w-full flex items-center gap-3 p-3 rounded-2xl border-2 transition-all ${
+                    useHIC
+                      ? 'border-[#5E5CE6] bg-[#5E5CE6]/10'
+                      : 'border-[#E5E5EA] bg-white'
+                  }`}
+                >
+                  <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
+                    useHIC ? 'border-[#5E5CE6] bg-[#5E5CE6]' : 'border-[#C7C7CC]'
+                  }`}>
+                    {useHIC && <Check size={12} className="text-white" />}
+                  </div>
+                  <div className="flex-1 text-left">
+                    <p className={`text-sm font-semibold ${useHIC ? 'text-[#5E5CE6]' : 'text-[#1C1C1E]'}`}>
+                      Home Improvement Contract
+                    </p>
+                    <p className="text-[10px] text-[#8E8E93]">Adjusts Net List Price to ₱3,600,000</p>
+                  </div>
+                </button>
+              )}
+
               {/* Computation breakdown */}
               <div className="bg-white rounded-2xl border border-black/[0.06] overflow-hidden">
                 <div className="flex items-center gap-3 p-4 border-b border-black/[0.06]">
@@ -1371,6 +1413,12 @@ export default function NewReservationPage() {
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-[#166534]">Less: Payterm Discount ({Number(paytermPctDisplay).toFixed(1)}%)</span>
                       <span className="text-sm font-medium text-[#166534]">(₱{paytermAmount.toLocaleString()})</span>
+                    </div>
+                  )}
+                  {hicDiscount > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[#5E5CE6]">Less: HIC Discount</span>
+                      <span className="text-sm font-medium text-[#5E5CE6]">(₱{hicDiscount.toLocaleString()})</span>
                     </div>
                   )}
                   <div className="flex items-center justify-between pt-2 border-t border-black/[0.06]">

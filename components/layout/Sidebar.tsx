@@ -20,15 +20,15 @@ const NAV: NavGroup[] = [
       { label: 'Client Registration',          href: '/sales/client-registration', icon: 'UserPlus' },
       { label: 'Reservation',                  href: '/sales/reservation',          icon: 'CalendarCheck' },
       { label: 'Booking',                      href: '/sales/booking',              icon: 'BookOpen' },
-      { label: 'Sales Commission',             href: '/sales/sales-commission',     icon: 'DollarSign',    comingSoon: true },
+      { label: 'Sales Commission',             href: '/sales/sales-commission',     icon: 'DollarSign' },
       { label: 'Generate Sample Computation',  href: '/sales/sample-computation',   icon: 'Calculator'  },
     ],
   },
   {
     title: 'Account Management',
     items: [
-      { label: "Buyer's Verification",   href: '/account/buyers-verification', icon: 'ShieldCheck',   comingSoon: true },
-      { label: "Buyer's Foldering",      href: '/account/buyers-foldering',    icon: 'FolderOpen',    comingSoon: true },
+      { label: "Buyer's Verification",   href: '/account/buyers-verification', icon: 'ShieldCheck' },
+      { label: "Buyer's Foldering",      href: '/account/buyers-foldering',    icon: 'FolderOpen' },
       { label: 'Request and Inquiry',    href: '/account/request-inquiry',     icon: 'MessageSquare', comingSoon: true },
       { label: 'Billing and Collection', href: '/account/billing-collection',  icon: 'Receipt',       comingSoon: true },
       { label: 'End-Use Financing',      href: '/account/end-use-financing',   icon: 'CreditCard',    comingSoon: true },
@@ -38,7 +38,7 @@ const NAV: NavGroup[] = [
     title: 'Finance',
     items: [
       { label: 'Commission Payout',  href: '/finance/commission-payout',  icon: 'Wallet',    comingSoon: true },
-      { label: "Buyer's Payment",    href: '/finance/buyers-payment',     icon: 'Banknote',  comingSoon: true },
+      { label: "Buyer's Payment",    href: '/finance/buyers-payment',     icon: 'Banknote' },
       { label: 'Collection Posting', href: '/finance/collection-posting', icon: 'BookMarked',comingSoon: true },
     ],
   },

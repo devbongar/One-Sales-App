@@ -3,6 +3,8 @@ import { supabase } from '@/lib/supabase';
 export interface SalespersonRecord {
   seller_name: string;
   position_code: string;
+  position_rank: string | null;
+  seller_group: string | null;
   sales_manager: string | null;
   sales_director: string | null;
   sales_division_head: string | null;

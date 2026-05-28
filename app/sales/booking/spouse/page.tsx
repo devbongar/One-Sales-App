@@ -4,15 +4,14 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
-import DatePickerInput from '@/components/ui/DatePickerInput';
-import { fetchAllClients, updateBuyerInfo, fetchBuyerInfo } from '@/lib/clients';
-import { supabase } from '@/lib/supabase';
 import { COUNTRY_CODES } from '@/lib/client-form-options';
+import { saveSpouseInfo, fetchSpouseInfo } from '@/lib/spouse-info';
+import { supabase } from '@/lib/supabase';
 import {
-  Hash, Building2, Tag, User, Users, UserCheck,
-  Check, CheckCircle2, ChevronDown, X, Phone, Mail, CreditCard,
-  AlertCircle, FileText, Gavel, Globe, Heart, Calendar,
-  Home, MapPin, Search, Briefcase, DollarSign,
+  Building2, User,
+  Check, ChevronDown, X, Phone, Mail, CreditCard,
+  AlertCircle, FileText, Globe, Heart, Calendar,
+  Home, MapPin, Search, Briefcase, DollarSign, CheckCircle2,
 } from 'lucide-react';
 
 // ─── Shared UI components ─────────────────────────────────────────────────────
@@ -31,33 +30,13 @@ function InputRow({ label, icon, required, children }: {
   );
 }
 
-function ReadOnlyField({ label, icon, value }: {
-  label: string; icon: React.ReactNode; value?: string | null;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <label className="text-xs font-semibold text-[#8E8E93] flex items-center gap-1.5">
-        {icon} {label}
-      </label>
-      <div className="w-full px-3 py-2.5 rounded-xl border border-black/[0.06] bg-[#F2F2F7]/50 text-sm text-[#6C6C70]">
-        {value || '—'}
-      </div>
-    </div>
-  );
-}
-
 function TextInput({ value, onChange, placeholder, disabled }: {
   value: string; onChange: (v: string) => void; placeholder?: string; disabled?: boolean;
 }) {
   return (
-    <input
-      type="text"
-      value={value}
-      onChange={e => onChange(e.target.value)}
-      placeholder={placeholder}
-      disabled={disabled}
-      className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#E8634A]/50 focus:bg-white transition-colors placeholder:text-[#C7C7CC] disabled:opacity-40"
-    />
+    <input type="text" value={value} onChange={e => onChange(e.target.value)}
+      placeholder={placeholder} disabled={disabled}
+      className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#E8634A]/50 focus:bg-white transition-colors placeholder:text-[#C7C7CC] disabled:opacity-40" />
   );
 }
 
@@ -77,8 +56,7 @@ function SelectInput({ value, options, onChange, placeholder, disabled }: {
   }, [open]);
   return (
     <div>
-      <div role="button" tabIndex={0}
-        onClick={() => setOpen(p => !p)}
+      <div role="button" tabIndex={0} onClick={() => setOpen(p => !p)}
         onKeyDown={e => e.key === 'Enter' && setOpen(p => !p)}
         className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] cursor-pointer">
         <span className={`text-sm ${value ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>{value || placeholder}</span>
@@ -121,8 +99,7 @@ function SearchableSelect({ value, options, onChange, placeholder, disabled }: {
   }, [open]);
   return (
     <div>
-      <div role="button" tabIndex={0}
-        onClick={() => { setOpen(p => !p); setQuery(''); }}
+      <div role="button" tabIndex={0} onClick={() => { setOpen(p => !p); setQuery(''); }}
         onKeyDown={e => e.key === 'Enter' && setOpen(p => !p)}
         className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] cursor-pointer">
         <span className={`text-sm ${value ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>{value || placeholder}</span>
@@ -140,8 +117,7 @@ function SearchableSelect({ value, options, onChange, placeholder, disabled }: {
           </div>
           <div className="max-h-48 overflow-y-auto">
             {filtered.length > 0 ? filtered.map(o => (
-              <button key={o.label} type="button"
-                onClick={() => { onChange(o.label); setOpen(false); setQuery(''); }}
+              <button key={o.label} type="button" onClick={() => { onChange(o.label); setOpen(false); setQuery(''); }}
                 className={`w-full flex items-center justify-between px-3 py-2.5 text-sm border-b border-black/[0.05] last:border-0 active:bg-gray-50 ${
                   o.label === value ? 'bg-[#E8634A]/10 text-[#E8634A] font-semibold' : 'text-[#1C1C1E]'
                 }`}>
@@ -217,16 +193,6 @@ function PhoneInputField({ code, onCodeChange, number, onNumberChange, disabled 
   );
 }
 
-function ReadOnlyRow({ icon, label, value }: { icon: React.ReactNode; label: string; value?: string | null }) {
-  return (
-    <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06] last:border-0">
-      <span className="text-[#E8634A] shrink-0">{icon}</span>
-      <span className="flex-1 text-sm font-medium text-[#1C1C1E]">{label}</span>
-      <span className="text-sm text-right text-[#6C6C70] max-w-[180px] truncate">{value || '—'}</span>
-    </div>
-  );
-}
-
 function NextButton({ onClick }: { onClick: () => void }) {
   return (
     <button type="button" onClick={onClick}
@@ -249,28 +215,25 @@ const MAILING_OPTS             = ['Home Address', 'Office Address', 'Others'];
 const COUNTRY_OPTIONS          = COUNTRY_CODES.map(c => ({ label: c.name, flag: c.flag }));
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
-export default function BuyerInfoPage() {
+export default function SpousePage() {
   const router = useRouter();
   const [step, setStep] = useState(0);
+  const [isSaving,         setIsSaving]         = useState(false);
+  const [isSaved,          setIsSaved]          = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   const [reservation, setReservation] = useState<{
-    reservation_id?: string; project?: string; inventory_code?: string; client_name?: string;
+    reservation_id?: string;
   } | null>(null);
 
-  // ── Step 0: Personal Information state ──
-  const [isSaving,          setIsSaving]          = useState(false);
-  const [isSaved,           setIsSaved]           = useState(false);
-  const [showConfirmModal,  setShowConfirmModal]  = useState(false);
-  const [hasCoOwnership,    setHasCoOwnership]    = useState(false);
-  const [hasAttyInFact,     setHasAttyInFact]     = useState(false);
-  const [clientUuid,   setClientUuid]   = useState('');
-  const [clientId,    setClientId]    = useState('');
+  // ── Personal Information state ──
   const [lastName,    setLastName]    = useState('');
   const [firstName,   setFirstName]   = useState('');
   const [middleName,  setMiddleName]  = useState('');
   const [suffix,      setSuffix]      = useState('');
   const [citizenship, setCitizenship] = useState('');
   const [dateOfBirth, setDateOfBirth] = useState('');
+  const [mobileCode,  setMobileCode]  = useState('+63');
   const [mobile,      setMobile]      = useState('');
   const [landline,    setLandline]    = useState('');
   const [email,       setEmail]       = useState('');
@@ -279,7 +242,7 @@ export default function BuyerInfoPage() {
   const [tin,         setTin]         = useState('');
   const [noTin,       setNoTin]       = useState(false);
 
-  // ── Step 1: Address Information state ──
+  // ── Address Information state ──
   const [homeOwnership,    setHomeOwnership]    = useState('');
   const [country,          setCountry]          = useState('Philippines');
   const [regionProvince,   setRegionProvince]   = useState('');
@@ -288,7 +251,7 @@ export default function BuyerInfoPage() {
   const [streetLine2,      setStreetLine2]      = useState('');
   const [unitNo,           setUnitNo]           = useState('');
 
-  // ── Step 2: Employment Information state ──
+  // ── Employment Information state ──
   const [employer,          setEmployer]          = useState('');
   const [natureOfBusiness,  setNatureOfBusiness]  = useState('');
   const [employmentSector,  setEmploymentSector]  = useState('');
@@ -301,7 +264,7 @@ export default function BuyerInfoPage() {
   const [workLandline,      setWorkLandline]      = useState('');
   const [workEmail,         setWorkEmail]         = useState('');
 
-  // ── Step 2: Work Address state ──
+  // ── Work Address state ──
   const [workCountry,          setWorkCountry]          = useState('Philippines');
   const [workRegionProvince,   setWorkRegionProvince]   = useState('');
   const [workCityMunicipality, setWorkCityMunicipality] = useState('');
@@ -311,102 +274,77 @@ export default function BuyerInfoPage() {
   const [mailingType,          setMailingType]          = useState('');
   const [mailingOther,         setMailingOther]         = useState('');
 
-  // Derived mailing address text
   const homeAddressText   = [unitNo, barangayLine1, streetLine2, cityMunicipality, regionProvince, country].filter(Boolean).join(', ');
   const officeAddressText = [workBuildingUnit, workBarangay, workStreet, workCityMunicipality, workRegionProvince, workCountry].filter(Boolean).join(', ');
   const mailingDisplay    = mailingType === 'Home Address' ? homeAddressText
                           : mailingType === 'Office Address' ? officeAddressText
                           : mailingOther;
 
-  // Load reservation + auto-fill from client record
   useEffect(() => {
     const raw = sessionStorage.getItem('selectedReservation');
-    if (!raw) return;
-    const r = JSON.parse(raw);
-    setReservation(r);
-    if (r.reservation_id) {
-    }
-    fetchAllClients().then(async clients => {
-      const match = clients.find(c =>
-        [c.first_name, c.last_name, c.suffix].filter(Boolean).join(' ') === r.client_name
-      );
-      if (!match) return;
-      setClientUuid(match.id);
-      setClientId(match.client_id ?? '');
-      setLastName(match.last_name ?? '');
-      setFirstName(match.first_name ?? '');
-      setMiddleName(match.middle_name ?? '');
-      setSuffix(match.suffix ?? '');
-      setCitizenship(match.citizenship ?? '');
-      setDateOfBirth(match.date_of_birth ?? '');
-      const cc  = match.country_code ?? '+63';
-      const num = match.mobile_number ?? '';
-      setMobile(num ? `${cc} ${num}` : '');
-      setLandline(match.landline_no ?? '');
-      setEmail(match.email ?? '');
-
-      // Load previously saved buyer info
-      const info = await fetchBuyerInfo(match.id).catch(() => null);
-      if (!info?.buyer_info_saved) return; // not yet saved
-      setIsSaved(true);
-      setHasCoOwnership(info.has_co_ownership ?? false);
-      setHasAttyInFact(info.has_atty_in_fact ?? false);
-      setGender(info.gender ?? '');
-      setCivilStatus(info.civil_status ?? '');
-
-      // Sync has_spouse on the reservation so the spouse step stays correct
+    if (raw) {
+      const r = JSON.parse(raw);
+      setReservation(r);
       if (r.reservation_id) {
-        await supabase
-          .from('reservations')
-          .update({ has_spouse: info.civil_status === 'Married' })
-          .eq('reservation_id', r.reservation_id);
+        fetchSpouseInfo(r.reservation_id).then(info => {
+          if (!info) return;
+          setIsSaved(true);
+          supabase.from('reservations').update({ spouse_info_saved: true }).eq('reservation_id', r.reservation_id).then(() => {});
+          setLastName(info.last_name ?? '');
+          setFirstName(info.first_name ?? '');
+          setMiddleName(info.middle_name ?? '');
+          setSuffix(info.suffix ?? '');
+          setGender(info.gender ?? '');
+          setCivilStatus(info.civil_status ?? '');
+          setCitizenship(info.citizenship ?? '');
+          setDateOfBirth(info.date_of_birth ?? '');
+          setMobileCode(info.mobile_code ?? '+63');
+          setMobile(info.mobile ?? '');
+          setLandline(info.landline ?? '');
+          setEmail(info.email ?? '');
+          setTin(info.tin ?? '');
+          setNoTin(info.no_tin ?? false);
+          setHomeOwnership(info.home_ownership ?? '');
+          setCountry(info.home_country ?? 'Philippines');
+          setRegionProvince(info.home_region_province ?? '');
+          setCityMunicipality(info.home_city_municipality ?? '');
+          setBarangayLine1(info.home_barangay ?? '');
+          setStreetLine2(info.home_street ?? '');
+          setUnitNo(info.home_unit ?? '');
+          setEmployer(info.employer ?? '');
+          setNatureOfBusiness(info.nature_of_business ?? '');
+          setEmploymentSector(info.employment_sector ?? '');
+          setEmploymentStatus(info.employment_status ?? '');
+          setJobTitle(info.job_title ?? '');
+          setRank(info.rank ?? '');
+          setSalaryRange(info.salary_range ?? '');
+          setWorkMobileCode(info.work_mobile_code ?? '+63');
+          setWorkMobile(info.work_mobile ?? '');
+          setWorkLandline(info.work_landline ?? '');
+          setWorkEmail(info.work_email ?? '');
+          setWorkCountry(info.work_country ?? 'Philippines');
+          setWorkRegionProvince(info.work_region_province ?? '');
+          setWorkCityMunicipality(info.work_city_municipality ?? '');
+          setWorkBarangay(info.work_barangay ?? '');
+          setWorkStreet(info.work_street ?? '');
+          setWorkBuildingUnit(info.work_building_unit ?? '');
+          setMailingType(info.mailing_type ?? '');
+          setMailingOther(info.mailing_other ?? '');
+        }).catch(err => console.error('[spouse] fetchSpouseInfo error:', err));
       }
-      setTin(info.tin ?? '');
-      setNoTin(info.no_tin ?? false);
-      setHomeOwnership(info.home_ownership ?? '');
-      setCountry(info.home_country ?? 'Philippines');
-      setRegionProvince(info.home_region_province ?? '');
-      setCityMunicipality(info.home_city_municipality ?? '');
-      setBarangayLine1(info.home_barangay ?? '');
-      setStreetLine2(info.home_street ?? '');
-      setUnitNo(info.home_unit ?? '');
-      setEmployer(info.employer ?? '');
-      setNatureOfBusiness(info.nature_of_business ?? '');
-      setEmploymentSector(info.employment_sector ?? '');
-      setEmploymentStatus(info.employment_status ?? '');
-      setJobTitle(info.job_title ?? '');
-      setRank(info.rank ?? '');
-      setSalaryRange(info.salary_range ?? '');
-      setWorkMobileCode(info.work_mobile_code ?? '+63');
-      setWorkMobile(info.work_mobile ?? '');
-      setWorkLandline(info.work_landline ?? '');
-      setWorkEmail(info.work_email ?? '');
-      setWorkCountry(info.work_country ?? 'Philippines');
-      setWorkRegionProvince(info.work_region_province ?? '');
-      setWorkCityMunicipality(info.work_city_municipality ?? '');
-      setWorkBarangay(info.work_barangay ?? '');
-      setWorkStreet(info.work_street ?? '');
-      setWorkBuildingUnit(info.work_building_unit ?? '');
-      setMailingType(info.mailing_type ?? '');
-      setMailingOther(info.mailing_other ?? '');
-    }).catch(console.error);
+    }
   }, []);
 
-  // ── Save + confirmation flow ──────────────────────────────────────────────
-  function routeAfterSave() {
-    router.push('/sales/booking/detail');
-  }
-
   async function handleSave() {
-    if (isSaved) { routeAfterSave(); return; }
-    if (!clientUuid) return;
+    if (isSaved) { router.push('/sales/booking/detail'); return; }
     setIsSaving(true);
     try {
-      await updateBuyerInfo(clientUuid, {
-        gender, civil_status: civilStatus,
+      await saveSpouseInfo({
+        reservation_id: reservation?.reservation_id ?? '',
+        last_name: lastName, first_name: firstName, middle_name: middleName, suffix,
+        gender, civil_status: civilStatus, citizenship, date_of_birth: dateOfBirth,
+        mobile_code: mobileCode, mobile, landline, email,
         tin: noTin ? '' : tin, no_tin: noTin,
-        has_co_ownership: hasCoOwnership,
-        has_atty_in_fact: hasAttyInFact,
         home_ownership: homeOwnership, home_country: country,
         home_region_province: regionProvince, home_city_municipality: cityMunicipality,
         home_barangay: barangayLine1, home_street: streetLine2, home_unit: unitNo,
@@ -420,14 +358,13 @@ export default function BuyerInfoPage() {
         work_street: workStreet, work_building_unit: workBuildingUnit,
         mailing_type: mailingType, mailing_other: mailingOther,
       });
-      // Sync has_spouse on the reservation so the spouse step shows/hides correctly
       if (reservation?.reservation_id) {
         await supabase
           .from('reservations')
-          .update({ has_spouse: civilStatus === 'Married' })
+          .update({ spouse_info_saved: true })
           .eq('reservation_id', reservation.reservation_id);
       }
-      routeAfterSave();
+      router.push('/sales/booking/detail');
     } catch (err) {
       alert('Failed to save. Please try again.');
       console.error(err);
@@ -436,50 +373,58 @@ export default function BuyerInfoPage() {
     }
   }
 
-
   // ── Step 0: Personal Information ─────────────────────────────────────────
   if (step === 0) return (
-    <PageShell title="Buyer Information" backButton onBack={() => router.push('/sales/booking/detail')}>
+    <PageShell title="Spouse Information" backButton onBack={() => router.push('/sales/booking/detail')}>
       <div className="space-y-4 pb-6">
-
-
         <GlassCard className="p-4 space-y-4">
           <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Personal Information</p>
 
-          <ReadOnlyField label="Client ID"   icon={<UserCheck size={11} />} value={clientId} />
-          <ReadOnlyField label="Last Name"   icon={<User size={11} />}      value={lastName} />
-          <ReadOnlyField label="First Name"  icon={<User size={11} />}      value={firstName} />
-          <ReadOnlyField label="Middle Name" icon={<User size={11} />}      value={middleName} />
-          <ReadOnlyField label="Suffix"      icon={<User size={11} />}      value={suffix} />
-
-          <InputRow label="Gender" icon={<User size={11} />} required={!isSaved}>
+          <InputRow label="Last Name" icon={<User size={11} />} required>
+            <TextInput value={lastName} onChange={setLastName} placeholder="e.g. Santos" disabled={isSaved} />
+          </InputRow>
+          <InputRow label="First Name" icon={<User size={11} />} required>
+            <TextInput value={firstName} onChange={setFirstName} placeholder="e.g. Maria" disabled={isSaved} />
+          </InputRow>
+          <InputRow label="Middle Name" icon={<User size={11} />}>
+            <TextInput value={middleName} onChange={setMiddleName} placeholder="e.g. Cruz" disabled={isSaved} />
+          </InputRow>
+          <InputRow label="Suffix" icon={<User size={11} />}>
+            <TextInput value={suffix} onChange={setSuffix} placeholder="e.g. Jr." disabled={isSaved} />
+          </InputRow>
+          <InputRow label="Gender" icon={<User size={11} />} required>
             <SelectInput value={gender} options={GENDER_OPTIONS} onChange={setGender} placeholder="Select gender" disabled={isSaved} />
           </InputRow>
-          <InputRow label="Civil Status" icon={<Heart size={11} />} required={!isSaved}>
+          <InputRow label="Civil Status" icon={<Heart size={11} />} required>
             <SelectInput value={civilStatus} options={CIVIL_STATUS_OPTIONS} onChange={setCivilStatus} placeholder="Select civil status" disabled={isSaved} />
           </InputRow>
-
-          <ReadOnlyField label="Citizenship"   icon={<Globe size={11} />}  value={citizenship} />
-          <InputRow label="Date of Birth" icon={<Calendar size={11} />}>
-            <DatePickerInput value={dateOfBirth} onChange={() => {}} disabled />
+          <InputRow label="Citizenship" icon={<Globe size={11} />}>
+            <TextInput value={citizenship} onChange={setCitizenship} placeholder="e.g. Filipino" disabled={isSaved} />
           </InputRow>
-          <ReadOnlyField label="Mobile No."    icon={<Phone size={11} />}  value={mobile} />
-          <ReadOnlyField label="Landline No."  icon={<Phone size={11} />}  value={landline} />
-          <ReadOnlyField label="Email Address" icon={<Mail size={11} />}   value={email} />
-
-          <InputRow label="Tax ID No. (TIN)" icon={<CreditCard size={11} />} required={!noTin && !isSaved}>
+          <InputRow label="Date of Birth" icon={<Calendar size={11} />}>
+            <div className={`w-full flex items-center px-3 py-2.5 rounded-xl border overflow-hidden transition-colors ${isSaved ? 'border-black/[0.06] bg-[#F2F2F7]/50' : 'border-black/[0.1] bg-[#F2F2F7] focus-within:border-[#E8634A]/50 focus-within:bg-white'}`}>
+              <input type="date" value={dateOfBirth} onChange={e => !isSaved && setDateOfBirth(e.target.value)}
+                disabled={isSaved}
+                className="w-full min-w-0 bg-transparent text-sm text-[#1C1C1E] outline-none disabled:text-[#6C6C70]" />
+            </div>
+          </InputRow>
+          <InputRow label="Mobile No." icon={<Phone size={11} />}>
+            <PhoneInputField code={mobileCode} onCodeChange={setMobileCode} number={mobile} onNumberChange={setMobile} disabled={isSaved} />
+          </InputRow>
+          <InputRow label="Landline No." icon={<Phone size={11} />}>
+            <input type="tel" value={landline}
+              onChange={e => setLandline(e.target.value.replace(/\D/g, ''))}
+              placeholder="e.g. 028XXXXXXX" disabled={isSaved}
+              className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC] disabled:border-black/[0.06] disabled:bg-[#F2F2F7]/50 disabled:text-[#6C6C70]" />
+          </InputRow>
+          <InputRow label="Email Address" icon={<Mail size={11} />}>
+            <TextInput value={email} onChange={setEmail} placeholder="email@example.com" disabled={isSaved} />
+          </InputRow>
+          <InputRow label="Tax ID No. (TIN)" icon={<CreditCard size={11} />} required={!noTin}>
             <TextInput value={noTin ? '' : tin} onChange={setTin}
               placeholder={noTin ? 'No TIN' : 'XXX-XXX-XXX'} disabled={noTin || isSaved} />
           </InputRow>
-
-          {isSaved ? (
-            noTin && (
-              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-[#F2F2F7]/50 border border-black/[0.06]">
-                <FileText size={14} className="text-[#E8634A] shrink-0" />
-                <span className="text-sm text-[#6C6C70] font-medium">No TIN</span>
-              </div>
-            )
-          ) : (
+          {!isSaved && (
             <button type="button" onClick={() => { setNoTin(p => !p); if (!noTin) setTin(''); }}
               className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-semibold transition-all ${
                 noTin ? 'bg-[#E8634A] border-[#E8634A] text-white' : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
@@ -487,12 +432,17 @@ export default function BuyerInfoPage() {
               {noTin && <Check size={13} />}<FileText size={14} />No TIN
             </button>
           )}
-
+          {isSaved && noTin && (
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-100 border border-amber-200">
+              <FileText size={11} className="text-amber-600" />
+              <span className="text-[10px] font-semibold text-amber-700">No TIN</span>
+            </div>
+          )}
           {noTin && (
             <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
               <AlertCircle size={15} className="text-amber-500 shrink-0 mt-0.5" />
               <p className="text-xs text-amber-700 leading-relaxed">
-                The buyer agrees to fill the BIR Form 1904 and register with BIR within 30 days from the reservation of payment.
+                The spouse agrees to fill the BIR Form 1904 and register with BIR within 30 days from the reservation of payment.
               </p>
             </div>
           )}
@@ -505,10 +455,8 @@ export default function BuyerInfoPage() {
 
   // ── Step 1: Address Information ───────────────────────────────────────────
   if (step === 1) return (
-    <PageShell title="Buyer Information" backButton onBack={() => setStep(0)}>
+    <PageShell title="Spouse Information" backButton onBack={() => setStep(0)}>
       <div className="space-y-4 pb-6">
-
-
         <GlassCard className="p-4 space-y-4">
           <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Address Information</p>
 
@@ -542,12 +490,9 @@ export default function BuyerInfoPage() {
 
   // ── Step 2: Employment + Work Address ─────────────────────────────────────
   return (
-    <PageShell title="Buyer Information" backButton onBack={() => setStep(1)}>
+    <PageShell title="Spouse Information" backButton onBack={() => setStep(1)}>
       <div className="space-y-4 pb-6">
 
-
-
-        {/* Employment Information */}
         <GlassCard className="p-4 space-y-4">
           <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Employment Information</p>
 
@@ -576,20 +521,16 @@ export default function BuyerInfoPage() {
             <PhoneInputField code={workMobileCode} onCodeChange={setWorkMobileCode} number={workMobile} onNumberChange={setWorkMobile} disabled={isSaved} />
           </InputRow>
           <InputRow label="Landline No." icon={<Phone size={11} />}>
-            {isSaved
-              ? <div className="w-full px-3 py-2.5 rounded-xl border border-black/[0.06] bg-[#F2F2F7]/50 text-sm text-[#6C6C70]">{workLandline || '—'}</div>
-              : <input type="tel" value={workLandline}
-                  onChange={e => setWorkLandline(e.target.value.replace(/\D/g, ''))}
-                  placeholder="e.g. 028XXXXXXX"
-                  className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC]" />
-            }
+            <input type="tel" value={workLandline}
+              onChange={e => setWorkLandline(e.target.value.replace(/\D/g, ''))}
+              placeholder="e.g. 028XXXXXXX" disabled={isSaved}
+              className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC] disabled:border-black/[0.06] disabled:bg-[#F2F2F7]/50 disabled:text-[#6C6C70]" />
           </InputRow>
           <InputRow label="Email Address" icon={<Mail size={11} />}>
             <TextInput value={workEmail} onChange={setWorkEmail} placeholder="work@email.com" disabled={isSaved} />
           </InputRow>
         </GlassCard>
 
-        {/* Work Address Information */}
         <GlassCard className="p-4 space-y-4">
           <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Work Address Information</p>
 
@@ -612,7 +553,6 @@ export default function BuyerInfoPage() {
             <TextInput value={workBuildingUnit} onChange={setWorkBuildingUnit} placeholder="e.g. 28F Tower 1" disabled={isSaved} />
           </InputRow>
 
-          {/* Mailing Address */}
           <div className="space-y-2">
             <label className="text-xs font-semibold text-[#8E8E93] flex items-center gap-1.5">
               <Mail size={11} /> Mailing Address
@@ -622,36 +562,25 @@ export default function BuyerInfoPage() {
                 <button key={opt} type="button"
                   onClick={() => !isSaved && setMailingType(p => p === opt ? '' : opt)}
                   className={`flex flex-col items-center justify-center gap-1 py-2.5 px-1 rounded-xl border text-xs font-semibold transition-all leading-tight text-center ${
-                    mailingType === opt
-                      ? 'bg-[#E8634A] border-[#E8634A] text-white'
-                      : isSaved ? 'bg-[#F2F2F7]/50 border-transparent text-[#C7C7CC]'
-                      : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
-                  }`}>
-                  {mailingType === opt && <Check size={11} />}
-                  {opt}
+                    mailingType === opt ? 'bg-[#E8634A] border-[#E8634A] text-white' : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
+                  } ${isSaved ? 'opacity-60 cursor-default' : ''}`}>
+                  {mailingType === opt && <Check size={11} />}{opt}
                 </button>
               ))}
             </div>
-
-            {/* Mailing address display / input */}
             {mailingType && mailingType !== 'Others' && (
               <div className="w-full px-3 py-2.5 rounded-xl border border-black/[0.06] bg-[#F2F2F7]/50 text-sm text-[#6C6C70] leading-relaxed">
                 {mailingDisplay || '—'}
               </div>
             )}
             {mailingType === 'Others' && (
-              <textarea
-                value={mailingOther}
-                onChange={e => setMailingOther(e.target.value)}
-                placeholder="Enter mailing address..."
-                rows={3}
-                className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#E8634A]/50 focus:bg-white transition-colors placeholder:text-[#C7C7CC] resize-none"
-              />
+              <textarea value={mailingOther} onChange={e => !isSaved && setMailingOther(e.target.value)}
+                placeholder="Enter mailing address..." rows={3} disabled={isSaved}
+                className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#E8634A]/50 focus:bg-white transition-colors placeholder:text-[#C7C7CC] resize-none disabled:border-black/[0.06] disabled:bg-[#F2F2F7]/50 disabled:text-[#6C6C70]" />
             )}
           </div>
         </GlassCard>
 
-        {/* Save button */}
         <button type="button"
           onClick={() => isSaved ? handleSave() : setShowConfirmModal(true)}
           disabled={isSaving}
@@ -679,10 +608,9 @@ export default function BuyerInfoPage() {
                 Please make sure all the information provided is correct before saving. This will be used for official booking documents.
               </p>
             </div>
-            <button type="button"
-              onClick={() => { setShowConfirmModal(false); handleSave(); }}
+            <button type="button" onClick={() => { setShowConfirmModal(false); handleSave(); }}
               className="w-full py-3.5 rounded-2xl bg-[#E8634A] text-white text-sm font-bold active:opacity-80">
-              Confirm & Save
+              Confirm &amp; Save
             </button>
             <button type="button" onClick={() => setShowConfirmModal(false)}
               className="w-full py-3.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-70">
