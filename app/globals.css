@@ -28,7 +28,7 @@ body {
 
 body {
   background: radial-gradient(ellipse at 25% 0%, #F07A62 0%, #E8634A 35%, #C5432A 65%, #8B2515 100%);
-  background-attachment: fixed;
+  background-attachment: scroll;
   color: #ffffff;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
   min-height: 100vh;
