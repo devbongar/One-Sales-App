@@ -100,7 +100,9 @@ export async function approvePaymentReview(
   const { error } = await supabase
     .from('reservations')
     .update({
-      status: 'Approved',
+      status:                     'Approved',
+      booking_review_status:      'finance-verified',
+      finance_verified_at:        new Date().toISOString(),
       acknowledgement_receipt_no: acknowledgementReceiptNo,
       sales_invoice_no:           salesInvoiceNo,
       date_of_reservation_fee:    dateOfReservationFee,

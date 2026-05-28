@@ -114,6 +114,17 @@ export default function FinanceVerifyPage() {
     setActionError('');
     try {
       await approvePaymentReview(booking.reservation_id, ackReceiptNo.trim(), salesInvoiceNo.trim(), dateOfResFee);
+      // Update sessionStorage so re-opening this booking shows read-only state
+      const updated = {
+        ...booking,
+        booking_review_status:      'finance-verified',
+        finance_verified_at:        new Date().toISOString(),
+        acknowledgement_receipt_no: ackReceiptNo.trim(),
+        sales_invoice_no:           salesInvoiceNo.trim(),
+        date_of_reservation_fee:    dateOfResFee,
+      };
+      sessionStorage.setItem('financeBooking', JSON.stringify(updated));
+      setBooking(updated);
       setDone('approved');
     } catch (e: any) {
       setActionError(e.message ?? 'Failed to approve. Please try again.');
