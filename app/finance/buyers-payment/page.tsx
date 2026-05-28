@@ -101,7 +101,7 @@ export default function BuyersPaymentPage() {
         q = supabase
           .from('reservations')
           .select(SELECT)
-          .or('status.eq.Pending Review,booking_review_status.in.(director-approved,finance-verified)')
+          .or('status.eq.Pending Review,booking_review_status.eq.director-approved,booking_review_status.eq.finance-verified')
           .order('created_at', { ascending: false });
       } else if (statusFilter === 'Pending Review') {
         q = supabase
