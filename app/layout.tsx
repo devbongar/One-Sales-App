@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import ThemeColorManager from '@/components/layout/ThemeColorManager';
 
 export const metadata: Metadata = {
   title: 'One Sales App',
@@ -23,7 +24,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="h-full" style={{ backgroundColor: '#000000' }}>
-      <body className="h-full">{children}</body>
+      <body className="h-full">
+        <ThemeColorManager />
+        {children}
+      </body>
     </html>
   );
 }
