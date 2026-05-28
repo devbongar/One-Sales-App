@@ -19,7 +19,7 @@ const BLUR_DATA_URL =
 function CarouselLoader() {
   return (
     <div className="relative h-full w-full overflow-hidden"
-      style={{ background: '#E8634A' }}>
+      style={{ background: 'radial-gradient(ellipse at 25% 0%, #F07A62 0%, #E8634A 35%, #C5432A 65%, #8B2515 100%)' }}>
 
       {/* Diagonal shimmer sweep */}
       <div className="absolute inset-0 pointer-events-none"
@@ -123,7 +123,7 @@ export default function ProjectCarousel({ onProjectClick }: ProjectCarouselProps
   if (projects.length === 0) {
     return (
       <div className="relative h-full w-full flex items-center justify-center"
-        style={{ background: '#E8634A' }}>
+        style={{ background: 'radial-gradient(ellipse at 25% 0%, #F07A62 0%, #E8634A 35%, #C5432A 65%, #8B2515 100%)' }}>
         <p className="text-white/60 text-sm">No projects available</p>
       </div>
     );
