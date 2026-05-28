@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
-import ThemeColorManager from '@/components/layout/ThemeColorManager';
 
 export const metadata: Metadata = {
   title: 'One Sales App',
@@ -8,7 +7,7 @@ export const metadata: Metadata = {
   manifest: '/manifest.webmanifest',
   appleWebApp: {
     capable: true,
-    statusBarStyle: 'default',
+    statusBarStyle: 'black-translucent',
     title: 'OneSales',
   },
 };
@@ -17,17 +16,14 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
-  themeColor: '#000000',
+  themeColor: '#E8634A',
   viewportFit: 'cover',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="h-full" style={{ backgroundColor: '#000000' }}>
-      <body className="h-full">
-        <ThemeColorManager />
-        {children}
-      </body>
+    <html lang="en" className="h-full">
+      <body className="h-full">{children}</body>
     </html>
   );
 }

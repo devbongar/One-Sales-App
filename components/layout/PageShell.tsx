@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect } from 'react';
 import AppLayout from './AppLayout';
 import { ThemeContext } from '@/context/theme';
 
@@ -12,13 +11,6 @@ interface PageShellProps {
 }
 
 export default function PageShell({ title, children, backButton, onBack }: PageShellProps) {
-  useEffect(() => {
-    const meta = document.querySelector('meta[name="theme-color"]');
-    const prev = meta?.getAttribute('content') ?? '#000000';
-    meta?.setAttribute('content', '#ffffff');
-    return () => { meta?.setAttribute('content', prev); };
-  }, []);
-
   return (
     <ThemeContext.Provider value="light">
       <AppLayout title={title} backButton={backButton} onBack={onBack}>
