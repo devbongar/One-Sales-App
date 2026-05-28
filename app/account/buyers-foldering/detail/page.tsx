@@ -71,7 +71,7 @@ const TERMS = [
   {
     title: 'RESERVATION PROVISION',
     items: [
-      `1. As proof of my interest to purchase the Property, I hereby tender the sum of: PHP 10,000 as Reservation Fee, exclusive of VAT, in order to reserve the Property for our intended purchase which shall be effective for a period of thirty (30) days from delivery of the Reservation Fee. I understand and acknowledge that the Reservation Fee is non-refundable. Should I decide to cancel my reservation; fail to submit all the documentary requirements, including this Reservation Agreement; or fail to pay the amounts due on the prescribed due dates, for any reason whatsoever, I agree that my reservation shall lapse and my Reservation Fee shall be forfeited in favor of the Company. I will hold the Company free and harmless for thereafter releasing and offering the Property to other interested buyers.`,
+      `1. As proof of my interest to purchase the Property, I hereby tender the sum of: {{RESERVATION_FEE}} as Reservation Fee, exclusive of VAT, in order to reserve the Property for our intended purchase which shall be effective for a period of thirty (30) days from delivery of the Reservation Fee. I understand and acknowledge that the Reservation Fee is non-refundable. Should I decide to cancel my reservation; fail to submit all the documentary requirements, including this Reservation Agreement; or fail to pay the amounts due on the prescribed due dates, for any reason whatsoever, I agree that my reservation shall lapse and my Reservation Fee shall be forfeited in favor of the Company. I will hold the Company free and harmless for thereafter releasing and offering the Property to other interested buyers.`,
       `2. I acknowledge that the Company reserves the right to accept or deny this request for reservation and that it is non-transferable. Subject to a written request by me, the Company, at its sole discretion, may extend this reservation for a period of more than fifteen (15) days within which to make the down payment, provided that I shall incur a penalty charge of three percent (3%) per month, or a fraction thereof.`,
       `3. In the event the Property is found unavailable for sale for any reason whatsoever, I agree to hold the Company free and harmless from any liability and it shall have the option of exchanging the Property with another similar unit/lot/property, as applicable, or otherwise cancel this Reservation Agreement. Should there be no substitution or should the substituted Property be unacceptable to me, I shall hold the Company free and harmless from any liability for canceling the Reservation Agreement, subject to reimbursement to me of all payments made, without interest.`,
     ],
@@ -236,66 +236,124 @@ function AgreementViewer({
       {/* Scrollable pages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
 
-        {/* ── PAGE 1: Date · Intro · Property Details ── */}
+        {/* ── PAGE 1: Intro · Buyer Name · Property Info · Price & Terms · Reservation Provision ── */}
         <A4Page pageNum={1} total={TOTAL} reservationId={resId} title="Reservation Agreement">
 
-          {/* Date + Res No */}
-          <div className="flex items-center justify-between mb-5">
-            <span className="text-[10px] text-gray-500">
-              Date:{' '}
-              <span className="font-semibold text-[#1C1C1E]">{formatDate(d.created_at)}</span>
-            </span>
-            <span className="text-[10px] text-gray-500">
-              Res. No.:{' '}
-              <span className="font-semibold text-[#1C1C1E]">{d.reservation_id ?? '—'}</span>
-            </span>
-          </div>
-
-          {/* Intro paragraph */}
-          <p className="text-[11px] leading-[1.85] text-[#3A3A3C] text-justify mb-6">
-            I,{' '}
-            <span className="font-bold text-[#1C1C1E] uppercase">
-              {d.client_name ?? '___________________________'}
-            </span>
-            , Filipino, of legal age, hereby agree to purchase the Property described below
-            from{' '}
+          {/* Opening statement */}
+          <p className="text-[9px] text-[#3A3A3C] leading-[1.75] text-justify mb-3">
+            I hereby manifest my intention and offer to purchase from{' '}
             <span className="font-semibold text-[#1C1C1E]">PH1 WORLD DEVELOPERS INC.</span>{' '}
-            ("the Company"), subject to the following Terms and Conditions:
+            (the "Company") the following property (the "Property") and request that the Property
+            be reserved for me pursuant to the agreed price, terms and conditions indicated below:
           </p>
 
-          {/* Property details */}
-          <div className="border border-gray-200 overflow-hidden">
-            <div className="bg-gray-50 px-3 py-2 border-b border-gray-200">
-              <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-gray-500">
-                Property Details
+          {/* Buyer's Full Name */}
+          <div className="flex items-baseline gap-2 mb-4">
+            <span className="text-[9px] text-gray-500 whitespace-nowrap shrink-0">Buyer&apos;s Full Name</span>
+            <div className="flex-1 border-b border-gray-400 pb-0.5">
+              <p className="text-[11px] font-bold text-[#1C1C1E] uppercase">
+                {d.client_name ?? '—'}
               </p>
             </div>
-            <div className="divide-y divide-gray-100">
+          </div>
+
+          {/* PROPERTY INFORMATION — horizontal table */}
+          <div className="border border-gray-200 overflow-hidden mb-3">
+            <div className="bg-gray-50 px-3 py-1.5 border-b border-gray-200">
+              <p className="text-[8px] font-bold uppercase tracking-[0.12em] text-gray-500">
+                Property Information
+              </p>
+            </div>
+            <div className="grid grid-cols-5 divide-x divide-gray-200">
               {([
                 ['Project',          d.project],
                 ['Tower / Building', d.tower],
-                ['Floor Level',      d.floor],
-                ['Unit Number',      d.unit_no],
-                ['Inventory Code',   d.inventory_code ?? '—'],
+                ['Unit #',           d.unit_no],
+                ['Floor Area (sqm)', d.unit_area != null ? `${d.unit_area}` : '—'],
                 ['Unit Type',        d.unit_type],
-                ['Unit Area',        d.unit_area != null ? `${d.unit_area} sqm` : '—'],
               ] as [string, string | null][]).map(([label, value]) => (
-                <div key={label} className="flex items-center justify-between px-3 py-2">
-                  <span className="text-[10px] text-gray-500 shrink-0">{label}</span>
-                  <span className="text-[10px] font-semibold text-[#1C1C1E] text-right ml-3">
-                    {value ?? '—'}
-                  </span>
+                <div key={label} className="px-2 py-2">
+                  <p className="text-[6.5px] text-gray-400 uppercase tracking-wide leading-tight mb-0.5">{label}</p>
+                  <p className="text-[9px] font-semibold text-[#1C1C1E]">{value ?? '—'}</p>
                 </div>
               ))}
             </div>
           </div>
 
+          {/* PRICE AND TERMS — horizontal table */}
+          <div className="border border-gray-200 overflow-hidden mb-4">
+            <div className="bg-gray-50 px-3 py-1.5 border-b border-gray-200">
+              <p className="text-[8px] font-bold uppercase tracking-[0.12em] text-gray-500">
+                Price and Terms
+              </p>
+            </div>
+            <div className="grid grid-cols-6 divide-x divide-gray-200">
+              <div className="px-2 py-2">
+                <p className="text-[6.5px] text-gray-400 uppercase tracking-wide leading-tight mb-0.5">Net Selling Price</p>
+                <p className="text-[9px] font-semibold text-[#1C1C1E]">{fmt(d.net_list_price)}</p>
+              </div>
+              <div className="px-2 py-2">
+                <p className="text-[6.5px] text-gray-400 uppercase tracking-wide leading-tight mb-0.5">Value Added Tax</p>
+                <p className="text-[9px] font-semibold text-[#1C1C1E]">{fmt(d.vat)}</p>
+              </div>
+              <div className="px-2 py-2">
+                <p className="text-[6.5px] text-gray-400 uppercase tracking-wide leading-tight mb-0.5">Other Charges</p>
+                <p className="text-[9px] font-semibold text-[#1C1C1E]">{fmt(d.other_charges)}</p>
+              </div>
+              <div className="px-2 py-2 bg-[#1C1C1E]">
+                <p className="text-[6.5px] text-white/60 uppercase tracking-wide leading-tight mb-0.5">Total Contract Price</p>
+                <p className="text-[9px] font-bold text-white">{fmt(d.total_contract_price)}</p>
+              </div>
+              <div className="px-2 py-2">
+                <p className="text-[6.5px] text-gray-400 uppercase tracking-wide leading-tight mb-0.5">Chosen Payment Scheme</p>
+                <p className="text-[9px] font-semibold text-[#1C1C1E]">{d.scheme_name ?? '—'}</p>
+              </div>
+              <div className="px-2 py-2">
+                <p className="text-[6.5px] text-gray-400 uppercase tracking-wide leading-tight mb-0.5">Down Payment</p>
+                <p className="text-[9px] font-semibold text-[#1C1C1E]">{fmt(d.dp_amount)}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* RESERVATION PROVISION */}
+          <div className="space-y-2">
+            <p className="text-[8px] font-bold uppercase tracking-[0.12em] text-[#1C1C1E] border-b border-gray-200 pb-1.5">
+              Reservation Provision
+            </p>
+            {TERMS[0].items.map((item, i) => {
+              const feeAmt = `PHP ${(d.reservation_fee ?? 25_000).toLocaleString('en-PH')}`;
+              return (
+                <div key={i}>
+                  {item.split('\n\n').map((para, j) => {
+                    if (para.includes('{{RESERVATION_FEE}}')) {
+                      const [before, after] = para.split('{{RESERVATION_FEE}}');
+                      return (
+                        <p key={j} className="text-[9.5px] text-[#3A3A3C] leading-[1.8] text-justify mb-2 last:mb-0">
+                          {before}
+                          <span className="inline-block font-bold text-[#1C1C1E] border border-gray-400 px-1.5 py-0.5 rounded mx-0.5 text-[9.5px]">
+                            {feeAmt}
+                          </span>
+                          {after}
+                        </p>
+                      );
+                    }
+                    return (
+                      <p key={j} className="text-[9.5px] text-[#3A3A3C] leading-[1.8] text-justify whitespace-pre-line mb-2 last:mb-0">
+                        {para.trim()}
+                      </p>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+
         </A4Page>
 
-        {/* ── PAGE 2: Reservation Provision + Payment & Payment Modes ── */}
+        {/* ── PAGE 2: Payment & Payment Modes ── */}
         <A4Page pageNum={2} total={TOTAL} reservationId={resId} title="Reservation Agreement">
           <div className="space-y-5">
-            {TERMS.slice(0, 2).map(({ title, items }) => (
+            {TERMS.slice(1, 2).map(({ title, items }) => (
               <div key={title} className="space-y-3">
                 <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-[#1C1C1E] border-b border-gray-200 pb-1.5">
                   {title}
@@ -370,7 +428,7 @@ function AgreementViewer({
               {([
                 ['Payment Scheme', d.scheme_name  ?? '—'],
                 ['Payment Term',   d.payment_term ?? '—'],
-                ['Reservation Fee', '₱ 10,000.00'],
+                ['Reservation Fee', fmt(d.reservation_fee ?? 25_000)],
               ] as [string, string][]).map(([label, value]) => (
                 <div key={label} className="flex items-center justify-between px-3 py-2.5 border-t border-gray-100">
                   <span className="text-[10px] text-gray-500 shrink-0">{label}</span>
