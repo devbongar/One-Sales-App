@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 
 export interface SalespersonRecord {
   seller_name: string;
+  seller_id: string | null;
   position_code: string;
   position_rank: string | null;
   seller_group: string | null;
@@ -15,4 +16,102 @@ export async function fetchAllSalespersons(): Promise<SalespersonRecord[]> {
   console.log('[fetchAllSalespersons] data:', data, 'error:', error);
   if (error) throw error;
   return (data ?? []) as SalespersonRecord[];
+}
+
+export interface SellerRecruitRecord {
+  seller_name:            string;
+  seller_id:              string | null;
+  position_code:          string | null;
+  position_rank:          string | null;
+  seller_status:          string | null;
+  first_name:             string | null;
+  middle_name:            string | null;
+  last_name:              string | null;
+  email_address:          string | null;
+  hired_date:             string | null;
+  business_units:         string | null;
+  focus_project:          string | null;
+  sales_manager:          string | null;
+  sales_director:         string | null;
+  sales_division_head:    string | null;
+  sales_head:             string | null;
+  sales_team:             string | null;
+  payroll_code:           string | null;
+  payroll_account_number: string | null;
+  vat_registration_type:  string | null;
+  tin:                    string | null;
+  ewt_rate:               string | null;
+  bir_cor_address:        string | null;
+}
+
+export async function fetchAllSellerRecruits(): Promise<SellerRecruitRecord[]> {
+  const { data, error } = await supabase.rpc('get_seller_recruits');
+  if (error) throw error;
+  return (data ?? []) as SellerRecruitRecord[];
+}
+
+export async function addSellerRecruit(rec: SellerRecruitRecord): Promise<void> {
+  const { error } = await supabase
+    .from('Salesperson')
+    .insert({
+      'Seller Name':            rec.seller_name,
+      'Seller Id':              rec.seller_id,
+      'POSITION CODE':          rec.position_code,
+      'position_rank':          rec.position_rank,
+      'Seller Status':          rec.seller_status,
+      'FIRST NAME':             rec.first_name,
+      'MIDDLE NAME':            rec.middle_name,
+      'LAST NAME':              rec.last_name,
+      'Email Address':          rec.email_address,
+      'Hired Date':             rec.hired_date,
+      'Business Units':         rec.business_units,
+      'Focus Project':          rec.focus_project,
+      'Sales Manager':          rec.sales_manager,
+      'Sales Director':         rec.sales_director,
+      'Sales Division Head':    rec.sales_division_head,
+      'Sales Head':             rec.sales_head,
+      'Sales Team':             rec.sales_team,
+      'Payroll Code':           rec.payroll_code,
+      'Payroll Account Number': rec.payroll_account_number,
+      'VAT Registration Type':  rec.vat_registration_type,
+      'TIN':                    rec.tin,
+      'EWT/WT Rate':            rec.ewt_rate,
+      'BIR COR Address':        rec.bir_cor_address,
+    });
+  if (error) throw error;
+}
+
+export async function updateSellerRecruit(
+  originalSellerName: string,
+  rec: SellerRecruitRecord,
+): Promise<void> {
+  const { error } = await supabase
+    .from('Salesperson')
+    .update({
+      'Seller Name':            rec.seller_name,
+      'Seller Id':              rec.seller_id,
+      'POSITION CODE':          rec.position_code,
+      'position_rank':          rec.position_rank,
+      'Seller Status':          rec.seller_status,
+      'FIRST NAME':             rec.first_name,
+      'MIDDLE NAME':            rec.middle_name,
+      'LAST NAME':              rec.last_name,
+      'Email Address':          rec.email_address,
+      'Hired Date':             rec.hired_date,
+      'Business Units':         rec.business_units,
+      'Focus Project':          rec.focus_project,
+      'Sales Manager':          rec.sales_manager,
+      'Sales Director':         rec.sales_director,
+      'Sales Division Head':    rec.sales_division_head,
+      'Sales Head':             rec.sales_head,
+      'Sales Team':             rec.sales_team,
+      'Payroll Code':           rec.payroll_code,
+      'Payroll Account Number': rec.payroll_account_number,
+      'VAT Registration Type':  rec.vat_registration_type,
+      'TIN':                    rec.tin,
+      'EWT/WT Rate':            rec.ewt_rate,
+      'BIR COR Address':        rec.bir_cor_address,
+    })
+    .eq('Seller Name', originalSellerName);
+  if (error) throw error;
 }

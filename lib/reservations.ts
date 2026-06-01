@@ -33,6 +33,7 @@ export interface ReservationPayload {
   employee_discount_amount: number;
   payterm_discount_pct: number;
   payterm_discount_amount: number;
+  hic_discount: number;
   net_list_price: number;
   // Taxes & Charges
   vat: number;
@@ -50,6 +51,9 @@ export interface ReservationPayload {
   // Financing
   bank_monthly: number;
   hdmf_monthly: number;
+  // Client & Seller IDs
+  client_id: string | null;
+  seller_id: string | null;
   // Seller
   seller_name: string;
   sales_manager: string;
@@ -97,6 +101,7 @@ export async function approvePaymentReview(
   salesInvoiceNo: string,
   dateOfReservationFee: string,
 ): Promise<void> {
+  // 1. Update reservations table
   const { error } = await supabase
     .from('reservations')
     .update({
@@ -109,6 +114,19 @@ export async function approvePaymentReview(
     })
     .eq('reservation_id', reservationId);
   if (error) throw error;
+
+  // 2. Mark the Reservation Fee line in receivables_database as Paid
+  // Non-fatal — lines may not exist yet if proof was submitted before this build
+  await supabase
+    .from('receivables_database')
+    .update({
+      payment_status:             'Paid',
+      acknowledgement_receipt_no: acknowledgementReceiptNo,
+      sales_invoice_number:       salesInvoiceNo,
+      posting_date:               dateOfReservationFee,
+    })
+    .eq('reservation_id', reservationId)
+    .eq('type_of_payment', 'Reservation Fee');
 }
 
 export async function updateReservationStatus(reservationId: string, status: string): Promise<void> {

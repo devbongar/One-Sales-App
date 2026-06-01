@@ -7,7 +7,7 @@ import {
   UserPlus, CalendarCheck, BookOpen, DollarSign,
   ShieldCheck, FolderOpen, MessageSquare, Receipt, CreditCard,
   Wallet, Banknote, BookMarked, Users, UserCog, LayoutDashboard,
-  X, ChevronDown, LogOut, Home, Settings, Calculator,
+  X, ChevronDown, LogOut, Home, Settings, Calculator, Database,
 } from 'lucide-react';
 import { NavGroup } from '@/types';
 import { clearSession } from '@/lib/auth';
@@ -37,18 +37,18 @@ const NAV: NavGroup[] = [
   {
     title: 'Finance',
     items: [
-      { label: 'Commission Payout',  href: '/finance/commission-payout',  icon: 'Wallet',    comingSoon: true },
-      { label: "Buyer's Payment",    href: '/finance/buyers-payment',     icon: 'Banknote' },
-      { label: 'Collection Posting', href: '/finance/collection-posting', icon: 'BookMarked',comingSoon: true },
+      { label: 'Commission Payout',    href: '/finance/commission-payout',      icon: 'Wallet',    comingSoon: true },
+      { label: "Buyer's Payment",      href: '/finance/buyers-payment',         icon: 'Banknote' },
+      { label: 'Collection Posting',   href: '/finance/receivable-database',    icon: 'Database' },
     ],
   },
   {
     title: "User's Registration",
     items: [
-      { label: 'Broker Accreditation', href: '/users/broker-accreditation', icon: 'ShieldCheck',    comingSoon: true },
-      { label: 'Seller Recruitment',   href: '/users/seller-recruitment',   icon: 'Users',          comingSoon: true },
+      { label: 'Broker Accreditation', href: '/users/broker-accreditation', icon: 'ShieldCheck' },
+      { label: 'Seller Recruitment',   href: '/users/seller-recruitment',   icon: 'Users' },
       { label: "User's Profile",       href: '/users/profile',              icon: 'UserCog',        comingSoon: true },
-      { label: 'Admin User',           href: '/users/admin',                icon: 'LayoutDashboard', comingSoon: true },
+      { label: 'Admin User',           href: '/users/admin',                icon: 'LayoutDashboard' },
     ],
   },
 ];
@@ -56,7 +56,7 @@ const NAV: NavGroup[] = [
 const ICONS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
   UserPlus, CalendarCheck, BookOpen, DollarSign,
   ShieldCheck, FolderOpen, MessageSquare, Receipt, CreditCard,
-  Wallet, Banknote, BookMarked, Users, UserCog, LayoutDashboard, Calculator,
+  Wallet, Banknote, BookMarked, Users, UserCog, LayoutDashboard, Calculator, Database,
 };
 
 interface SidebarProps {
