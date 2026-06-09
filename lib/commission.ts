@@ -101,6 +101,35 @@ export async function generateCommissionSchedule(reservationId: string): Promise
   if (insertError) throw insertError;
 }
 
+export interface CommissionScheduleLine {
+  id:                      number;
+  tranche:                 number;
+  percentage_collection:   number;
+  commission_release_rate: number;
+  commission_rate:         number;
+  gross_commission:        number;
+  status:                  string;
+}
+
+export async function fetchCommissionScheduleLines(reservationId: string): Promise<CommissionScheduleLine[]> {
+  const { data, error } = await supabase
+    .from('commission_schedule')
+    .select('id, tranche, percentage_collection, commission_release_rate, commission_rate, gross_commission, status')
+    .eq('reservation_id', reservationId)
+    .order('tranche', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as CommissionScheduleLine[];
+}
+
+export async function fetchReservationCollected(reservationId: string): Promise<number> {
+  const { data, error } = await supabase
+    .from('receivables_database')
+    .select('amount_paid')
+    .eq('reservation_id', reservationId);
+  if (error) throw error;
+  return (data ?? []).reduce((sum: number, r: any) => sum + (Number(r.amount_paid) || 0), 0);
+}
+
 export async function fetchCommissionTranches(
   project:      string,
   positionRank: string,

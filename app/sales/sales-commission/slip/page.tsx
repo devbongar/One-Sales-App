@@ -5,18 +5,12 @@ import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import { SalespersonRecord } from '@/lib/salesperson';
-import { fetchCommissionRecords, CommissionRecord } from '@/lib/commission';
-import { Loader2, User, FileText } from 'lucide-react';
-
-function statusStyle(status: string): string {
-  switch (status.toLowerCase()) {
-    case 'approved':  return 'bg-green-100 text-green-700';
-    case 'released':
-    case 'paid':      return 'bg-blue-100 text-blue-700';
-    case 'cancelled': return 'bg-red-100 text-red-600';
-    default:          return 'bg-amber-100 text-amber-700';
-  }
-}
+import {
+  fetchCommissionRecords, CommissionRecord,
+  fetchCommissionScheduleLines, CommissionScheduleLine,
+  fetchReservationCollected,
+} from '@/lib/commission';
+import { Loader2, User, FileText, ChevronDown } from 'lucide-react';
 
 function positionLabel(rank: string | null) {
   const map: Record<string, string> = {
@@ -39,12 +33,32 @@ function fmtDate(iso: string | null) {
   return new Date(iso).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function statusBadge(status: string) {
+  switch (status.toLowerCase()) {
+    case 'approved':  return 'bg-green-100 text-green-700';
+    case 'released':
+    case 'paid':      return 'bg-blue-100 text-blue-700';
+    case 'cancelled': return 'bg-red-100 text-red-600';
+    default:          return 'bg-amber-100 text-amber-700';
+  }
+}
+
+interface DetailData {
+  loading: boolean;
+  error: string;
+  collected: number;
+  lines: CommissionScheduleLine[];
+}
+
 export default function CommissionSlipPage() {
   const router = useRouter();
-  const [seller, setSeller] = useState<SalespersonRecord | null>(null);
+  const [seller, setSeller]   = useState<SalespersonRecord | null>(null);
   const [records, setRecords] = useState<CommissionRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError]     = useState('');
+
+  const [expandedId, setExpandedId]   = useState<string | null>(null);
+  const [detailCache, setDetailCache] = useState<Record<string, DetailData>>({});
 
   useEffect(() => {
     const stored = sessionStorage.getItem('selectedSeller');
@@ -57,6 +71,23 @@ export default function CommissionSlipPage() {
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
+
+  async function toggleCard(reservationId: string) {
+    if (expandedId === reservationId) { setExpandedId(null); return; }
+    setExpandedId(reservationId);
+    if (detailCache[reservationId]) return;
+
+    setDetailCache(prev => ({ ...prev, [reservationId]: { loading: true, error: '', collected: 0, lines: [] } }));
+    try {
+      const [lines, collected] = await Promise.all([
+        fetchCommissionScheduleLines(reservationId),
+        fetchReservationCollected(reservationId),
+      ]);
+      setDetailCache(prev => ({ ...prev, [reservationId]: { loading: false, error: '', collected, lines } }));
+    } catch (e: any) {
+      setDetailCache(prev => ({ ...prev, [reservationId]: { loading: false, error: e.message, collected: 0, lines: [] } }));
+    }
+  }
 
   if (!seller) return null;
 
@@ -71,7 +102,6 @@ export default function CommissionSlipPage() {
       {/* Coral hero */}
       <GlassCard strong className="overflow-hidden">
         <div className="bg-[#C03D25] px-5 pt-4 pb-6">
-          {/* Slip label */}
           <div className="inline-flex items-center gap-1.5 bg-white/20 rounded-full px-3 py-1 mb-4">
             <FileText size={11} className="text-white" />
             <span className="text-white text-[11px] font-semibold">Commission Payout Slip</span>
@@ -134,9 +164,7 @@ export default function CommissionSlipPage() {
             </div>
           )}
 
-          {error && (
-            <p className="text-center text-sm text-red-500 py-6">{error}</p>
-          )}
+          {error && <p className="text-center text-sm text-red-500 py-6">{error}</p>}
 
           {!loading && !error && records.length === 0 && (
             <div className="flex flex-col items-center justify-center py-10 gap-3">
@@ -149,40 +177,131 @@ export default function CommissionSlipPage() {
 
           {!loading && !error && records.length > 0 && (
             <div className="space-y-3">
-              {records.map(r => (
-                <div key={r.reservation_id} className="border border-[rgba(0,0,0,0.07)] rounded-2xl p-4">
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <div>
-                      <p className="text-[#1C1C1E] font-bold text-sm">{r.client_name}</p>
-                      <p className="text-[#8E8E93] text-xs mt-0.5">
-                        {r.project}{r.unit_no ? ` · ${r.unit_no}` : ''}
-                      </p>
-                    </div>
-                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${statusStyle(r.status)}`}>
-                      {r.status}
-                    </span>
+              {records.map(r => {
+                const isOpen = expandedId === r.reservation_id;
+                const detail = detailCache[r.reservation_id];
+
+                return (
+                  <div key={r.reservation_id} className="border border-[rgba(0,0,0,0.07)] rounded-2xl overflow-hidden">
+
+                    {/* ── Card header — tappable ── */}
+                    <button
+                      onClick={() => toggleCard(r.reservation_id)}
+                      className="w-full text-left p-4 active:bg-[rgba(0,0,0,0.02)]"
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[#1C1C1E] font-bold text-sm">{r.client_name}</p>
+                          <p className="text-[#8E8E93] text-xs mt-0.5">
+                            {r.project}{r.unit_no ? ` · ${r.unit_no}` : ''}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${statusBadge(r.status)}`}>
+                            {r.status}
+                          </span>
+                          <ChevronDown
+                            size={15}
+                            className="text-[#C7C7CC]"
+                            style={{
+                              transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                              transition: 'transform 220ms cubic-bezier(0.23,1,0.32,1)',
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-4 pt-2 border-t border-[rgba(0,0,0,0.06)]">
+                        <div>
+                          <p className="text-[10px] text-[#8E8E93]">TCP</p>
+                          <p className="text-xs font-semibold text-[#1C1C1E]">{fmt(r.total_contract_price)}</p>
+                        </div>
+                        <div className="w-px h-7 bg-[rgba(0,0,0,0.08)]" />
+                        <div>
+                          <p className="text-[10px] text-[#8E8E93]">Rate</p>
+                          <p className="text-xs font-semibold text-[#C03D25]">
+                            {r.commission_rate != null ? `${r.commission_rate}%` : '—'}
+                          </p>
+                        </div>
+                        <div className="w-px h-7 bg-[rgba(0,0,0,0.08)]" />
+                        <div>
+                          <p className="text-[10px] text-[#8E8E93]">Commission</p>
+                          <p className="text-xs font-bold text-[#1C1C1E]">{fmt(r.total_commission)}</p>
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-[#C7C7CC] mt-2">{fmtDate(r.created_at)}</p>
+                    </button>
+
+                    {/* ── Expanded detail ── */}
+                    {isOpen && (
+                      <div className="border-t border-[rgba(0,0,0,0.07)]">
+
+                        {/* Summary strip */}
+                        <div className="grid grid-cols-2 gap-px bg-[rgba(0,0,0,0.06)] border-b border-[rgba(0,0,0,0.06)]">
+                          {[
+                            { label: 'Net List Price',  value: fmt(r.net_list_price) },
+                            { label: 'Collected',       value: detail && !detail.loading ? fmt(detail.collected) : '—' },
+                            {
+                              label: '% Collected',
+                              value: detail && !detail.loading && r.net_list_price
+                                ? `${((detail.collected / r.net_list_price) * 100).toFixed(1)}%`
+                                : '—',
+                            },
+                            { label: 'Comm Rate',       value: r.commission_rate != null ? `${r.commission_rate}%` : '—' },
+                          ].map(stat => (
+                            <div key={stat.label} className="bg-[#FAFAFA] px-4 py-3">
+                              <p className="text-[9px] text-[#8E8E93] font-bold uppercase tracking-wide mb-0.5">{stat.label}</p>
+                              <p className="text-sm font-bold text-[#1C1C1E]">{stat.value}</p>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Tranche table */}
+                        {detail?.loading && (
+                          <div className="flex items-center justify-center py-6">
+                            <Loader2 size={18} className="text-[#C03D25] animate-spin" />
+                          </div>
+                        )}
+                        {detail?.error && (
+                          <p className="text-center text-xs text-red-500 py-4 px-4">{detail.error}</p>
+                        )}
+                        {detail && !detail.loading && !detail.error && detail.lines.length === 0 && (
+                          <p className="text-center text-xs text-[#8E8E93] py-4 px-4">No tranche schedule generated yet.</p>
+                        )}
+                        {detail && !detail.loading && !detail.error && detail.lines.length > 0 && (
+                          <>
+                            {/* Header row */}
+                            <div className="grid grid-cols-[32px_44px_1fr_44px_80px] gap-1 px-4 py-2 bg-[#F2F2F7] border-b border-[rgba(0,0,0,0.05)]">
+                              <p className="text-[9px] font-bold text-[#8E8E93] uppercase tracking-wide">Tr.</p>
+                              <p className="text-[9px] font-bold text-[#8E8E93] uppercase tracking-wide">% Coll</p>
+                              <p className="text-[9px] font-bold text-[#8E8E93] uppercase tracking-wide">Status</p>
+                              <p className="text-[9px] font-bold text-[#8E8E93] uppercase tracking-wide text-right">Rel%</p>
+                              <p className="text-[9px] font-bold text-[#8E8E93] uppercase tracking-wide text-right">Gross Comm</p>
+                            </div>
+                            {detail.lines.map(line => (
+                              <div
+                                key={line.id}
+                                className="grid grid-cols-[32px_44px_1fr_44px_80px] gap-1 px-4 py-2.5 border-b border-[rgba(0,0,0,0.04)] last:border-0 items-center"
+                              >
+                                <p className="text-xs font-bold text-[#1C1C1E]">{line.tranche}</p>
+                                <p className="text-xs text-[#6C6C70]">{line.percentage_collection}%</p>
+                                <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full w-fit ${statusBadge(line.status)}`}>
+                                  {line.status}
+                                </span>
+                                <p className="text-xs text-[#6C6C70] text-right">{line.commission_release_rate}%</p>
+                                <p className="text-xs font-semibold text-[#1C1C1E] text-right">
+                                  {fmt(line.gross_commission)}
+                                </p>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                      </div>
+                    )}
+
                   </div>
-                  <div className="flex items-center gap-4 pt-2 border-t border-[rgba(0,0,0,0.06)]">
-                    <div>
-                      <p className="text-[10px] text-[#8E8E93]">TCP</p>
-                      <p className="text-xs font-semibold text-[#1C1C1E]">{fmt(r.total_contract_price)}</p>
-                    </div>
-                    <div className="w-px h-7 bg-[rgba(0,0,0,0.08)]" />
-                    <div>
-                      <p className="text-[10px] text-[#8E8E93]">Rate</p>
-                      <p className="text-xs font-semibold text-[#C03D25]">
-                        {r.commission_rate != null ? `${r.commission_rate}%` : '—'}
-                      </p>
-                    </div>
-                    <div className="w-px h-7 bg-[rgba(0,0,0,0.08)]" />
-                    <div>
-                      <p className="text-[10px] text-[#8E8E93]">Commission</p>
-                      <p className="text-xs font-bold text-[#1C1C1E]">{fmt(r.total_commission)}</p>
-                    </div>
-                  </div>
-                  <p className="text-[10px] text-[#C7C7CC] mt-2">{fmtDate(r.created_at)}</p>
-                </div>
-              ))}
+                );
+              })}
 
               {/* Total */}
               <div className="flex items-center justify-between pt-1 px-1">
