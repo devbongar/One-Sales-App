@@ -182,8 +182,11 @@ export default function ProjectCarousel({ onProjectClick }: ProjectCarouselProps
       {/* ── Animated content — re-mounts on slide change ── */}
       <div
         key={selectedIndex}
-        className="absolute bottom-0 left-0 right-0 px-5 pb-[88px] pointer-events-none"
-        style={{ animation: 'slideUpFade 0.35s cubic-bezier(0.22,1,0.36,1) both' }}
+        className="absolute bottom-0 left-0 right-0 px-5 pointer-events-none"
+        style={{
+          paddingBottom: 'calc(env(safe-area-inset-bottom) + 88px)',
+          animation: 'slideUpFade 0.35s cubic-bezier(0.22,1,0.36,1) both',
+        }}
       >
         {/* Property type badge */}
         <div className="flex items-center gap-1.5 mb-3">
@@ -246,7 +249,10 @@ export default function ProjectCarousel({ onProjectClick }: ProjectCarouselProps
       </div>
 
       {/* ── Dot indicators — bottom center ── */}
-      <div className="absolute bottom-[72px] left-0 right-0 flex justify-center items-center gap-1.5 z-10 pointer-events-none">
+      <div
+        className="absolute left-0 right-0 flex justify-center items-center gap-1.5 z-10 pointer-events-none"
+        style={{ bottom: 'calc(env(safe-area-inset-bottom) + 72px)' }}
+      >
         {projects.map((_, i) => (
           <button
             key={i}

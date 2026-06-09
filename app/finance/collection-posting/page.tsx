@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 import {
   postCollection,
   fetchCollections,
@@ -68,13 +69,6 @@ function localToday() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function batchCutoff(): string {
-  const d   = new Date();
-  const y   = d.getFullYear();
-  const m   = String(d.getMonth() + 1).padStart(2, '0');
-  const day = d.getDate();
-  return day <= 15 ? `${y}-${m}-15` : `${y}-${m}-30`;
-}
 
 function getInitials(name: string) {
   const parts = name.trim().split(' ').filter(Boolean);
@@ -105,13 +99,10 @@ const inputCls = 'w-full px-3 py-2.5 rounded-xl border border-black/[0.10] bg-wh
 // ─── Excel Export ─────────────────────────────────────────────────────────────
 
 function exportBatch(summaries: ReservationReceivableSummary[]) {
-  const cutoff    = batchCutoff();
-  const toExport  = summaries.filter(
-    s => s.outstanding > 0 && s.next_due_date && s.next_due_date <= cutoff,
-  );
+  const toExport = summaries.filter(s => s.outstanding > 0);
 
   if (toExport.length === 0) {
-    alert(`No outstanding collections up to ${fmtDate(cutoff)}.`);
+    alert('No outstanding collections to export.');
     return;
   }
 
@@ -154,12 +145,15 @@ function exportBatch(summaries: ReservationReceivableSummary[]) {
     [''],
     ['COLUMNS YOU MUST FILL IN:'],
     ['amount_received',            'Required. Total amount received from the buyer (PHP)'],
-    ['mode_of_payment',            'Required. Valid values: Cash, Check, Online Transfer, PDC'],
+    ['mode_of_payment',            'Required. Must be one of the allowed values listed below.'],
     ['acknowledgement_receipt_no', 'OR / Acknowledgement receipt number'],
     ['sales_invoice_number',       'Sales invoice number'],
     ['posting_date',               'Date of posting (YYYY-MM-DD). Pre-filled with today.'],
     ['check_no',                   'Required only when mode_of_payment = Check'],
     ['check_date',                 'Required only when mode_of_payment = Check (YYYY-MM-DD)'],
+    [''],
+    ['ALLOWED MODE OF PAYMENT VALUES:'],
+    ...MODES_OF_PAYMENT.map((m, i) => [`  ${i + 1}. ${m}`]),
     [''],
     ['LOCKED COLUMNS — DO NOT EDIT:'],
     ['reservation_id',   'Unique reservation identifier used for matching'],
@@ -231,54 +225,75 @@ async function validateImportRows(
   const summaryMap = new Map(dbSummaries.map(s => [s.reservation_id, s]));
 
   for (const row of rows) {
-    // Blank — neither amount nor MOP filled
+    // Blank — neither amount nor MOP filled (row was not filled in at all)
     if (!row.mode_of_payment && (!row.amount_received || row.amount_received <= 0)) {
       blank.push(row);
       continue;
     }
 
-    // Look up in DB
+    // 1a. Amount received
+    if (!row.amount_received || row.amount_received <= 0) {
+      problems.push({ row, reason: 'Amount received is required and must be greater than zero.' });
+      continue;
+    }
+
+    // 1b. Mode of payment — present and valid
+    if (!row.mode_of_payment) {
+      problems.push({ row, reason: 'Mode of payment is required.' });
+      continue;
+    }
+    if (!MODES_OF_PAYMENT.includes(row.mode_of_payment)) {
+      problems.push({ row, reason: `"${row.mode_of_payment}" is not an allowed mode of payment. Allowed values: ${MODES_OF_PAYMENT.join(', ')}.` });
+      continue;
+    }
+
+    // 1c. Acknowledgement receipt no.
+    if (!row.acknowledgement_receipt_no) {
+      problems.push({ row, reason: 'Acknowledgement receipt no. is required.' });
+      continue;
+    }
+
+    // 1d. Sales invoice number
+    if (!row.sales_invoice_number) {
+      problems.push({ row, reason: 'Sales invoice number is required.' });
+      continue;
+    }
+
+    // 1e. Posting date
+    if (!row.posting_date) {
+      problems.push({ row, reason: 'Posting date is required.' });
+      continue;
+    }
+
+    // 1f. Check-specific fields
+    const isCheck = row.mode_of_payment === 'Check';
+    if (isCheck && !row.check_no) {
+      problems.push({ row, reason: 'Check No. is required when mode of payment is "Check".' });
+      continue;
+    }
+    if (isCheck && !row.check_date) {
+      problems.push({ row, reason: 'Check Date is required when mode of payment is "Check".' });
+      continue;
+    }
+
+    // 3. Reservation ID + client name + inventory code must match records
     const summary = summaryMap.get(row.reservation_id);
     if (!summary) {
-      problems.push({ row, reason: 'Reservation not found — reservation_id may have been edited.' });
+      problems.push({ row, reason: 'Reservation ID not found in records — it may have been edited.' });
+      continue;
+    }
+    if (summary.client_name.trim().toLowerCase() !== row.client_name.trim().toLowerCase()) {
+      problems.push({ row, reason: `Client name does not match records. Expected "${summary.client_name}".` });
+      continue;
+    }
+    if (summary.inventory_code.trim().toLowerCase() !== row.inventory_code.trim().toLowerCase()) {
+      problems.push({ row, reason: `Inventory code does not match records. Expected "${summary.inventory_code}".` });
       continue;
     }
 
     // No outstanding — nothing to collect
     if (summary.outstanding <= 0) {
       skipped.push(row);
-      continue;
-    }
-
-    // amount_received must be present and positive
-    if (!row.amount_received || row.amount_received <= 0) {
-      problems.push({ row, reason: 'Amount received is required and must be greater than zero.' });
-      continue;
-    }
-
-    // MOP validation
-    if (!row.mode_of_payment) {
-      problems.push({ row, reason: 'Mode of payment is required.' });
-      continue;
-    }
-    if (!MODES_OF_PAYMENT.includes(row.mode_of_payment)) {
-      problems.push({ row, reason: `Invalid mode of payment "${row.mode_of_payment}". Must be one of: ${MODES_OF_PAYMENT.join(', ')}` });
-      continue;
-    }
-
-    // Check-specific validation
-    const isCheck = row.mode_of_payment === 'Check';
-    if (isCheck && !row.check_no) {
-      problems.push({ row, reason: 'Mode of payment is "Check" but Check No. is empty.' });
-      continue;
-    }
-    if (isCheck && !row.check_date) {
-      problems.push({ row, reason: 'Mode of payment is "Check" but Check Date is empty.' });
-      continue;
-    }
-
-    if (!row.posting_date) {
-      problems.push({ row, reason: 'Posting date is required.' });
       continue;
     }
 
@@ -1197,6 +1212,8 @@ export default function CollectionPostingPage() {
   const [search,       setSearch]       = useState('');
   const [filterOpen,   setFilterOpen]   = useState(false);
   const [statusFilter, setStatusFilter] = useState('');
+  const [projectFilter,setProjectFilter]= useState('');
+  const [clientFilter, setClientFilter] = useState('');
   const [selected,     setSelected]     = useState<ReservationReceivableSummary | null>(null);
   const [exporting,    setExporting]    = useState(false);
 
@@ -1206,7 +1223,7 @@ export default function CollectionPostingPage() {
   const [postingBatch,     setPostingBatch]     = useState(false);
   const [importResult,     setImportResult]     = useState<{ posted: number; errored: number } | null>(null);
 
-  const activeFilterCount = statusFilter ? 1 : 0;
+  const activeFilterCount = [statusFilter, projectFilter, clientFilter].filter(Boolean).length;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1222,6 +1239,8 @@ export default function CollectionPostingPage() {
   const filtered = useMemo(() => {
     return summaries.filter(s => {
       if (statusFilter && s.status !== statusFilter) return false;
+      if (projectFilter && s.project !== projectFilter) return false;
+      if (clientFilter && s.client_name !== clientFilter) return false;
       if (search.trim()) {
         const q = search.toLowerCase();
         if (
@@ -1232,7 +1251,7 @@ export default function CollectionPostingPage() {
       }
       return true;
     });
-  }, [summaries, statusFilter, search]);
+  }, [summaries, statusFilter, projectFilter, clientFilter, search]);
 
   const sorted = useMemo(() => {
     const order: Record<string, number> = { Overdue: 0, Unpaid: 1, Complete: 2 };
@@ -1244,7 +1263,7 @@ export default function CollectionPostingPage() {
   function handleExport() {
     setExporting(true);
     try {
-      exportBatch(summaries);
+      exportBatch(sorted);
     } catch (e) {
       console.error('Export failed', e);
       alert('Export failed. Please try again.');
@@ -1375,15 +1394,6 @@ export default function CollectionPostingPage() {
             />
           </div>
 
-          {/* Cutoff label */}
-          {(() => {
-            const cutoff = batchCutoff();
-            return (
-              <p className="text-[11px] text-[#8E8E93] px-1 -mt-1">
-                Batch covers outstanding collections up to <span className="font-semibold text-[#1C1C1E]">{fmtDate(cutoff)}</span>
-              </p>
-            );
-          })()}
 
           {/* List */}
           {loading ? (
@@ -1448,11 +1458,11 @@ export default function CollectionPostingPage() {
         <div className="fixed inset-0 z-[45] bg-black/40" onClick={() => setFilterOpen(false)} />
       )}
       <div className={`fixed inset-x-0 bottom-0 z-[46] transition-transform duration-300 ease-out ${filterOpen ? 'translate-y-0' : 'translate-y-full'}`}>
-        <div className="bg-white rounded-t-3xl shadow-2xl">
-          <div className="flex justify-center pt-3 pb-1">
+        <div className="bg-white rounded-t-3xl shadow-2xl max-h-[80vh] flex flex-col">
+          <div className="flex justify-center pt-3 pb-1 shrink-0">
             <div className="w-9 h-1 rounded-full bg-[#D1D1D6]" />
           </div>
-          <div className="flex items-center justify-between px-5 py-3">
+          <div className="flex items-center justify-between px-5 py-3 shrink-0">
             <p className="text-base font-bold text-[#1C1C1E]">Filters</p>
             <button
               type="button"
@@ -1462,7 +1472,9 @@ export default function CollectionPostingPage() {
               <X size={14} className="text-[#8E8E93]" />
             </button>
           </div>
-          <div className="px-5 pb-4 space-y-5">
+          <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-5 min-h-0">
+
+            {/* Status */}
             <div className="space-y-2">
               <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Status</p>
               <div className="flex gap-2 flex-wrap">
@@ -1483,11 +1495,45 @@ export default function CollectionPostingPage() {
                 ))}
               </div>
             </div>
+
+            {/* Project */}
+            {(() => {
+              const projects = [...new Set(summaries.map(s => s.project).filter(Boolean))].sort();
+              if (projects.length === 0) return null;
+              return (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Project</p>
+                  <SearchableSelect
+                    value={projectFilter}
+                    onChange={setProjectFilter}
+                    options={projects}
+                    placeholder="All projects"
+                  />
+                </div>
+              );
+            })()}
+
+            {/* Client Name */}
+            {(() => {
+              const clients = [...new Set(summaries.map(s => s.client_name).filter(Boolean))].sort();
+              return (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Client Name</p>
+                  <SearchableSelect
+                    value={clientFilter}
+                    onChange={setClientFilter}
+                    options={clients}
+                    placeholder="All clients"
+                  />
+                </div>
+              );
+            })()}
+
           </div>
-          <div className="px-5 pb-10 pt-2 flex gap-3">
+          <div className="px-5 pb-10 pt-3 flex gap-3 shrink-0 border-t border-black/[0.06]">
             <button
               type="button"
-              onClick={() => setStatusFilter('')}
+              onClick={() => { setStatusFilter(''); setProjectFilter(''); setClientFilter(''); }}
               className="flex-1 py-3.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-70"
             >
               Clear All

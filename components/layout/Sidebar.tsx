@@ -30,7 +30,7 @@ const NAV: NavGroup[] = [
       { label: "Buyer's Verification", href: '/account/buyers-verification', icon: 'ShieldCheck' },
       { label: "Buyer's Foldering",    href: '/account/buyers-foldering',    icon: 'FolderOpen' },
       { label: 'Request and Inquiry',  href: '/account/request-inquiry',     icon: 'MessageSquare', comingSoon: true },
-      { label: 'Billing and Collection', href: '/account/billing-collection', icon: 'Receipt',      comingSoon: true },
+      { label: 'Billing and Collection', href: '/account/billing-collection', icon: 'Receipt' },
       { label: 'End-Use Financing',    href: '/account/end-use-financing',   icon: 'CreditCard',    comingSoon: true },
     ],
   },
@@ -146,7 +146,7 @@ export default function Sidebar({ open, onClose, userName, userRole }: SidebarPr
         >
 
           {/* ── Header ── */}
-          <div className="px-5 pt-14 pb-5">
+          <div className="px-5 pb-5" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 20px)' }}>
             <div className="flex items-center justify-between">
 
               {/* Avatar + identity */}

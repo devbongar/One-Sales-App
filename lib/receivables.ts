@@ -263,6 +263,7 @@ export interface ReservationReceivableSummary {
   client_name: string;
   inventory_code: string;
   payment_scheme: string;
+  project: string;
   total_lines: number;
   paid_lines: number;
   outstanding: number;
@@ -284,11 +285,14 @@ export async function fetchReceivableSummaries(): Promise<ReservationReceivableS
   const reservationIds = [...new Set((lines as any[]).map((l) => l.reservation_id as string))];
   const { data: reservations, error: resErr } = await supabase
     .from('reservations')
-    .select('reservation_id, payment_scheme')
+    .select('reservation_id, payment_scheme, project')
     .in('reservation_id', reservationIds);
   if (resErr) throw resErr;
   const schemeMap = new Map<string, string>(
     (reservations ?? []).map((r: any) => [r.reservation_id as string, r.payment_scheme as string])
+  );
+  const projectMap = new Map<string, string>(
+    (reservations ?? []).map((r: any) => [r.reservation_id as string, (r.project as string) ?? ''])
   );
 
   const grouped = new Map<string, any[]>();
@@ -328,6 +332,7 @@ export async function fetchReceivableSummaries(): Promise<ReservationReceivableS
       client_name: first.client_name,
       inventory_code: first.inventory_code,
       payment_scheme: schemeMap.get(reservation_id) ?? '',
+      project: projectMap.get(reservation_id) ?? '',
       total_lines: rLines.length,
       paid_lines,
       outstanding,

@@ -47,14 +47,17 @@ export default function AppLayout({ children, showHeader = true, title, transpar
         <header
           className={`
             fixed top-0 left-0 right-0 z-40 flex items-center justify-between
-            px-4 pt-12 pb-3
+            px-4 pb-3
             ${transparent
               ? 'bg-transparent'
               : isLight
                 ? 'bg-white/90 backdrop-blur-xl border-b border-black/[0.06]'
                 : 'glass border-b border-white/10'}
           `}
-          style={transparent ? { background: 'linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 100%)' } : {}}
+          style={{
+            paddingTop: 'calc(env(safe-area-inset-top) + 12px)',
+            ...(transparent ? { background: 'linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 100%)' } : {}),
+          }}
         >
           {backButton ? (
             <button
