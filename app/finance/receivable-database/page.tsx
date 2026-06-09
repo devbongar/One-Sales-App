@@ -8,10 +8,10 @@ import PageShell from '@/components/layout/PageShell';
 import {
   fetchReceivableSummaries,
   fetchReceivableLines,
-  postPaymentLine,
   ReservationReceivableSummary,
   ReceivableLine,
 } from '@/lib/receivables';
+import { postCollection } from '@/lib/collections';
 
 /* ─── Helpers ─────────────────────────────────────────────────────────────── */
 function fmtPeso(n: number): string {
@@ -91,11 +91,12 @@ function PostPaymentSheet({
     if (!canSubmit) return;
     setPosting(true);
     try {
-      await postPaymentLine(line.id, {
+      await postCollection(line.reservation_id, {
+        amount_received:            Math.max(0, line.total_amount_due - (line.amount_paid ?? 0)),
         mode_of_payment:            mop,
-        acknowledgement_receipt_no: orNo,
+        acknowledgement_receipt_no: orNo   || undefined,
+        sales_invoice_number:       salesInvoiceNo || undefined,
         posting_date:               postingDate,
-        sales_invoice_number:       salesInvoiceNo,
         check_no:                   isCheck ? checkNo.trim() : undefined,
         check_date:                 isCheck ? checkDate      : undefined,
       });
