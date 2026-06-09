@@ -8,6 +8,16 @@ import { SalespersonRecord } from '@/lib/salesperson';
 import { fetchCommissionRecords, CommissionRecord } from '@/lib/commission';
 import { Loader2, User, FileText } from 'lucide-react';
 
+function statusStyle(status: string): string {
+  switch (status.toLowerCase()) {
+    case 'approved':  return 'bg-green-100 text-green-700';
+    case 'released':
+    case 'paid':      return 'bg-blue-100 text-blue-700';
+    case 'cancelled': return 'bg-red-100 text-red-600';
+    default:          return 'bg-amber-100 text-amber-700';
+  }
+}
+
 function positionLabel(rank: string | null) {
   const map: Record<string, string> = {
     PS: 'Property Specialist',
@@ -56,7 +66,7 @@ export default function CommissionSlipPage() {
   const totalCommission = records.reduce((s, r) => s + (r.total_commission ?? 0), 0);
 
   return (
-    <PageShell title="Commission Payout Slip">
+    <PageShell title="Commission Payout Slip" backButton onBack={() => router.back()}>
 
       {/* Coral hero */}
       <GlassCard strong className="overflow-hidden">
@@ -148,8 +158,8 @@ export default function CommissionSlipPage() {
                         {r.project}{r.unit_no ? ` · ${r.unit_no}` : ''}
                       </p>
                     </div>
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700 shrink-0">
-                      Approved
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${statusStyle(r.status)}`}>
+                      {r.status}
                     </span>
                   </div>
                   <div className="flex items-center gap-4 pt-2 border-t border-[rgba(0,0,0,0.06)]">

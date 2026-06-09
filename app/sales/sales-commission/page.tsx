@@ -329,10 +329,9 @@ export default function SalesCommissionPage() {
             </div>
           </div>
           <div className="p-4 grid grid-cols-2 gap-3">
-            <button disabled className="flex flex-col items-center gap-2 py-5 rounded-2xl bg-[#F2F2F7] border border-transparent opacity-60 relative">
-              <DollarSign size={22} className="text-[#C7C7CC]" />
-              <span className="text-xs font-semibold text-[#C7C7CC] text-center leading-tight">Commission{'\n'}Payout Slip</span>
-              <span className="absolute top-2 right-2 text-[8px] font-bold text-[#C7C7CC] uppercase tracking-wide">Soon</span>
+            <button onClick={() => navigate('slip')} className="flex flex-col items-center gap-2 py-5 rounded-2xl bg-[rgba(192,61,37,0.08)] active:bg-[rgba(192,61,37,0.15)] transition-colors border border-[rgba(192,61,37,0.12)]">
+              <DollarSign size={22} className="text-[#C03D25]" />
+              <span className="text-xs font-semibold text-[#C03D25] text-center leading-tight">Commission{'\n'}Payout Slip</span>
             </button>
             <button onClick={() => navigate('schedule')} className="flex flex-col items-center gap-2 py-5 rounded-2xl bg-[rgba(192,61,37,0.08)] active:bg-[rgba(192,61,37,0.15)] transition-colors border border-[rgba(192,61,37,0.12)]">
               <CalendarRange size={22} className="text-[#C03D25]" />
@@ -381,10 +380,9 @@ export default function SalesCommissionPage() {
             </div>
           </div>
           <div className="p-4 grid grid-cols-2 gap-3">
-            <button disabled className="flex flex-col items-center gap-2 py-5 rounded-2xl bg-[#F2F2F7] border border-transparent opacity-60 relative">
-              <DollarSign size={22} className="text-[#C7C7CC]" />
-              <span className="text-xs font-semibold text-[#C7C7CC] text-center leading-tight">Commission{'\n'}Payout Slip</span>
-              <span className="absolute top-2 right-2 text-[8px] font-bold text-[#C7C7CC] uppercase tracking-wide">Soon</span>
+            <button onClick={() => navigate('slip')} className="flex flex-col items-center gap-2 py-5 rounded-2xl bg-[rgba(192,61,37,0.08)] active:bg-[rgba(192,61,37,0.15)] transition-colors border border-[rgba(192,61,37,0.12)]">
+              <DollarSign size={22} className="text-[#C03D25]" />
+              <span className="text-xs font-semibold text-[#C03D25] text-center leading-tight">Commission{'\n'}Payout Slip</span>
             </button>
             <button onClick={() => navigate('schedule')} className="flex flex-col items-center gap-2 py-5 rounded-2xl bg-[rgba(192,61,37,0.08)] active:bg-[rgba(192,61,37,0.15)] transition-colors border border-[rgba(192,61,37,0.12)]">
               <CalendarRange size={22} className="text-[#C03D25]" />
