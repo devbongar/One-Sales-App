@@ -21,7 +21,7 @@
 html,
 body {
   height: 100%;
-  overflow-x: hidden;
+  overflow-x: clip; /* clip doesn't create a scroll container — avoids iOS Safari fixed-position bug */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

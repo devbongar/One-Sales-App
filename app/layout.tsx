@@ -10,6 +10,12 @@ export const metadata: Metadata = {
     statusBarStyle: 'black-translucent',
     title: 'OneSales',
   },
+  // Next.js 15 only generates mobile-web-app-capable (Android/Chrome).
+  // iOS Safari requires the Apple-specific tag to enter standalone mode.
+  // Without it, "Add to Home Screen" opens in Safari browser, not standalone.
+  other: {
+    'apple-mobile-web-app-capable': 'yes',
+  },
 };
 
 export const viewport: Viewport = {
