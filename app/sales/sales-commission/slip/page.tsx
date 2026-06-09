@@ -268,7 +268,17 @@ export default function CommissionSlipPage() {
                         {detail && !detail.loading && !detail.error && detail.lines.length === 0 && (
                           <p className="text-center text-xs text-[#8E8E93] py-4 px-4">No tranche schedule generated yet.</p>
                         )}
-                        {detail && !detail.loading && !detail.error && detail.lines.length > 0 && (
+                        {detail && !detail.loading && !detail.error && detail.lines.length > 0 && (() => {
+                            const pctCollected = r.net_list_price ? (detail.collected / r.net_list_price) * 100 : 0;
+                            const visibleLines = detail.lines
+                              .map(line => ({
+                                ...line,
+                                effectiveStatus: line.percentage_collection < pctCollected ? 'Receivable' : line.status,
+                              }))
+                              .filter(line => line.effectiveStatus !== 'Pending');
+                            return visibleLines.length === 0 ? (
+                              <p className="text-center text-xs text-[#8E8E93] py-4 px-4">No receivable tranches yet.</p>
+                            ) : (
                           <>
                             {/* Header row */}
                             <div className="grid grid-cols-[32px_44px_1fr_44px_80px] gap-1 px-4 py-2 bg-[#F2F2F7] border-b border-[rgba(0,0,0,0.05)]">
@@ -278,15 +288,15 @@ export default function CommissionSlipPage() {
                               <p className="text-[9px] font-bold text-[#8E8E93] uppercase tracking-wide text-right">Rel%</p>
                               <p className="text-[9px] font-bold text-[#8E8E93] uppercase tracking-wide text-right">Gross Comm</p>
                             </div>
-                            {detail.lines.map(line => (
+                            {visibleLines.map(line => (
                               <div
                                 key={line.id}
                                 className="grid grid-cols-[32px_44px_1fr_44px_80px] gap-1 px-4 py-2.5 border-b border-[rgba(0,0,0,0.04)] last:border-0 items-center"
                               >
                                 <p className="text-xs font-bold text-[#1C1C1E]">{line.tranche}</p>
                                 <p className="text-xs text-[#6C6C70]">{line.percentage_collection}%</p>
-                                <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full w-fit ${statusBadge(line.status)}`}>
-                                  {line.status}
+                                <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full w-fit ${statusBadge(line.effectiveStatus)}`}>
+                                  {line.effectiveStatus}
                                 </span>
                                 <p className="text-xs text-[#6C6C70] text-right">{line.commission_release_rate}%</p>
                                 <p className="text-xs font-semibold text-[#1C1C1E] text-right">
@@ -295,7 +305,8 @@ export default function CommissionSlipPage() {
                               </div>
                             ))}
                           </>
-                        )}
+                            );
+                        })()}
                       </div>
                     )}
 
