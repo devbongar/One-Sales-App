@@ -48,8 +48,8 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-5 relative overflow-hidden">
       {/* Background blobs */}
-      <div className="absolute top-[-20%] left-[-10%] w-96 h-96 rounded-full bg-[#E8634A]/15 blur-[80px] pointer-events-none" />
-      <div className="absolute bottom-[-10%] right-[-10%] w-80 h-80 rounded-full bg-[#E8634A]/10 blur-[80px] pointer-events-none" />
+      <div className="absolute top-[-20%] left-[-10%] w-96 h-96 rounded-full bg-[#C03D25]/15 blur-[80px] pointer-events-none" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-80 h-80 rounded-full bg-[#C03D25]/10 blur-[80px] pointer-events-none" />
 
       <div className="w-full max-w-sm animate-fade-in">
         {/* Logo */}
@@ -81,7 +81,7 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email"
                 required
-                className="w-full px-4 py-3.5 rounded-2xl bg-gray-50 border border-gray-200 text-gray-900 placeholder-gray-400 text-base outline-none transition-all focus:border-[#E8634A] focus:ring-2 focus:ring-[rgba(232,99,74,0.15)]"
+                className="w-full px-4 py-3.5 rounded-2xl bg-gray-50 border border-gray-200 text-gray-900 placeholder-gray-400 text-base outline-none transition-all focus:border-[#C03D25] focus:ring-2 focus:ring-[rgba(192,61,37,0.15)]"
               />
             </div>
 
@@ -96,7 +96,7 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="current-password"
                   required
-                  className="w-full px-4 py-3.5 rounded-2xl bg-gray-50 border border-gray-200 text-gray-900 placeholder-gray-400 text-base outline-none transition-all focus:border-[#E8634A] focus:ring-2 focus:ring-[rgba(232,99,74,0.15)]"
+                  className="w-full px-4 py-3.5 rounded-2xl bg-gray-50 border border-gray-200 text-gray-900 placeholder-gray-400 text-base outline-none transition-all focus:border-[#C03D25] focus:ring-2 focus:ring-[rgba(192,61,37,0.15)]"
                 />
                 <button
                   type="button"

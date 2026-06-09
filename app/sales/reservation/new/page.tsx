@@ -9,6 +9,7 @@ import { fetchProjects, fetchTowers, fetchFloors, fetchFloorsByCategory, fetchUn
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
 import { fetchAllClients, ClientRecord } from '@/lib/clients';
 import { fetchAllPayterms, PaytermRecord } from '@/lib/paytems';
+import { fetchReservationFee, fetchVatThreshold, computeVat, fetchHicTarget } from '@/lib/admin';
 import {
   Check, ChevronDown, Calculator,
   User, Phone, Mail, Briefcase,
@@ -28,12 +29,9 @@ const PAYMENT_SCHEMES = [
 type PaymentScheme = typeof PAYMENT_SCHEMES[number]['value'];
 
 
-const RESERVATION_FEE = 25_000;
 const RETENTION_FEE   = 50_000;
-const VAT_RATE        = 0.12;
 const OTHER_CHARGES_RATE = 0.07;
 const EMPLOYEE_DISCOUNT_RATE = 0.10;
-const HIC_TARGET      = 3_600_000;
 
 function calcMonthlyAmort(principal: number, annualRate: number, years: number): number {
   if (principal <= 0) return 0;
@@ -68,9 +66,17 @@ interface ComparisonItem {
   monthlyDeferred: number; dpAmount: number; netSpotDP: number;
   balanceForFinancing: number; monthlyStretchedDP: number;
   bankMonthly: number; hdmfMonthly: number;
+  reservationFee: number;
 }
 
 type CompRow = { label: string; value: (c: ComparisonItem) => string; bold?: boolean; coral?: boolean; green?: boolean; };
+
+function calcDueDate(addMonths = 0): string {
+  const today = new Date();
+  const dueDayOfMonth = today.getDate() <= 15 ? 15 : 30;
+  return new Date(today.getFullYear(), today.getMonth() + 1 + addMonths, dueDayOfMonth)
+    .toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
 
 const COMP_SECTIONS: { title: string; rows: CompRow[] }[] = [
   { title: 'Unit Info', rows: [
@@ -91,7 +97,7 @@ const COMP_SECTIONS: { title: string; rows: CompRow[] }[] = [
     { label: 'Net List Price', value: c => `₱${c.netListPrice.toLocaleString()}`, bold: true },
   ]},
   { title: 'Taxes & Charges', rows: [
-    { label: 'VAT (12%)',      value: c => `₱${c.vat.toLocaleString()}` },
+    { label: 'VAT',            value: c => `₱${c.vat.toLocaleString()}` },
     { label: 'Other (7%)',     value: c => `₱${c.otherCharges.toLocaleString()}` },
     { label: 'Total Contract', value: c => `₱${c.totalContractPrice.toLocaleString()}`, bold: true, coral: true },
   ]},
@@ -102,9 +108,13 @@ const COMP_SECTIONS: { title: string; rows: CompRow[] }[] = [
   { title: 'Payment Summary', rows: [
     { label: 'DP Amount',    value: c => ['spot_dp','stretched_dp'].includes(c.paymentScheme) ? `₱${c.dpAmount.toLocaleString()}` : '—' },
     { label: 'Net Amount',   value: c => ['spot_dp','stretched_dp'].includes(c.paymentScheme) ? `₱${c.netSpotDP.toLocaleString()}` : `₱${c.netAmount.toLocaleString()}`, bold: true },
-    { label: 'Monthly DP',   value: c => c.paymentScheme === 'stretched_dp' ? `₱${c.monthlyStretchedDP.toLocaleString()}/mo` : '—', coral: true, bold: true },
+    { label: 'Monthly DP',   value: c => c.paymentScheme === 'stretched_dp' ? `₱${c.monthlyStretchedDP.toLocaleString()}/mo (${c.termMonths} mo)` : '—', coral: true, bold: true },
     { label: 'Monthly Def.', value: c => c.paymentScheme === 'deferred_cash' ? `₱${c.monthlyDeferred.toLocaleString()}/mo (${c.termMonths} mo)` : '—', coral: true, bold: true },
     { label: 'Balance',      value: c => ['spot_dp','stretched_dp'].includes(c.paymentScheme) ? `₱${c.balanceForFinancing.toLocaleString()}` : '—' },
+    { label: 'Due Date',     value: c => c.paymentScheme === 'spot_cash' ? calcDueDate() : '—', coral: true },
+    { label: 'DP Due Date',  value: c => c.paymentScheme === 'spot_dp' ? calcDueDate() : '—', coral: true },
+    { label: 'Due (From)',   value: c => ['deferred_cash','stretched_dp'].includes(c.paymentScheme) ? calcDueDate() : '—', coral: true },
+    { label: 'Due (To)',     value: c => c.paymentScheme === 'deferred_cash' ? calcDueDate(c.termMonths) : c.paymentScheme === 'stretched_dp' ? calcDueDate(c.termMonths) : '—', coral: true },
   ]},
   { title: 'Financing', rows: [
     { label: 'Bank/mo',  value: c => ['spot_dp','stretched_dp'].includes(c.paymentScheme) ? `₱${c.bankMonthly.toLocaleString()}` : '—' },
@@ -131,27 +141,27 @@ function StepIndicator({ current, onNavigate, hasComparisons }: { current: numbe
           <div key={label} className="flex flex-col items-center flex-1">
             <div className="flex items-center w-full">
               {/* Left line */}
-              <div className={`flex-1 h-0.5 ${i === 0 ? 'opacity-0' : done || active ? 'bg-[#E8634A]' : 'bg-[#E5E5EA]'}`} />
+              <div className={`flex-1 h-0.5 ${i === 0 ? 'opacity-0' : done || active ? 'bg-[#C03D25]' : 'bg-[#E5E5EA]'}`} />
               {/* Circle */}
               <button
                 type="button"
                 disabled={!clickable}
                 onClick={() => clickable && onNavigate(i)}
                 className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 border-2 transition-all duration-200 ${
-                  done   ? 'bg-[#E8634A] border-[#E8634A] shadow-[0_2px_8px_rgba(232,99,74,0.35)] active:opacity-70' :
-                  active ? 'bg-white border-[#E8634A] shadow-[0_2px_8px_rgba(232,99,74,0.25)]' :
+                  done   ? 'bg-[#C03D25] border-[#C03D25] shadow-[0_2px_8px_rgba(192,61,37,0.35)] active:opacity-70' :
+                  active ? 'bg-white border-[#C03D25] shadow-[0_2px_8px_rgba(192,61,37,0.25)]' :
                            'bg-white border-[#E5E5EA]'
                 } ${clickable ? 'cursor-pointer' : 'cursor-default'}`}
               >
                 {done
                   ? <Check size={14} className="text-white" />
-                  : <span className={active ? 'text-[#E8634A]' : 'text-[#C7C7CC]'}>{icon}</span>
+                  : <span className={active ? 'text-[#C03D25]' : 'text-[#C7C7CC]'}>{icon}</span>
                 }
               </button>
               {/* Right line */}
-              <div className={`flex-1 h-0.5 ${i === STEPS.length - 1 ? 'opacity-0' : done ? 'bg-[#E8634A]' : 'bg-[#E5E5EA]'}`} />
+              <div className={`flex-1 h-0.5 ${i === STEPS.length - 1 ? 'opacity-0' : done ? 'bg-[#C03D25]' : 'bg-[#E5E5EA]'}`} />
             </div>
-            <span className={`text-[10px] mt-1.5 font-semibold text-center leading-tight ${active ? 'text-[#E8634A]' : done ? 'text-[#6C6C70]' : 'text-[#C7C7CC]'}`}>
+            <span className={`text-[10px] mt-1.5 font-semibold text-center leading-tight ${active ? 'text-[#C03D25]' : done ? 'text-[#6C6C70]' : 'text-[#C7C7CC]'}`}>
               {label}
             </span>
           </div>
@@ -169,10 +179,10 @@ function InputRow({ label, value, onChange, placeholder, type = 'text', icon, er
   return (
     <div className={`border-b border-black/[0.06] last:border-0 ${error ? 'bg-red-50/50' : ''}`}>
       <div className="flex items-center gap-3 py-3 px-1">
-        {icon && <span className={`shrink-0 ${error ? 'text-red-400' : 'text-[#E8634A]'}`}>{icon}</span>}
+        {icon && <span className={`shrink-0 ${error ? 'text-red-400' : 'text-[#C03D25]'}`}>{icon}</span>}
         <span className="text-[#1C1C1E] text-sm font-medium flex-1 shrink-0 flex items-center gap-0.5">
           {label}
-          {required && <span className="text-[#E8634A] text-xs leading-none">*</span>}
+          {required && <span className="text-[#C03D25] text-xs leading-none">*</span>}
         </span>
         <input
           type={type}
@@ -207,10 +217,10 @@ function PhoneInputRow({ value, onChange, error }: {
   return (
     <div className={`border-b border-black/[0.06] last:border-0 ${error ? 'bg-red-50/50' : ''}`}>
       <div className="flex items-center gap-3 py-3 px-1">
-        <span className={`shrink-0 ${error ? 'text-red-400' : 'text-[#E8634A]'}`}><Phone size={16} /></span>
+        <span className={`shrink-0 ${error ? 'text-red-400' : 'text-[#C03D25]'}`}><Phone size={16} /></span>
         <span className="text-[#1C1C1E] text-sm font-medium flex-1 flex items-center gap-0.5">
           Contact Number
-          <span className="text-[#E8634A] text-xs leading-none">*</span>
+          <span className="text-[#C03D25] text-xs leading-none">*</span>
         </span>
         <div className="flex items-center gap-1">
           <span className="text-sm font-semibold shrink-0 text-[#6C6C70]">+63</span>
@@ -238,10 +248,10 @@ function CheckRow({ label, checked, onChange, icon }: {
       onClick={() => onChange(!checked)}
       className="w-full flex items-center gap-3 py-3 px-1 border-b border-black/[0.06] last:border-0 text-left"
     >
-      {icon && <span className="text-[#E8634A] shrink-0">{icon}</span>}
+      {icon && <span className="text-[#C03D25] shrink-0">{icon}</span>}
       <span className="flex-1 text-[#1C1C1E] text-sm font-medium">{label}</span>
       <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 ${
-        checked ? 'bg-[#E8634A] border-[#E8634A]' : 'border-[#C7C7CC]'
+        checked ? 'bg-[#C03D25] border-[#C03D25]' : 'border-[#C7C7CC]'
       }`}>
         {checked && <Check size={11} className="text-white" />}
       </div>
@@ -274,10 +284,10 @@ function InlineSelect({ label, value, options, onChange, placeholder = 'Select',
         onClick={() => setOpen((p) => !p)}
         className="w-full flex items-center gap-3 py-3 px-1"
       >
-        {icon && <span className={`shrink-0 ${error ? 'text-red-400' : 'text-[#E8634A]'}`}>{icon}</span>}
+        {icon && <span className={`shrink-0 ${error ? 'text-red-400' : 'text-[#C03D25]'}`}>{icon}</span>}
         <span className="text-[#1C1C1E] text-sm font-medium flex-1 text-left flex items-center gap-0.5">
           {label}
-          {required && <span className="text-[#E8634A] text-xs leading-none">*</span>}
+          {required && <span className="text-[#C03D25] text-xs leading-none">*</span>}
         </span>
         <span className={`text-right text-sm truncate max-w-[140px] ${value ? 'text-[#1C1C1E]' : 'text-[#8E8E93]'}`}>
           {value || placeholder}
@@ -294,7 +304,7 @@ function InlineSelect({ label, value, options, onChange, placeholder = 'Select',
               onClick={() => { onChange(o); setOpen(false); }}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-colors ${
                 o === value
-                  ? 'bg-[#E8634A]/10 text-[#E8634A] font-semibold'
+                  ? 'bg-[#C03D25]/10 text-[#C03D25] font-semibold'
                   : 'text-[#1C1C1E] hover:bg-gray-50 active:bg-gray-100'
               }`}
             >
@@ -313,7 +323,7 @@ function InlineSelect({ label, value, options, onChange, placeholder = 'Select',
 function SectionHeader({ children, icon }: { children: React.ReactNode; icon?: React.ReactNode }) {
   return (
     <div className="flex items-center gap-1.5 px-1">
-      {icon && <span className="text-[#E8634A]">{icon}</span>}
+      {icon && <span className="text-[#C03D25]">{icon}</span>}
       <p className="text-[#6C6C70] text-[11px] font-semibold uppercase tracking-wider">
         {children}
       </p>
@@ -362,11 +372,17 @@ export default function NewReservationPage() {
   const [selectedUnit, setSelectedUnit] = useState<InventoryUnit | null>(null);
   const [paymentScheme, setPaymentScheme] = useState<PaymentScheme>('spot_cash');
   const [paymentTerm,  setPaymentTerm]  = useState<string>('12 months');
-  const [dpRate,       setDpRate]       = useState<string>('15%');
+  const [dpRate,           setDpRate]           = useState<string>('15%');
+  const [stretchedDpTerm, setStretchedDpTerm] = useState<string>('');
   const [comparisons,  setComparisons]  = useState<ComparisonItem[]>([]);
   const [duplicateAlert, setDuplicateAlert] = useState(false);
+  const [showAddSheet, setShowAddSheet] = useState(false);
   const [useHIC,       setUseHIC]       = useState(false);
   const [userRole,     setUserRole]     = useState('');
+  const [reservationFee, setReservationFee] = useState(0);
+  // undefined = loading, null = not configured, number = ok
+  const [vatThreshold, setVatThreshold] = useState<number | null | undefined>(undefined);
+  const [hicTarget,    setHicTarget]    = useState<number | null>(null);
   const compHeaderRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   // Equalize comparison card header heights to the tallest one
@@ -400,10 +416,11 @@ export default function NewReservationPage() {
     fetchAllSalespersons().then(setAllSalespersons).catch(console.error);
   }, []);
 
-  // Fetch all paytems on mount
+  // Fetch paytems once project + tower are selected (avoids transient DNS failure on mount)
   useEffect(() => {
+    if (!project || !tower) { setAllPayterms([]); return; }
     fetchAllPayterms().then(setAllPayterms).catch(console.error);
-  }, []);
+  }, [project, tower]);
 
   // Read user role from session
   useEffect(() => {
@@ -413,15 +430,28 @@ export default function NewReservationPage() {
     } catch {}
   }, []);
 
+  // Fetch reservation fee when selected unit changes
+  useEffect(() => {
+    if (!selectedUnit) return;
+    const pt = selectedUnit.product_type ?? 'Residential Unit';
+    fetchReservationFee(pt).then(setReservationFee).catch(() => setReservationFee(0));
+    setVatThreshold(undefined);
+    fetchVatThreshold(pt).then(setVatThreshold).catch(() => setVatThreshold(null));
+    fetchHicTarget(pt).then(setHicTarget).catch(() => setHicTarget(null));
+    setUseHIC(selectedUnit.hic === true);
+  }, [selectedUnit]);
+
   // Auto-reset paymentTerm when project/tower changes and current term is no longer available
   useEffect(() => {
     if (!project || !tower || allPayterms.length === 0) return;
     const deferredRecords = allPayterms.filter(
       p => p.project === project && p.tower === tower && p.payterm_scheme === 'Deferred Cash'
     );
-    const opts = deferredRecords
-      .map(p => p.payment_term ?? (p.term ? `${p.term} months` : null))
-      .filter(Boolean) as string[];
+    const opts = [...new Set(
+      deferredRecords.map(p => p.term).filter(Boolean) as string[]
+    )]
+      .sort((a, b) => parseInt(a) - parseInt(b))
+      .map(t => `${t} months`);
     if (opts.length > 0 && !opts.includes(paymentTerm)) {
       setPaymentTerm(opts[0]);
     }
@@ -442,6 +472,20 @@ export default function NewReservationPage() {
       setDpRate(opts[0]);
     }
   }, [allPayterms, project, tower, paymentScheme]);
+
+  // Auto-reset stretchedDpTerm when dpRate or project/tower changes
+  useEffect(() => {
+    if (!project || !tower || allPayterms.length === 0 || paymentScheme !== 'stretched_dp') return;
+    const records = allPayterms.filter(
+      p => p.project === project && p.tower === tower && p.payterm_scheme === 'Stretched DP' && p.dp_percent === dpRate
+    );
+    const opts = records
+      .map(p => p.payment_term ?? (p.term ? `${p.term} months` : null))
+      .filter(Boolean) as string[];
+    if (opts.length > 0 && !opts.includes(stretchedDpTerm)) {
+      setStretchedDpTerm(opts[0]);
+    }
+  }, [allPayterms, project, tower, paymentScheme, dpRate]);
 
   // Fetch all clients on mount
   useEffect(() => {
@@ -615,8 +659,8 @@ export default function NewReservationPage() {
 
       {/* Header card */}
       <GlassCard strong className="p-5 flex items-center gap-4">
-        <div className="w-12 h-12 rounded-2xl bg-[rgba(232,99,74,0.12)] flex items-center justify-center shrink-0">
-          <Calculator size={22} className="text-[#E8634A]" />
+        <div className="w-12 h-12 rounded-2xl bg-[rgba(192,61,37,0.12)] flex items-center justify-center shrink-0">
+          <Calculator size={22} className="text-[#C03D25]" />
         </div>
         <div className="min-w-0">
           <p className="text-[#1C1C1E] font-semibold">{STEP_HEADERS[step].title}</p>
@@ -640,10 +684,10 @@ export default function NewReservationPage() {
                 onClick={() => { setClientDropdownOpen(p => !p); setClientSearch(''); }}
                 className="w-full flex items-center gap-3 py-3 px-1"
               >
-                <span className={`shrink-0 ${errors.fullName ? 'text-red-400' : 'text-[#E8634A]'}`}><User size={16} /></span>
+                <span className={`shrink-0 ${errors.fullName ? 'text-red-400' : 'text-[#C03D25]'}`}><User size={16} /></span>
                 <span className="text-sm font-medium text-[#1C1C1E] flex-1 text-left flex items-center gap-0.5">
                   Full Name
-                  <span className="text-[#E8634A] text-xs leading-none">*</span>
+                  <span className="text-[#C03D25] text-xs leading-none">*</span>
                 </span>
                 <span className={`text-sm text-right truncate max-w-[160px] ${selectedClientRecord ? 'text-[#1C1C1E]' : 'text-[#8E8E93]'}`}>
                   {selectedClientRecord ? formatClientFullName(selectedClientRecord) : 'Search client'}
@@ -697,7 +741,7 @@ export default function NewReservationPage() {
                           <button
                             type="button"
                             onClick={() => router.push('/sales/client-registration/new')}
-                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#E8634A]/10 text-[#E8634A] text-xs font-semibold active:opacity-70"
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#C03D25]/10 text-[#C03D25] text-xs font-semibold active:opacity-70"
                           >
                             <UserPlus size={13} />
                             Add New Client
@@ -713,7 +757,7 @@ export default function NewReservationPage() {
 
             {/* Client ID — read-only, populated from selected client */}
             <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
-              <span className="text-[#E8634A] shrink-0"><UserCheck size={16} /></span>
+              <span className="text-[#C03D25] shrink-0"><UserCheck size={16} /></span>
               <span className="text-[#1C1C1E] text-sm font-medium flex-1">Client ID</span>
               <span className={`text-sm text-right font-mono ${selectedClientRecord?.client_id ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
                 {selectedClientRecord?.client_id ?? 'Auto-filled from client'}
@@ -723,10 +767,10 @@ export default function NewReservationPage() {
             {/* Contact — read-only, populated from selected client */}
             <div className={`border-b border-black/[0.06] ${errors.contact ? 'bg-red-50/50' : ''}`}>
               <div className="flex items-center gap-3 py-3 px-1">
-                <span className={`shrink-0 ${errors.contact ? 'text-red-400' : 'text-[#E8634A]'}`}><Phone size={16} /></span>
+                <span className={`shrink-0 ${errors.contact ? 'text-red-400' : 'text-[#C03D25]'}`}><Phone size={16} /></span>
                 <span className="text-[#1C1C1E] text-sm font-medium flex-1 flex items-center gap-0.5">
                   Contact Number
-                  <span className="text-[#E8634A] text-xs leading-none">*</span>
+                  <span className="text-[#C03D25] text-xs leading-none">*</span>
                 </span>
                 <span className={`text-sm text-right ${contact ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
                   {contact && selectedClientRecord
@@ -747,10 +791,10 @@ export default function NewReservationPage() {
             {/* Email — read-only, populated from selected client */}
             <div className={`border-b border-black/[0.06] ${errors.email ? 'bg-red-50/50' : ''}`}>
               <div className="flex items-center gap-3 py-3 px-1">
-                <span className={`shrink-0 ${errors.email ? 'text-red-400' : 'text-[#E8634A]'}`}><Mail size={16} /></span>
+                <span className={`shrink-0 ${errors.email ? 'text-red-400' : 'text-[#C03D25]'}`}><Mail size={16} /></span>
                 <span className="text-[#1C1C1E] text-sm font-medium flex-1 flex items-center gap-0.5">
                   Email Address
-                  <span className="text-[#E8634A] text-xs leading-none">*</span>
+                  <span className="text-[#C03D25] text-xs leading-none">*</span>
                 </span>
                 <span className={`text-sm text-right truncate max-w-[160px] ${email ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
                   {email || 'Auto-filled from client'}
@@ -761,10 +805,10 @@ export default function NewReservationPage() {
 
             {/* Megawide — read-only, populated from selected client */}
             <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06] last:border-0">
-              <span className="text-[#E8634A] shrink-0"><Briefcase size={16} /></span>
+              <span className="text-[#C03D25] shrink-0"><Briefcase size={16} /></span>
               <span className="flex-1 text-[#1C1C1E] text-sm font-medium">Megawide Employee</span>
               <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 ${
-                isMegawide ? 'bg-[#E8634A] border-[#E8634A]' : 'border-[#C7C7CC]'
+                isMegawide ? 'bg-[#C03D25] border-[#C03D25]' : 'border-[#C7C7CC]'
               }`}>
                 {isMegawide && <Check size={11} className="text-white" />}
               </div>
@@ -781,7 +825,7 @@ export default function NewReservationPage() {
                 onClick={() => { setSellerDropdownOpen(p => !p); setSellerSearch(''); }}
                 className="w-full flex items-center gap-3 py-3 px-1"
               >
-                <span className="text-[#E8634A] shrink-0"><UserPlus size={16} /></span>
+                <span className="text-[#C03D25] shrink-0"><UserPlus size={16} /></span>
                 <span className="text-sm font-medium text-[#1C1C1E] flex-1 text-left">Seller</span>
                 <span className={`text-sm text-right truncate max-w-[160px] ${sellerRecord ? 'text-[#1C1C1E]' : 'text-[#8E8E93]'}`}>
                   {sellerRecord ? sellerRecord.seller_name : 'Search name'}
@@ -837,27 +881,27 @@ export default function NewReservationPage() {
             {sellerRecord && (
               <>
                 <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
-                  <span className="text-[#E8634A] shrink-0"><UserCog size={16} /></span>
+                  <span className="text-[#C03D25] shrink-0"><UserCog size={16} /></span>
                   <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Position</span>
                   <span className="text-sm text-right max-w-[160px] text-[#8E8E93]">{sellerRecord.position_code}</span>
                 </div>
                 {sellerRecord.position_code === 'Property Specialist' && sellerRecord.sales_manager && (
                   <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
-                    <span className="text-[#E8634A] shrink-0"><UserCheck size={16} /></span>
+                    <span className="text-[#C03D25] shrink-0"><UserCheck size={16} /></span>
                     <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Sales Manager</span>
                     <span className="text-sm text-right max-w-[160px] text-[#8E8E93]">{sellerRecord.sales_manager}</span>
                   </div>
                 )}
                 {['Property Specialist', 'Sales Manager'].includes(sellerRecord.position_code) && sellerRecord.sales_director && (
                   <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
-                    <span className="text-[#E8634A] shrink-0"><UserCog size={16} /></span>
+                    <span className="text-[#C03D25] shrink-0"><UserCog size={16} /></span>
                     <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Sales Director</span>
                     <span className="text-sm text-right max-w-[160px] text-[#8E8E93]">{sellerRecord.sales_director}</span>
                   </div>
                 )}
                 {['Property Specialist', 'Sales Manager', 'Sales Director'].includes(sellerRecord.position_code) && sellerRecord.sales_division_head && (
                   <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
-                    <span className="text-[#E8634A] shrink-0"><Users size={16} /></span>
+                    <span className="text-[#C03D25] shrink-0"><Users size={16} /></span>
                     <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Division Head</span>
                     <span className="text-sm text-right max-w-[160px] text-[#8E8E93]">{sellerRecord.sales_division_head}</span>
                   </div>
@@ -909,7 +953,7 @@ export default function NewReservationPage() {
             <div className="flex items-center gap-1.5 mb-3 px-1">
               <span className="text-[#1C1C1E] text-sm font-medium flex items-center gap-0.5">
                 Unit Category
-                <span className="text-[#E8634A] text-xs leading-none">*</span>
+                <span className="text-[#C03D25] text-xs leading-none">*</span>
               </span>
             </div>
             <div className="flex gap-2">
@@ -927,11 +971,11 @@ export default function NewReservationPage() {
                     }}
                     className={`flex-1 flex flex-col items-center gap-1.5 py-3 rounded-2xl border-2 text-xs font-semibold transition-all ${
                       active
-                        ? 'bg-[#E8634A]/10 border-[#E8634A] text-[#E8634A]'
-                        : 'bg-white border-[#E5E5EA] text-[#6C6C70] hover:border-[#E8634A]/40'
+                        ? 'bg-[#C03D25]/10 border-[#C03D25] text-[#C03D25]'
+                        : 'bg-white border-[#E5E5EA] text-[#6C6C70] hover:border-[#C03D25]/40'
                     }`}
                   >
-                    <span className={active ? 'text-[#E8634A]' : 'text-[#8E8E93]'}>{icon}</span>
+                    <span className={active ? 'text-[#C03D25]' : 'text-[#8E8E93]'}>{icon}</span>
                     {label}
                   </button>
                 );
@@ -1021,8 +1065,8 @@ export default function NewReservationPage() {
               { label: 'Booked',      bg: 'bg-[#FEE2E2]', text: 'text-[#991B1B]', count: counts.booked },
               { label: 'Reserved',    bg: 'bg-[#FFEDD5]', text: 'text-[#9A3412]', count: counts.reserved },
               { label: 'Unavailable', bg: 'bg-[#E5E7EB]', text: 'text-[#6B7280]', count: counts.unavailable },
-              { label: 'N/A',         bg: 'bg-[#374151]', text: 'text-white',      count: naCount },
             ];
+            const totalUnits = counts.available + counts.booked + counts.reserved + counts.unavailable;
 
             const availableUnits = filtered
               .filter(u => u.status?.toLowerCase() === 'available')
@@ -1031,18 +1075,21 @@ export default function NewReservationPage() {
             return (
               <GlassCard className="p-4 space-y-3">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[#E8634A]"><BarChart3 size={13} /></span>
-                    <p className="text-[#6C6C70] text-[11px] font-semibold uppercase tracking-wider">
-                      Availability Chart
-                    </p>
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[#C03D25]"><BarChart3 size={13} /></span>
+                      <p className="text-[#6C6C70] text-[11px] font-semibold uppercase tracking-wider">
+                        Availability Chart
+                      </p>
+                    </div>
+                    <p className="text-[#1C1C1E] text-[11px] font-medium mt-0.5 pl-[19px]">Total no of units: {totalUnits}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <button type="button" onClick={() => setViewMode('chart')}
-                      className={`p-2.5 rounded-xl border-2 transition-all ${viewMode === 'chart' ? 'bg-[#E8634A]/10 border-[#E8634A] text-[#E8634A]' : 'border-[#E5E5EA] text-[#8E8E93] hover:border-[#E8634A]/40'}`}
+                      className={`p-2.5 rounded-xl border-2 transition-all ${viewMode === 'chart' ? 'bg-[#C03D25]/10 border-[#C03D25] text-[#C03D25]' : 'border-[#E5E5EA] text-[#8E8E93] hover:border-[#C03D25]/40'}`}
                       title="Chart View"><BarChart3 size={18} /></button>
                     <button type="button" onClick={() => setViewMode('grid')}
-                      className={`p-2.5 rounded-xl border-2 transition-all ${viewMode === 'grid' ? 'bg-[#E8634A]/10 border-[#E8634A] text-[#E8634A]' : 'border-[#E5E5EA] text-[#8E8E93] hover:border-[#E8634A]/40'}`}
+                      className={`p-2.5 rounded-xl border-2 transition-all ${viewMode === 'grid' ? 'bg-[#C03D25]/10 border-[#C03D25] text-[#C03D25]' : 'border-[#E5E5EA] text-[#8E8E93] hover:border-[#C03D25]/40'}`}
                       title="Grid View"><Grid3X3 size={18} /></button>
                   </div>
                 </div>
@@ -1115,7 +1162,7 @@ export default function NewReservationPage() {
                               ) : null;
                             })()}
                             <div className="flex items-center gap-1 min-w-0 pr-10">
-                              {catIcon && <span className="text-[#E8634A] shrink-0" style={{ fontSize: 12 }}>{catIcon}</span>}
+                              {catIcon && <span className="text-[#C03D25] shrink-0" style={{ fontSize: 12 }}>{catIcon}</span>}
                               <span className="text-sm font-bold text-[#1C1C1E] leading-tight truncate">{u.floor}{u.unit_no}</span>
                             </div>
                             <div className="space-y-0.5">
@@ -1126,7 +1173,7 @@ export default function NewReservationPage() {
                             <div className="border-t border-black/[0.08]" />
                             <div className="flex items-center justify-between">
                               <span className="text-[#8E8E93] text-xs font-semibold uppercase tracking-wide">Price</span>
-                              <span className="text-[#E8634A] text-sm font-bold">₱{Number(u.total_list_price).toLocaleString()}</span>
+                              <span className="text-[#C03D25] text-sm font-bold">₱{Number(u.total_list_price).toLocaleString()}</span>
                             </div>
                           </div>
                         );
@@ -1156,12 +1203,12 @@ export default function NewReservationPage() {
         const spotCashDiscount  = spotCashRecord?.discount ?? 0;
 
         const deferredCashRecords = filteredPayterms.filter(p => p.payterm_scheme === 'Deferred Cash');
-        const deferredTermOptions = deferredCashRecords
-          .map(p => p.payment_term ?? (p.term ? `${p.term} months` : null))
-          .filter(Boolean) as string[];
-        const deferredRecord   = deferredCashRecords.find(
-          p => (p.payment_term ?? (p.term ? `${p.term} months` : '')) === paymentTerm
-        );
+        const deferredTermOptions = [...new Set(
+          deferredCashRecords.map(p => p.term).filter(Boolean) as string[]
+        )]
+          .sort((a, b) => parseInt(a) - parseInt(b))
+          .map(t => `${t} months`);
+        const deferredRecord   = deferredCashRecords.find(p => p.term === String(parseInt(paymentTerm)));
         const deferredDiscount = deferredRecord?.discount ?? 0;
 
         const spotDpRecords     = filteredPayterms.filter(p => p.payterm_scheme === 'Spot DP');
@@ -1173,6 +1220,11 @@ export default function NewReservationPage() {
         const stretchedDpRateOptions = stretchedDpRecords.map(p => p.dp_percent).filter(Boolean) as string[];
         const stretchedDpRecord      = stretchedDpRecords.find(p => p.dp_percent === dpRate);
         const stretchedDpDiscount    = stretchedDpRecord?.discount ?? 0;
+        const stretchedDpTermOptions = stretchedDpRecords
+          .filter(p => p.dp_percent === dpRate)
+          .map(p => p.payment_term ?? (p.term ? `${p.term} months` : null))
+          .filter(Boolean) as string[];
+        const stretchedTermMonths = parseInt(stretchedDpTerm) || 54;
 
         const paytermRate  = paymentScheme === 'deferred_cash'
           ? deferredDiscount / 100
@@ -1191,22 +1243,33 @@ export default function NewReservationPage() {
         const paytermAmount   = Math.round(listPrice * paytermRate);
         const employeeAmount  = isMegawide ? Math.round(listPrice * EMPLOYEE_DISCOUNT_RATE) : 0;
         const nlpBeforeHIC    = listPrice - promoAmount - employeeAmount - paytermAmount;
-        const showHIC         = userRole === 'admin' && unitCategory === 'Residential';
-        const hicDiscount     = (useHIC && showHIC) ? Math.max(0, nlpBeforeHIC - HIC_TARGET) : 0;
+        const showHIC         = userRole === 'admin' && unitCategory === 'Residential' && selectedUnit.hic === true && hicTarget != null;
+        const hicDiscount     = (useHIC && showHIC && hicTarget != null) ? Math.max(0, nlpBeforeHIC - hicTarget) : 0;
         const netListPrice    = nlpBeforeHIC - hicDiscount;
-        const vat          = Math.round(netListPrice * VAT_RATE);
+        const vat          = (vatThreshold != null) ? computeVat(netListPrice, vatThreshold) : 0;
         const otherCharges = Math.round(netListPrice * OTHER_CHARGES_RATE);
         const totalContractPrice = netListPrice + vat + otherCharges;
-        const netAmount    = totalContractPrice - RESERVATION_FEE - RETENTION_FEE;
+        const netAmount    = totalContractPrice - reservationFee - RETENTION_FEE;
         const monthlyDeferred = paymentScheme === 'deferred_cash'
           ? Math.round(netAmount / termMonths)
           : 0;
 
+        // Due date base: day 1–15 → 15th of next month; day 16–31 → 30th of next month
+        const today = new Date();
+        const nextMonth = today.getMonth() === 11 ? 0 : today.getMonth() + 1;
+        const nextYear  = today.getMonth() === 11 ? today.getFullYear() + 1 : today.getFullYear();
+        const dueDayOfMonth = today.getDate() <= 15 ? 15 : 30;
+        const dueFromDate = new Date(nextYear, nextMonth, dueDayOfMonth);
+        const spotCashDueDate = dueFromDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        const monthlyDueFrom  = dueFromDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        const dueToDate = new Date(nextYear, nextMonth + termMonths, dueDayOfMonth);
+        const monthlyDueTo = dueToDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
         const dpRateDecimal       = parseFloat(dpRate) / 100;
         const dpAmount            = Math.round(totalContractPrice * dpRateDecimal);
-        const netSpotDP           = dpAmount - RESERVATION_FEE;
-        const balanceForFinancing = totalContractPrice - RESERVATION_FEE - netSpotDP;
-        const monthlyStretchedDP  = Math.round(netSpotDP / 54);
+        const netSpotDP           = dpAmount - reservationFee;
+        const balanceForFinancing = totalContractPrice - reservationFee - netSpotDP;
+        const monthlyStretchedDP  = Math.round(netSpotDP / stretchedTermMonths);
         const bankMonthly         = calcMonthlyAmort(balanceForFinancing, 0.065, 20);
         const hdmfMonthly         = calcMonthlyAmort(balanceForFinancing, 0.0625, 25);
 
@@ -1222,19 +1285,32 @@ export default function NewReservationPage() {
             floor: selectedUnit.floor, unitNo: selectedUnit.unit_no,
             inventoryCode: selectedUnit.inventory_code ?? null,
             unitType: selectedUnit.unit_type || '', unitArea: selectedUnit.unit_area,
-            unitCategory, paymentScheme, schemeName, dpRate, paymentTerm, termMonths,
+            unitCategory, paymentScheme, schemeName, dpRate, paymentTerm,
+            termMonths: paymentScheme === 'stretched_dp' ? stretchedTermMonths : termMonths,
             listPrice, promoAmount, promoPct, employeeAmount, paytermAmount, paytermPctDisplay,
             hicDiscount,
             netListPrice, vat, otherCharges, totalContractPrice,
             netAmount, monthlyDeferred, dpAmount, netSpotDP,
             balanceForFinancing, monthlyStretchedDP, bankMonthly, hdmfMonthly,
+            reservationFee,
           }]);
           goToStep(3);
         };
 
+        const vatUnconfigured = vatThreshold === null;
+        const vatLabel = vatUnconfigured ? 'VAT (not configured)' : vat === 0 ? 'VAT (Exempt)' : 'VAT (12%)';
+
         const pct = promoPct > 0 ? promoPct : null;
         return (
           <>
+            {vatUnconfigured && (
+              <div className="flex items-start gap-3 px-4 py-3 rounded-2xl" style={{ background: 'rgba(255,59,48,0.08)', border: '1px solid rgba(255,59,48,0.2)' }}>
+                <AlertTriangle size={16} className="text-[#FF3B30] shrink-0 mt-0.5" />
+                <p className="text-xs text-[#FF3B30] leading-snug">
+                  <span className="font-bold">VAT not configured</span> for product type <span className="font-semibold">"{selectedUnit.product_type ?? 'Residential Unit'}"</span>. Configure in Admin &gt; VAT Settings. VAT set to ₱0.
+                </p>
+              </div>
+            )}
             {/* ── Card 1: Unit Info ── */}
             <GlassCard className="px-4 py-1 relative overflow-hidden">
               {pct && (
@@ -1247,7 +1323,7 @@ export default function NewReservationPage() {
                 </div>
               )}
               <div className="flex items-center gap-2 py-3 pr-12 border-b border-black/[0.06]">
-                {catIcon && <span className="text-[#E8634A] shrink-0">{catIcon}</span>}
+                {catIcon && <span className="text-[#C03D25] shrink-0">{catIcon}</span>}
                 <span className="text-base font-bold text-[#1C1C1E]">{selectedUnit.floor}{selectedUnit.unit_no}</span>
               </div>
               <div className="flex gap-4 py-3 border-b border-black/[0.06]">
@@ -1287,17 +1363,17 @@ export default function NewReservationPage() {
             {/* ── Card 2: Payment Calculator ── */}
             <GlassCard className="p-4 space-y-3">
               <div className="flex items-center gap-2">
-                <span className="text-[#E8634A] shrink-0"><Calculator size={16} /></span>
+                <span className="text-[#C03D25] shrink-0"><Calculator size={16} /></span>
                 <span className="text-sm font-semibold text-[#1C1C1E] flex-1">Payment Calculator</span>
                 <button
                   type="button"
                   onClick={doAddToComparison}
-                  className="flex items-center gap-1 text-[#E8634A] text-[11px] font-semibold border border-[#E8634A]/50 rounded-xl px-2.5 py-1.5 active:bg-[#E8634A]/10 shrink-0"
+                  className="flex items-center gap-1 text-[#C03D25] text-[11px] font-semibold border border-[#C03D25]/50 rounded-xl px-2.5 py-1.5 active:bg-[#C03D25]/10 shrink-0"
                 >
                   <Plus size={11} />
                   Add to Comparison
                   {comparisons.length > 0 && (
-                    <span className="bg-[#E8634A] text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center ml-0.5">
+                    <span className="bg-[#C03D25] text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center ml-0.5">
                       {comparisons.length}
                     </span>
                   )}
@@ -1317,11 +1393,11 @@ export default function NewReservationPage() {
                       onClick={() => setPaymentScheme(value)}
                       className={`flex flex-col items-center gap-1.5 py-3 px-1 rounded-2xl border-2 text-[10px] font-semibold transition-all text-center leading-tight ${
                         active
-                          ? 'bg-[#E8634A]/10 border-[#E8634A] text-[#E8634A]'
+                          ? 'bg-[#C03D25]/10 border-[#C03D25] text-[#C03D25]'
                           : 'bg-white border-[#E5E5EA] text-[#6C6C70]'
                       }`}
                     >
-                      <span className={active ? 'text-[#E8634A]' : 'text-[#8E8E93]'}>{icon}</span>
+                      <span className={active ? 'text-[#C03D25]' : 'text-[#8E8E93]'}>{icon}</span>
                       {label}
                     </button>
                   );
@@ -1351,6 +1427,18 @@ export default function NewReservationPage() {
                   />
                 </div>
               )}
+              {paymentScheme === 'stretched_dp' && stretchedDpTermOptions.length > 0 && (
+                <div className="border border-black/[0.06] rounded-2xl bg-white">
+                  <InlineSelect
+                    label="DP Term"
+                    value={stretchedDpTerm}
+                    options={stretchedDpTermOptions}
+                    onChange={setStretchedDpTerm}
+                    placeholder="Select DP term"
+                    icon={<Clock size={16} />}
+                  />
+                </div>
+              )}
 
               {/* HIC Checkbox — Sales Director + Residential only */}
               {showHIC && (
@@ -1372,7 +1460,7 @@ export default function NewReservationPage() {
                     <p className={`text-sm font-semibold ${useHIC ? 'text-[#5E5CE6]' : 'text-[#1C1C1E]'}`}>
                       Home Improvement Contract
                     </p>
-                    <p className="text-[10px] text-[#8E8E93]">Adjusts Net List Price to ₱3,600,000</p>
+                    <p className="text-[10px] text-[#8E8E93]">Adjusts Net List Price to ₱{hicTarget != null ? hicTarget.toLocaleString() : '—'}</p>
                   </div>
                 </button>
               )}
@@ -1380,8 +1468,8 @@ export default function NewReservationPage() {
               {/* Computation breakdown */}
               <div className="bg-white rounded-2xl border border-black/[0.06] overflow-hidden">
                 <div className="flex items-center gap-3 p-4 border-b border-black/[0.06]">
-                  <div className="w-10 h-10 rounded-xl bg-[rgba(232,99,74,0.12)] flex items-center justify-center shrink-0">
-                    <Calculator size={18} className="text-[#E8634A]" />
+                  <div className="w-10 h-10 rounded-xl bg-[rgba(192,61,37,0.12)] flex items-center justify-center shrink-0">
+                    <Calculator size={18} className="text-[#C03D25]" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-[#1C1C1E]">{schemeName}</p>
@@ -1417,7 +1505,7 @@ export default function NewReservationPage() {
                   )}
                   {hicDiscount > 0 && (
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-[#5E5CE6]">Less: HIC Discount</span>
+                      <span className="text-sm text-[#5E5CE6]">Less: HIC Discount ({nlpBeforeHIC > 0 ? (hicDiscount / nlpBeforeHIC * 100).toFixed(1) : 0}%)</span>
                       <span className="text-sm font-medium text-[#5E5CE6]">(₱{hicDiscount.toLocaleString()})</span>
                     </div>
                   )}
@@ -1431,7 +1519,7 @@ export default function NewReservationPage() {
                 <div className="px-4 pt-3 pb-4 space-y-2.5 border-b border-black/[0.06]">
                   <p className="text-[#8E8E93] text-[10px] font-semibold uppercase tracking-wider">Taxes & Charges</p>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-[#1C1C1E]">VAT (12%)</span>
+                    <span className="text-sm text-[#1C1C1E]">{vatLabel}</span>
                     <span className="text-sm font-medium text-[#1C1C1E]">₱{vat.toLocaleString()}</span>
                   </div>
                   <div className="flex items-center justify-between">
@@ -1439,8 +1527,8 @@ export default function NewReservationPage() {
                     <span className="text-sm font-medium text-[#1C1C1E]">₱{otherCharges.toLocaleString()}</span>
                   </div>
                   <div className="flex items-center justify-between pt-2 border-t border-black/[0.06]">
-                    <span className="text-sm font-bold text-[#E8634A]">Total Contract Price</span>
-                    <span className="text-sm font-bold text-[#E8634A]">₱{totalContractPrice.toLocaleString()}</span>
+                    <span className="text-sm font-bold text-[#C03D25]">Total Contract Price</span>
+                    <span className="text-sm font-bold text-[#C03D25]">₱{totalContractPrice.toLocaleString()}</span>
                   </div>
                 </div>
 
@@ -1449,7 +1537,7 @@ export default function NewReservationPage() {
                   <p className="text-[#8E8E93] text-[10px] font-semibold uppercase tracking-wider">Fees</p>
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-[#1C1C1E]">Reservation Fee</span>
-                    <span className="text-sm font-medium text-[#1C1C1E]">₱{RESERVATION_FEE.toLocaleString()}</span>
+                    <span className="text-sm font-medium text-[#1C1C1E]">₱{reservationFee.toLocaleString()}</span>
                   </div>
                   {paymentScheme !== 'spot_dp' && paymentScheme !== 'stretched_dp' && (
                     <div className="flex items-center justify-between">
@@ -1473,12 +1561,20 @@ export default function NewReservationPage() {
                         <span className="text-sm font-semibold text-[#1C1C1E]">₱{netSpotDP.toLocaleString()}</span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-sm font-bold text-[#1C1C1E]">Monthly Downpayment (54 mo)</span>
-                        <span className="text-sm font-bold text-[#E8634A]">₱{monthlyStretchedDP.toLocaleString()}</span>
+                        <span className="text-sm font-bold text-[#1C1C1E]">Monthly Downpayment ({stretchedTermMonths} mo)</span>
+                        <span className="text-sm font-bold text-[#C03D25]">₱{monthlyStretchedDP.toLocaleString()}</span>
                       </div>
                       <div className="flex items-center justify-between pt-1 border-t border-black/[0.06]">
                         <span className="text-sm text-[#1C1C1E]">Balance for Financing</span>
                         <span className="text-sm font-semibold text-[#1C1C1E]">₱{balanceForFinancing.toLocaleString()}</span>
+                      </div>
+                      <div className="flex items-center justify-between pt-1 border-t border-black/[0.06]">
+                        <span className="text-sm text-[#1C1C1E]">Monthly Due (From)</span>
+                        <span className="text-sm font-semibold text-[#C03D25]">{monthlyDueFrom}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-[#1C1C1E]">Monthly Due (To)</span>
+                        <span className="text-sm font-semibold text-[#C03D25]">{new Date(nextYear, nextMonth + stretchedTermMonths, dueDayOfMonth).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
                       </div>
                     </div>
                     <div className="px-4 pt-3 pb-4 space-y-2.5">
@@ -1512,6 +1608,10 @@ export default function NewReservationPage() {
                         <span className="text-sm text-[#1C1C1E]">Balance for Financing</span>
                         <span className="text-sm font-semibold text-[#1C1C1E]">₱{balanceForFinancing.toLocaleString()}</span>
                       </div>
+                      <div className="flex items-center justify-between pt-1 border-t border-black/[0.06]">
+                        <span className="text-sm text-[#1C1C1E]">DP Due Date</span>
+                        <span className="text-sm font-semibold text-[#C03D25]">{spotCashDueDate}</span>
+                      </div>
                     </div>
                     <div className="px-4 pt-3 pb-4 space-y-2.5">
                       <p className="text-[#8E8E93] text-[10px] font-semibold uppercase tracking-wider">Indicative Financing Options</p>
@@ -1536,9 +1636,25 @@ export default function NewReservationPage() {
                       <span className="text-sm font-semibold text-[#1C1C1E]">₱{netAmount.toLocaleString()}</span>
                     </div>
                     {paymentScheme === 'deferred_cash' && (
-                      <div className="flex items-center justify-between pt-1">
-                        <span className="text-sm font-bold text-[#1C1C1E]">Monthly Deferred ({termMonths} mo)</span>
-                        <span className="text-sm font-bold text-[#E8634A]">₱{monthlyDeferred.toLocaleString()}</span>
+                      <>
+                        <div className="flex items-center justify-between pt-1">
+                          <span className="text-sm font-bold text-[#1C1C1E]">Monthly Deferred ({termMonths} mo)</span>
+                          <span className="text-sm font-bold text-[#C03D25]">₱{monthlyDeferred.toLocaleString()}</span>
+                        </div>
+                        <div className="flex items-center justify-between pt-1 border-t border-black/[0.06]">
+                          <span className="text-sm text-[#1C1C1E]">Monthly Due (From)</span>
+                          <span className="text-sm font-semibold text-[#C03D25]">{monthlyDueFrom}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-[#1C1C1E]">Monthly Due (To)</span>
+                          <span className="text-sm font-semibold text-[#C03D25]">{monthlyDueTo}</span>
+                        </div>
+                      </>
+                    )}
+                    {paymentScheme === 'spot_cash' && (
+                      <div className="flex items-center justify-between pt-1 border-t border-black/[0.06]">
+                        <span className="text-sm text-[#1C1C1E]">Due Date</span>
+                        <span className="text-sm font-semibold text-[#C03D25]">{spotCashDueDate}</span>
                       </div>
                     )}
                   </div>
@@ -1551,7 +1667,7 @@ export default function NewReservationPage() {
               <button
                 type="button"
                 onClick={() => goToStep(3)}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-[#E8634A] text-[#E8634A] text-sm font-semibold active:bg-[#E8634A]/10"
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-[#C03D25] text-[#C03D25] text-sm font-semibold active:bg-[#C03D25]/10"
               >
                 <GitCompare size={16} />
                 View Comparison ({comparisons.length})
@@ -1568,16 +1684,16 @@ export default function NewReservationPage() {
             <GitCompare size={32} className="text-[#C7C7CC] mx-auto" />
             <p className="text-[#6C6C70] text-sm">No comparisons yet.</p>
             <p className="text-[#8E8E93] text-xs">Go back to the computation tab and tap "+ Add to Comparison".</p>
-            <button onClick={() => goToStep(2)} className="text-[#E8634A] text-sm font-semibold">← Back to Computation</button>
+            <button onClick={() => goToStep(2)} className="text-[#C03D25] text-sm font-semibold">← Back to Computation</button>
           </GlassCard>
         ) : (
           <div className="overflow-x-auto pb-2" style={{ WebkitOverflowScrolling: 'touch' }}>
             <div className="flex gap-2" style={{ minWidth: `${comparisons.length * 172 + (comparisons.length - 1) * 8}px` }}>
               {comparisons.map((c, ci) => (
-                <div key={c.id} onClick={() => setReservationTarget(c)} className="shrink-0 w-[172px] bg-white rounded-2xl border border-black/[0.06] shadow-md flex flex-col overflow-hidden cursor-pointer active:opacity-70" style={{ maxHeight: '72vh' }}>
+                <div key={c.id} onClick={() => setReservationTarget(c)} className="shrink-0 w-[172px] bg-white rounded-2xl border border-black/[0.06] shadow-md flex flex-col overflow-hidden cursor-pointer active:opacity-70" style={{ height: '72vh' }}>
 
                   {/* Card header */}
-                  <div ref={el => { compHeaderRefs.current[ci] = el; }} className="relative flex-shrink-0 px-4 pt-4 pb-3 bg-[rgba(232,99,74,0.06)] border-b border-black/[0.08]">
+                  <div ref={el => { compHeaderRefs.current[ci] = el; }} className="relative flex-shrink-0 px-4 pt-4 pb-3 bg-[rgba(192,61,37,0.06)] border-b border-black/[0.08]">
                     <button
                       type="button"
                       onClick={e => { e.stopPropagation(); setComparisons(prev => prev.filter(x => x.id !== c.id)); }}
@@ -1586,13 +1702,13 @@ export default function NewReservationPage() {
                       <X size={12} />
                     </button>
                     <div className="flex items-center gap-1.5 pr-7">
-                      <span className="text-[#E8634A] shrink-0">
+                      <span className="text-[#C03D25] shrink-0">
                         {UNIT_CATEGORIES.find(cat => cat.value === c.unitCategory)?.icon}
                       </span>
                       <p className="text-sm font-bold text-[#1C1C1E] leading-tight">{c.project}</p>
                     </div>
                     <p className="text-[11px] text-[#8E8E93] mt-1">{c.unitType || '—'}</p>
-                    <p className="text-[12px] font-bold text-[#E8634A] mt-0.5">{c.schemeName}</p>
+                    <p className="text-[12px] font-bold text-[#C03D25] mt-0.5">{c.schemeName}</p>
                     <p className={`text-[11px] font-semibold mt-0.5 ${c.promoPct > 0 ? 'text-[#166534]' : 'invisible'}`}>
                       {Math.round(c.promoPct)}% discount
                     </p>
@@ -1613,7 +1729,7 @@ export default function NewReservationPage() {
                             return (
                               <div key={row.label} className="flex items-center justify-between px-4 py-2.5 border-b border-black/[0.04]">
                                 <span className="text-[11px] text-[#8E8E93] leading-tight mr-2 shrink-0">{row.label}</span>
-                                <span className={`text-[11px] leading-tight text-right ${row.bold ? 'font-bold' : 'font-medium'} ${row.coral ? 'text-[#E8634A]' : row.green ? 'text-[#166534]' : 'text-[#1C1C1E]'}`}>
+                                <span className={`text-[11px] leading-tight text-right ${row.bold ? 'font-bold' : 'font-medium'} ${row.coral ? 'text-[#C03D25]' : row.green ? 'text-[#166534]' : 'text-[#1C1C1E]'}`}>
                                   {val}
                                 </span>
                               </div>
@@ -1629,6 +1745,193 @@ export default function NewReservationPage() {
             </div>
           </div>
         )
+      )}
+
+      {/* ── Futuristic Floating Add Button (Comparison step) ── */}
+      {step === 3 && comparisons.length > 0 && (
+        <>
+          <style>{`
+            @keyframes orb-pulse {
+              0%   { box-shadow: 0 4px 24px rgba(192,61,37,0.55), 0 0 0 0 rgba(192,61,37,0.45); }
+              60%  { box-shadow: 0 4px 24px rgba(192,61,37,0.55), 0 0 0 14px rgba(192,61,37,0); }
+              100% { box-shadow: 0 4px 24px rgba(192,61,37,0.55), 0 0 0 0  rgba(192,61,37,0); }
+            }
+            @keyframes sheet-up {
+              from { transform: translateY(100%); }
+              to   { transform: translateY(0); }
+            }
+            @keyframes card-in {
+              from { opacity: 0; transform: translateY(10px); }
+              to   { opacity: 1; transform: translateY(0); }
+            }
+            @keyframes shimmer {
+              0%   { transform: translateX(-100%) skewX(-15deg); }
+              100% { transform: translateX(250%) skewX(-15deg); }
+            }
+          `}</style>
+
+          {/* Backdrop */}
+          {showAddSheet && (
+            <div
+              onClick={() => setShowAddSheet(false)}
+              style={{
+                position: 'fixed', inset: 0, zIndex: 48,
+                background: 'rgba(0,0,0,0.65)',
+                backdropFilter: 'blur(6px)',
+                WebkitBackdropFilter: 'blur(6px)',
+              }}
+            />
+          )}
+
+          {/* Action Sheet */}
+          {showAddSheet && (
+            <div
+              style={{
+                position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50,
+                borderRadius: '28px 28px 0 0',
+                padding: '0 20px 40px',
+                background: '#F2F2F7',
+                borderTop: '1.5px solid #C03D25',
+                boxShadow: '0 -8px 48px rgba(192,61,37,0.2), inset 0 1px 0 rgba(192,61,37,0.5)',
+                animation: 'sheet-up 0.38s cubic-bezier(0.32,0.72,0,1) forwards',
+              }}
+            >
+              {/* Handle */}
+              <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 12, paddingBottom: 20 }}>
+                <div style={{ width: 40, height: 4, borderRadius: 99, background: '#C03D25' }} />
+              </div>
+
+              {/* Label */}
+              <p style={{
+                textAlign: 'center', fontSize: 10, fontWeight: 700,
+                letterSpacing: '0.18em', textTransform: 'uppercase',
+                color: '#C03D25', marginBottom: 20,
+              }}>
+                Choose Action
+              </p>
+
+              {/* Card: New Unit */}
+              <button
+                type="button"
+                onClick={() => { setShowAddSheet(false); goToStep(1); }}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', gap: 16,
+                  padding: '14px 16px', borderRadius: 20, marginBottom: 8,
+                  background: '#FFFFFF',
+                  border: '1px solid rgba(192,61,37,0.25)',
+                  position: 'relative', overflow: 'hidden',
+                  animation: 'card-in 0.32s ease 0.08s both',
+                }}
+              >
+                <div style={{
+                  position: 'absolute', top: 0, left: 0, width: '40%', height: '100%',
+                  background: 'linear-gradient(90deg, transparent, rgba(192,61,37,0.1), transparent)',
+                  animation: 'shimmer 1.1s ease 0.25s both',
+                  pointerEvents: 'none',
+                }} />
+                <div style={{
+                  width: 46, height: 46, borderRadius: 14, flexShrink: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: 'rgba(192,61,37,0.2)',
+                  boxShadow: '0 0 18px rgba(192,61,37,0.4)',
+                  border: '1px solid rgba(192,61,37,0.4)',
+                }}>
+                  <Building2 size={20} color="#C03D25" />
+                </div>
+                <div style={{ flex: 1, textAlign: 'left' }}>
+                  <p style={{ color: '#1C1C1E', fontWeight: 700, fontSize: 14, marginBottom: 3 }}>New Unit</p>
+                  <p style={{ color: '#8E8E93', fontSize: 11 }}>Pick a different unit from inventory</p>
+                </div>
+                <ChevronDown size={15} color="#C03D25" style={{ transform: 'rotate(-90deg)', flexShrink: 0 }} />
+              </button>
+
+              {/* Divider */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                <div style={{ flex: 1, height: 1, background: '#E5E5EA' }} />
+                <div style={{ width: 6, height: 6, borderRadius: 99, background: '#C03D25', boxShadow: '0 0 8px rgba(192,61,37,0.9)' }} />
+                <div style={{ flex: 1, height: 1, background: '#E5E5EA' }} />
+              </div>
+
+              {/* Card: New Payterm */}
+              <button
+                type="button"
+                onClick={() => { setShowAddSheet(false); goToStep(2); }}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', gap: 16,
+                  padding: '14px 16px', borderRadius: 20,
+                  background: '#FFFFFF',
+                  border: '1px solid rgba(192,61,37,0.25)',
+                  position: 'relative', overflow: 'hidden',
+                  animation: 'card-in 0.32s ease 0.18s both',
+                }}
+              >
+                <div style={{
+                  position: 'absolute', top: 0, left: 0, width: '40%', height: '100%',
+                  background: 'linear-gradient(90deg, transparent, rgba(192,61,37,0.1), transparent)',
+                  animation: 'shimmer 1.1s ease 0.38s both',
+                  pointerEvents: 'none',
+                }} />
+                <div style={{
+                  width: 46, height: 46, borderRadius: 14, flexShrink: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: 'rgba(192,61,37,0.2)',
+                  boxShadow: '0 0 18px rgba(192,61,37,0.4)',
+                  border: '1px solid rgba(192,61,37,0.4)',
+                }}>
+                  <Calculator size={20} color="#C03D25" />
+                </div>
+                <div style={{ flex: 1, textAlign: 'left' }}>
+                  <p style={{ color: '#1C1C1E', fontWeight: 700, fontSize: 14, marginBottom: 3 }}>New Payterm</p>
+                  <p style={{ color: '#8E8E93', fontSize: 11 }}>Change scheme or term for current unit</p>
+                </div>
+                <ChevronDown size={15} color="#C03D25" style={{ transform: 'rotate(-90deg)', flexShrink: 0 }} />
+              </button>
+
+              {/* Cancel */}
+              <button
+                type="button"
+                onClick={() => setShowAddSheet(false)}
+                style={{
+                  width: '100%', paddingTop: 20, paddingBottom: 4,
+                  fontSize: 13, fontWeight: 500, color: '#8E8E93',
+                  textAlign: 'center',
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+
+          {/* Floating Orb Button */}
+          <button
+            type="button"
+            onClick={() => setShowAddSheet(p => !p)}
+            style={{
+              position: 'fixed',
+              bottom: 'calc(1.75rem + env(safe-area-inset-bottom, 0px))',
+              right: '1.25rem',
+              zIndex: 49,
+              width: 56, height: 56,
+              borderRadius: 99,
+              background: 'radial-gradient(circle at 35% 35%, #E04A2A, #C03D25)',
+              boxShadow: showAddSheet ? '0 4px 24px rgba(192,61,37,0.4)' : undefined,
+              animation: showAddSheet ? undefined : 'orb-pulse 2.2s ease-in-out infinite',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              transition: 'transform 0.18s ease',
+            }}
+            onPointerDown={e => (e.currentTarget.style.transform = 'scale(0.9)')}
+            onPointerUp={e => (e.currentTarget.style.transform = 'scale(1)')}
+            onPointerLeave={e => (e.currentTarget.style.transform = 'scale(1)')}
+          >
+            <span style={{
+              display: 'flex',
+              transform: showAddSheet ? 'rotate(45deg)' : 'rotate(0deg)',
+              transition: 'transform 0.28s cubic-bezier(0.34,1.56,0.64,1)',
+            }}>
+              <Plus size={24} color="#fff" />
+            </span>
+          </button>
+        </>
       )}
 
       {/* ── Reservation Confirmation Modal ── */}
@@ -1665,7 +1968,9 @@ export default function NewReservationPage() {
                   sessionStorage.setItem('reservationData', JSON.stringify({
                     ...reservationTarget,
                     clientName: fullName,
+                    clientId: selectedClientRecord?.client_id ?? null,
                     sellerName: sellerRecord?.seller_name ?? '',
+                    sellerId: sellerRecord?.seller_id ?? null,
                     salesManager: sellerRecord?.sales_manager ?? '',
                     salesDirector: sellerRecord?.sales_director ?? '',
                     salesDivisionHead: sellerRecord?.sales_division_head ?? '',
@@ -1673,7 +1978,7 @@ export default function NewReservationPage() {
                   setReservationTarget(null);
                   router.push('/sales/reservation/agreement');
                 }}
-                className="w-full py-3.5 rounded-2xl bg-[#E8634A] text-white text-sm font-bold active:opacity-80"
+                className="w-full py-3.5 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80"
               >
                 Yes, Proceed to Reservation
               </button>

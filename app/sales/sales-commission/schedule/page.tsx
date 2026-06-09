@@ -7,7 +7,7 @@ import GlassCard from '@/components/ui/GlassCard';
 import FilterSelect from '@/components/ui/FilterSelect';
 import { SalespersonRecord } from '@/lib/salesperson';
 import { fetchCommissionRecords, fetchCommissionTranches, CommissionRecord, CommissionTranche } from '@/lib/commission';
-import { Search, Building2, FileText, Hash, ChevronDown, ChevronUp, X } from 'lucide-react';
+import { Search, Building2, FileText, Hash, ChevronDown, ChevronUp, Loader2, X } from 'lucide-react';
 
 function fmt(n: number | null | undefined) {
   if (n == null) return '—';
@@ -206,7 +206,7 @@ export default function CommissionSchedulePage() {
         <div className="flex items-center justify-between px-4 py-2.5 bg-[#FAFAFA] border-b border-[rgba(0,0,0,0.04)]">
           <button onClick={toggleAll} className="flex items-center gap-2">
             <div className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${
-              allSelected ? 'bg-[#E8634A] border-[#E8634A]' : 'border-[#C7C7CC] bg-white'
+              allSelected ? 'bg-[#C03D25] border-[#C03D25]' : 'border-[#C7C7CC] bg-white'
             }`}>
               {allSelected && (
                 <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
@@ -222,12 +222,12 @@ export default function CommissionSchedulePage() {
             disabled={selected.size === 0 || generating}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
               selected.size > 0 && !generating
-                ? 'bg-[#E8634A] text-white active:opacity-80'
+                ? 'bg-[#C03D25] text-white active:opacity-80'
                 : 'bg-[#F2F2F7] text-[#C7C7CC]'
             }`}
           >
             {generating
-              ? <div className="w-3 h-3 rounded-full border-2 border-white border-t-transparent animate-spin" />
+              ? <Loader2 size={12} className="text-white animate-spin" />
               : <FileText size={12} />
             }
             Generate
@@ -238,7 +238,7 @@ export default function CommissionSchedulePage() {
         <div className="divide-y divide-[rgba(0,0,0,0.04)]">
           {loading && (
             <div className="flex items-center justify-center py-10">
-              <div className="w-6 h-6 rounded-full border-2 border-[#E8634A] border-t-transparent animate-spin" />
+              <Loader2 size={24} className="text-[#C03D25] animate-spin" />
             </div>
           )}
           {error && <p className="text-center text-sm text-red-500 py-6 px-4">{error}</p>}
@@ -256,7 +256,7 @@ export default function CommissionSchedulePage() {
                 {/* Card row */}
                 <div
                   className={`flex items-center gap-3 px-4 py-3.5 cursor-pointer transition-colors ${
-                    isSelected ? 'bg-[rgba(232,99,74,0.04)]' : ''
+                    isSelected ? 'bg-[rgba(192,61,37,0.04)]' : ''
                   }`}
                   onClick={() => {
                     sessionStorage.setItem('selectedCommissionRecord', JSON.stringify(r));
@@ -266,7 +266,7 @@ export default function CommissionSchedulePage() {
                   {/* Checkbox — tap stops propagation to toggle without navigating */}
                   <div
                     className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
-                      isSelected ? 'bg-[#E8634A] border-[#E8634A]' : 'border-[#C7C7CC] bg-white'
+                      isSelected ? 'bg-[#C03D25] border-[#C03D25]' : 'border-[#C7C7CC] bg-white'
                     }`}
                     onClick={e => { e.stopPropagation(); toggleOne(r.reservation_id); }}
                   >
@@ -279,7 +279,7 @@ export default function CommissionSchedulePage() {
 
                   {/* Content */}
                   <div className="flex-1 min-w-0">
-                    <p className="text-[#E8634A] font-bold text-sm mb-1.5">{r.reservation_id}</p>
+                    <p className="text-[#C03D25] font-bold text-sm mb-1.5">{r.reservation_id}</p>
                     <div className="flex items-center gap-1.5 mb-0.5">
                       <Building2 size={12} className="text-[#C7C7CC] shrink-0" />
                       <span className="text-xs text-[#1C1C1E] font-medium truncate">{r.project}</span>
@@ -324,7 +324,7 @@ export default function CommissionSchedulePage() {
                         </div>
                         <div>
                           <p className="text-[9px] text-[#8E8E93] uppercase tracking-wide">Rate</p>
-                          <p className="text-xs font-bold text-[#E8634A]">{r.commission_rate != null ? `${r.commission_rate}%` : '—'}</p>
+                          <p className="text-xs font-bold text-[#C03D25]">{r.commission_rate != null ? `${r.commission_rate}%` : '—'}</p>
                         </div>
                         <div>
                           <p className="text-[9px] text-[#8E8E93] uppercase tracking-wide">Total Commission</p>
@@ -335,7 +335,7 @@ export default function CommissionSchedulePage() {
 
                     {entry.loading && (
                       <div className="flex items-center justify-center py-6">
-                        <div className="w-5 h-5 rounded-full border-2 border-[#E8634A] border-t-transparent animate-spin" />
+                        <Loader2 size={20} className="text-[#C03D25] animate-spin" />
                       </div>
                     )}
                     {entry.error && <p className="text-center text-xs text-red-500 py-4 px-3">{entry.error}</p>}
@@ -362,7 +362,7 @@ export default function CommissionSchedulePage() {
                         ))}
                         <div className="grid grid-cols-4 gap-1 px-4 py-2 bg-[#F2F2F7] border-t border-[rgba(0,0,0,0.06)]">
                           <p className="text-xs font-bold text-[#1C1C1E] col-span-3">Total</p>
-                          <p className="text-xs font-bold text-[#E8634A] text-right">{fmt(r.total_commission)}</p>
+                          <p className="text-xs font-bold text-[#C03D25] text-right">{fmt(r.total_commission)}</p>
                         </div>
                       </div>
                     )}

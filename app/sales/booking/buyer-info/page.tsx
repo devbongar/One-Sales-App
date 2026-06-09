@@ -56,7 +56,7 @@ function TextInput({ value, onChange, placeholder, disabled }: {
       onChange={e => onChange(e.target.value)}
       placeholder={placeholder}
       disabled={disabled}
-      className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#E8634A]/50 focus:bg-white transition-colors placeholder:text-[#C7C7CC] disabled:opacity-40"
+      className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/50 focus:bg-white transition-colors placeholder:text-[#C7C7CC] disabled:opacity-40"
     />
   );
 }
@@ -91,7 +91,7 @@ function SelectInput({ value, options, onChange, placeholder, disabled }: {
           {options.map(o => (
             <button key={o} type="button" onClick={() => { onChange(o); setOpen(false); }}
               className={`w-full flex items-center justify-between px-3 py-2.5 text-sm border-b border-black/[0.05] last:border-0 active:bg-gray-50 ${
-                o === value ? 'bg-[#E8634A]/10 text-[#E8634A] font-semibold' : 'text-[#1C1C1E]'
+                o === value ? 'bg-[#C03D25]/10 text-[#C03D25] font-semibold' : 'text-[#1C1C1E]'
               }`}>
               {o}{o === value && <Check size={13} className="shrink-0" />}
             </button>
@@ -143,7 +143,7 @@ function SearchableSelect({ value, options, onChange, placeholder, disabled }: {
               <button key={o.label} type="button"
                 onClick={() => { onChange(o.label); setOpen(false); setQuery(''); }}
                 className={`w-full flex items-center justify-between px-3 py-2.5 text-sm border-b border-black/[0.05] last:border-0 active:bg-gray-50 ${
-                  o.label === value ? 'bg-[#E8634A]/10 text-[#E8634A] font-semibold' : 'text-[#1C1C1E]'
+                  o.label === value ? 'bg-[#C03D25]/10 text-[#C03D25] font-semibold' : 'text-[#1C1C1E]'
                 }`}>
                 <span className="flex items-center gap-2">{o.flag && <span>{o.flag}</span>}{o.label}</span>
                 {o.label === value && <Check size={13} className="shrink-0" />}
@@ -203,7 +203,7 @@ function PhoneInputField({ code, onCodeChange, number, onNumberChange, disabled 
               <button key={c.dial + c.name} type="button"
                 onClick={() => { onCodeChange(c.dial); setOpen(false); setQuery(''); }}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm border-b border-black/[0.05] last:border-0 active:bg-gray-50 ${
-                  c.dial === code ? 'bg-[#E8634A]/10 text-[#E8634A] font-semibold' : 'text-[#1C1C1E]'
+                  c.dial === code ? 'bg-[#C03D25]/10 text-[#C03D25] font-semibold' : 'text-[#1C1C1E]'
                 }`}>
                 <span>{c.flag}</span>
                 <span className="flex-1 text-left">{c.name}</span>
@@ -220,7 +220,7 @@ function PhoneInputField({ code, onCodeChange, number, onNumberChange, disabled 
 function ReadOnlyRow({ icon, label, value }: { icon: React.ReactNode; label: string; value?: string | null }) {
   return (
     <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06] last:border-0">
-      <span className="text-[#E8634A] shrink-0">{icon}</span>
+      <span className="text-[#C03D25] shrink-0">{icon}</span>
       <span className="flex-1 text-sm font-medium text-[#1C1C1E]">{label}</span>
       <span className="text-sm text-right text-[#6C6C70] max-w-[180px] truncate">{value || '—'}</span>
     </div>
@@ -230,7 +230,7 @@ function ReadOnlyRow({ icon, label, value }: { icon: React.ReactNode; label: str
 function NextButton({ onClick }: { onClick: () => void }) {
   return (
     <button type="button" onClick={onClick}
-      className="w-full py-4 rounded-2xl bg-[#E8634A] text-white text-sm font-bold shadow-[0_4px_16px_rgba(232,99,74,0.35)] active:opacity-80 transition-opacity">
+      className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity">
       Next
     </button>
   );
@@ -475,14 +475,14 @@ export default function BuyerInfoPage() {
           {isSaved ? (
             noTin && (
               <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-[#F2F2F7]/50 border border-black/[0.06]">
-                <FileText size={14} className="text-[#E8634A] shrink-0" />
+                <FileText size={14} className="text-[#C03D25] shrink-0" />
                 <span className="text-sm text-[#6C6C70] font-medium">No TIN</span>
               </div>
             )
           ) : (
             <button type="button" onClick={() => { setNoTin(p => !p); if (!noTin) setTin(''); }}
               className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-semibold transition-all ${
-                noTin ? 'bg-[#E8634A] border-[#E8634A] text-white' : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
+                noTin ? 'bg-[#C03D25] border-[#C03D25] text-white' : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
               }`}>
               {noTin && <Check size={13} />}<FileText size={14} />No TIN
             </button>
@@ -623,7 +623,7 @@ export default function BuyerInfoPage() {
                   onClick={() => !isSaved && setMailingType(p => p === opt ? '' : opt)}
                   className={`flex flex-col items-center justify-center gap-1 py-2.5 px-1 rounded-xl border text-xs font-semibold transition-all leading-tight text-center ${
                     mailingType === opt
-                      ? 'bg-[#E8634A] border-[#E8634A] text-white'
+                      ? 'bg-[#C03D25] border-[#C03D25] text-white'
                       : isSaved ? 'bg-[#F2F2F7]/50 border-transparent text-[#C7C7CC]'
                       : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
                   }`}>
@@ -645,7 +645,7 @@ export default function BuyerInfoPage() {
                 onChange={e => setMailingOther(e.target.value)}
                 placeholder="Enter mailing address..."
                 rows={3}
-                className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#E8634A]/50 focus:bg-white transition-colors placeholder:text-[#C7C7CC] resize-none"
+                className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/50 focus:bg-white transition-colors placeholder:text-[#C7C7CC] resize-none"
               />
             )}
           </div>
@@ -655,7 +655,7 @@ export default function BuyerInfoPage() {
         <button type="button"
           onClick={() => isSaved ? handleSave() : setShowConfirmModal(true)}
           disabled={isSaving}
-          className="w-full py-4 rounded-2xl bg-[#E8634A] text-white text-sm font-bold shadow-[0_4px_16px_rgba(232,99,74,0.35)] active:opacity-80 transition-opacity disabled:opacity-60">
+          className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity disabled:opacity-60">
           {isSaving ? 'Saving...' : isSaved ? 'Done' : 'Save'}
         </button>
 
@@ -671,8 +671,8 @@ export default function BuyerInfoPage() {
               <X size={16} className="text-[#6C6C70]" />
             </button>
             <div className="flex flex-col items-center gap-2 text-center">
-              <div className="w-12 h-12 rounded-2xl bg-[rgba(232,99,74,0.12)] flex items-center justify-center">
-                <CheckCircle2 size={24} className="text-[#E8634A]" />
+              <div className="w-12 h-12 rounded-2xl bg-[rgba(192,61,37,0.12)] flex items-center justify-center">
+                <CheckCircle2 size={24} className="text-[#C03D25]" />
               </div>
               <p className="text-base font-bold text-[#1C1C1E]">Confirm Details</p>
               <p className="text-sm text-[#6C6C70] leading-relaxed">
@@ -681,7 +681,7 @@ export default function BuyerInfoPage() {
             </div>
             <button type="button"
               onClick={() => { setShowConfirmModal(false); handleSave(); }}
-              className="w-full py-3.5 rounded-2xl bg-[#E8634A] text-white text-sm font-bold active:opacity-80">
+              className="w-full py-3.5 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80">
               Confirm & Save
             </button>
             <button type="button" onClick={() => setShowConfirmModal(false)}

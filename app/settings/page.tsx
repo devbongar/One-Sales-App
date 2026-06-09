@@ -55,7 +55,7 @@ function CategoryUpload({ label, urls, onChange, uploading, onUpload }: {
       <div className="flex items-center justify-between">
         <p className="text-xs font-semibold text-[#6C6C70] uppercase tracking-wider">{label}</p>
         <button type="button" onClick={() => ref.current?.click()} disabled={uploading}
-          className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-[#F2F2F7] text-[#E8634A] text-xs font-semibold disabled:opacity-40 active:opacity-70">
+          className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-[#F2F2F7] text-[#C03D25] text-xs font-semibold disabled:opacity-40 active:opacity-70">
           <Camera size={12} />
           {uploading ? 'Uploading…' : 'Add Photos'}
         </button>
@@ -65,8 +65,8 @@ function CategoryUpload({ label, urls, onChange, uploading, onUpload }: {
       <PhotoStrip urls={urls} onRemove={(i) => onChange(urls.filter((_, idx) => idx !== i))} />
       {urls.length === 0 && (
         <div onClick={() => ref.current?.click()}
-          className="flex flex-col items-center justify-center gap-1 h-16 rounded-xl border-2 border-dashed border-[#E8634A]/20 text-[#C7C7CC] text-xs cursor-pointer active:bg-[#E8634A]/5">
-          <ImagePlus size={16} className="text-[#E8634A]/40" />
+          className="flex flex-col items-center justify-center gap-1 h-16 rounded-xl border-2 border-dashed border-[#C03D25]/20 text-[#C7C7CC] text-xs cursor-pointer active:bg-[#C03D25]/5">
+          <ImagePlus size={16} className="text-[#C03D25]/40" />
           Tap to add {label.toLowerCase()} photos
         </div>
       )}
@@ -195,7 +195,7 @@ export default function SettingsPage() {
       </label>
       <input type={type} value={String(form[key])}
         onChange={e => setForm(f => ({ ...f, [key]: type === 'number' ? Number(e.target.value) : e.target.value }))}
-        className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#E8634A]/50 focus:bg-white transition-colors"
+        className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/50 focus:bg-white transition-colors"
       />
     </div>
   );
@@ -208,8 +208,8 @@ export default function SettingsPage() {
       <GlassCard className="p-5 space-y-5">
         {/* Section header */}
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-[#E8634A]/10 flex items-center justify-center">
-            <Palette size={16} className="text-[#E8634A]" />
+          <div className="w-8 h-8 rounded-xl bg-[#C03D25]/10 flex items-center justify-center">
+            <Palette size={16} className="text-[#C03D25]" />
           </div>
           <p className="text-base font-bold text-[#1C1C1E]">App Branding</p>
         </div>
@@ -219,7 +219,7 @@ export default function SettingsPage() {
           <p className="text-xs font-semibold text-[#8E8E93]">App Logo</p>
           <div
             onClick={() => logoFileRef.current?.click()}
-            className="flex items-center gap-4 p-3 rounded-2xl border-2 border-dashed border-[#E8634A]/20 cursor-pointer active:bg-[#E8634A]/5 transition-colors"
+            className="flex items-center gap-4 p-3 rounded-2xl border-2 border-dashed border-[#C03D25]/20 cursor-pointer active:bg-[#C03D25]/5 transition-colors"
           >
             <div className="w-20 h-16 rounded-xl bg-[#F2F2F7] border border-black/[0.06] flex items-center justify-center overflow-hidden shrink-0">
               {logoPreview
@@ -231,7 +231,7 @@ export default function SettingsPage() {
               <p className="text-sm font-semibold text-[#1C1C1E]">{logoPreview ? 'Change Logo' : 'Upload Logo'}</p>
               <p className="text-xs text-[#8E8E93] mt-0.5">PNG, JPG · Recommended 200×80px</p>
             </div>
-            <Upload size={16} className="text-[#E8634A] shrink-0" />
+            <Upload size={16} className="text-[#C03D25] shrink-0" />
           </div>
           <input ref={logoFileRef} type="file" accept="image/*" className="hidden" onChange={handleLogoFile} />
         </div>
@@ -240,13 +240,13 @@ export default function SettingsPage() {
         <div className="space-y-1.5">
           <label className="text-xs font-semibold text-[#8E8E93]">App Name</label>
           <input type="text" value={appName} onChange={e => setAppName(e.target.value)}
-            className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#E8634A]/50 focus:bg-white transition-colors"
+            className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/50 focus:bg-white transition-colors"
           />
         </div>
 
         <button type="button" onClick={saveAppSettings} disabled={savingApp}
           className={`w-full py-3.5 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${
-            appSaved ? 'bg-green-500 text-white' : 'bg-[#E8634A] text-white active:opacity-80 disabled:opacity-60'
+            appSaved ? 'bg-green-500 text-white' : 'bg-[#C03D25] text-white active:opacity-80 disabled:opacity-60'
           }`}>
           {appSaved ? <><Check size={16} /> Saved!</> : savingApp ? <><Loader2 size={15} className="animate-spin" /> Saving…</> : 'Save Branding'}
         </button>
@@ -256,20 +256,20 @@ export default function SettingsPage() {
       <GlassCard className="p-5 space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-[#E8634A]/10 flex items-center justify-center">
-              <Building2 size={16} className="text-[#E8634A]" />
+            <div className="w-8 h-8 rounded-xl bg-[#C03D25]/10 flex items-center justify-center">
+              <Building2 size={16} className="text-[#C03D25]" />
             </div>
             <p className="text-base font-bold text-[#1C1C1E]">Carousel Projects</p>
           </div>
           <button type="button" onClick={openAdd}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#E8634A] text-white text-xs font-semibold active:opacity-80">
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#C03D25] text-white text-xs font-semibold active:opacity-80">
             <Plus size={13} /> Add Project
           </button>
         </div>
 
         {loadingProjects ? (
           <div className="flex items-center justify-center py-8">
-            <div className="w-6 h-6 rounded-full border-2 border-[#E8634A] border-t-transparent animate-spin" />
+            <Loader2 size={24} className="text-[#C03D25] animate-spin" />
           </div>
         ) : projects.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-8 text-[#C7C7CC]">
@@ -410,13 +410,13 @@ export default function SettingsPage() {
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-[#8E8E93]">Cover Photo</p>
                 <div onClick={() => coverFileRef.current?.click()}
-                  className="relative w-full h-40 rounded-2xl overflow-hidden bg-[#F2F2F7] border-2 border-dashed border-[#E8634A]/20 cursor-pointer flex items-center justify-center active:opacity-80">
+                  className="relative w-full h-40 rounded-2xl overflow-hidden bg-[#F2F2F7] border-2 border-dashed border-[#C03D25]/20 cursor-pointer flex items-center justify-center active:opacity-80">
                   {form.cover_photo_url ? (
                     <>
                       <Image src={form.cover_photo_url} alt="Cover" fill className="object-cover" sizes="100vw" />
                       <div className="absolute inset-0 bg-black/25 flex items-center justify-center">
                         <div className="bg-white/90 rounded-xl px-3 py-1.5 flex items-center gap-1.5">
-                          <Camera size={13} className="text-[#E8634A]" />
+                          <Camera size={13} className="text-[#C03D25]" />
                           <span className="text-xs font-semibold text-[#1C1C1E]">Change Photo</span>
                         </div>
                       </div>
@@ -424,8 +424,8 @@ export default function SettingsPage() {
                   ) : (
                     <div className="flex flex-col items-center gap-2">
                       {uploadingCategory === 'cover'
-                        ? <Loader2 size={24} className="text-[#E8634A] animate-spin" />
-                        : <><Camera size={28} className="text-[#E8634A]/40" /><p className="text-sm text-[#8E8E93]">Tap to upload cover photo</p></>
+                        ? <Loader2 size={24} className="text-[#C03D25] animate-spin" />
+                        : <><Camera size={28} className="text-[#C03D25]/40" /><p className="text-sm text-[#8E8E93]">Tap to upload cover photo</p></>
                       }
                     </div>
                   )}
@@ -435,14 +435,14 @@ export default function SettingsPage() {
 
               {/* Basic Info */}
               <div className="space-y-3">
-                <p className="text-xs font-bold text-[#E8634A] uppercase tracking-wider">Basic Info</p>
+                <p className="text-xs font-bold text-[#C03D25] uppercase tracking-wider">Basic Info</p>
                 {field('name',     'Project Name', <Building2 size={11} />)}
                 {field('location', 'Location',     <MapPin size={11} />)}
               </div>
 
               {/* Classification */}
               <div className="space-y-3">
-                <p className="text-xs font-bold text-[#E8634A] uppercase tracking-wider">Classification</p>
+                <p className="text-xs font-bold text-[#C03D25] uppercase tracking-wider">Classification</p>
                 <div className="grid grid-cols-2 gap-3">
                   {field('property_type',  'Property Type',  <Tag size={11} />)}
                   {field('residence_type', 'Residence Type', <Tag size={11} />)}
@@ -451,7 +451,7 @@ export default function SettingsPage() {
 
               {/* Details */}
               <div className="space-y-3">
-                <p className="text-xs font-bold text-[#E8634A] uppercase tracking-wider">Details</p>
+                <p className="text-xs font-bold text-[#C03D25] uppercase tracking-wider">Details</p>
                 <div className="grid grid-cols-3 gap-3">
                   {field('floors',         'Floors',  <Layers size={11} />,   'number')}
                   {field('no_of_units',    'Units',   <Hash size={11} />,     'number')}
@@ -467,13 +467,13 @@ export default function SettingsPage() {
                 <textarea value={form.description}
                   onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
                   rows={3}
-                  className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#E8634A]/50 focus:bg-white transition-colors resize-none"
+                  className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/50 focus:bg-white transition-colors resize-none"
                 />
               </div>
 
               {/* Photo categories */}
               <div className="space-y-4">
-                <p className="text-xs font-bold text-[#E8634A] uppercase tracking-wider">Project Photos</p>
+                <p className="text-xs font-bold text-[#C03D25] uppercase tracking-wider">Project Photos</p>
                 {(['location', 'units', 'amenities'] as PhotoCategory[]).map(cat => (
                   <CategoryUpload key={cat}
                     label={cat.charAt(0).toUpperCase() + cat.slice(1)}
@@ -490,7 +490,7 @@ export default function SettingsPage() {
             <div className="px-5 pt-3 pb-8 shrink-0 border-t border-black/[0.06]">
               <button type="button" onClick={saveProject}
                 disabled={savingProject || !form.name || !form.location}
-                className="w-full py-4 rounded-2xl bg-[#E8634A] text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-50 active:opacity-80">
+                className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-50 active:opacity-80">
                 {savingProject
                   ? <><Loader2 size={15} className="animate-spin" /> Saving…</>
                   : editingProject ? <><Check size={15} /> Update Project</> : <><Plus size={15} /> Add Project</>

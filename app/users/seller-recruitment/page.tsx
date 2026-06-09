@@ -18,13 +18,6 @@ const POSITION_RANK_LABELS: Record<string, string> = {
   SH:  'Sales Head',
 };
 
-const POSITION_RANK_STYLES: Record<string, string> = {
-  PS:  'bg-blue-100 text-blue-700',
-  SM:  'bg-amber-100 text-amber-700',
-  SD:  'bg-purple-100 text-purple-700',
-  SDH: 'bg-green-100 text-green-700',
-  SH:  'bg-orange-100 text-orange-700',
-};
 
 const POSITION_OPTIONS = ['Property Specialist', 'Sales Manager', 'Sales Director', 'Sales Division Head', 'Sales Head'];
 
@@ -41,10 +34,19 @@ function fmtDate(val: string | null) {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
+const POSITION_RANK_BADGE_STYLE: Record<string, React.CSSProperties> = {
+  PS:  { background: 'rgba(0,122,255,0.12)',   color: '#0040A0' },
+  SM:  { background: 'rgba(255,159,10,0.12)',  color: '#A05A00' },
+  SD:  { background: 'rgba(88,86,214,0.12)',   color: '#3634A3' },
+  SDH: { background: 'rgba(52,199,89,0.12)',   color: '#1A7F37' },
+  SH:  { background: 'rgba(255,69,58,0.12)',   color: '#C0001E' },
+};
+
 function PositionBadge({ rank }: { rank: string | null }) {
   if (!rank) return null;
   return (
-    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 bg-white/20 text-white/90">
+    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0"
+      style={POSITION_RANK_BADGE_STYLE[rank] ?? { background: 'rgba(142,142,147,0.12)', color: '#6C6C70' }}>
       {rank}
     </span>
   );
@@ -189,7 +191,8 @@ function DetailSheet({ seller, onClose, onSaved }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50" style={{ background: PAGE_GRADIENT }}>
+    <div className="fixed inset-0 z-50" style={{ background: PAGE_GRADIENT, animation: 'overlaySlideUp 0.32s cubic-bezier(0.32,0.72,0,1) both' }}>
+      <style>{`@keyframes overlaySlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
 
       {/* ── Fixed nav ─────────────────────────────────────────────────────── */}
       <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 pt-12 pb-3 z-10">
@@ -231,9 +234,12 @@ function DetailSheet({ seller, onClose, onSaved }: {
               </div>
             )}
             {form.seller_status && (
-              <span className={`text-[11px] font-semibold px-3 py-1 rounded-full mt-0.5 ${
-                form.seller_status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'
-              }`}>{form.seller_status}</span>
+              <span className="text-[11px] font-semibold px-3 py-1 rounded-full mt-0.5"
+                style={form.seller_status === 'Active'
+                  ? { background: 'rgba(52,199,89,0.15)', color: '#1A7F37' }
+                  : { background: 'rgba(255,59,48,0.12)', color: '#C0001E' }}>
+                {form.seller_status}
+              </span>
             )}
           </div>
 
@@ -413,7 +419,8 @@ function AddSheet({ onClose, onAdded }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50" style={{ background: PAGE_GRADIENT }}>
+    <div className="fixed inset-0 z-50" style={{ background: PAGE_GRADIENT, animation: 'overlaySlideUp 0.32s cubic-bezier(0.32,0.72,0,1) both' }}>
+      <style>{`@keyframes overlaySlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
 
       {/* ── Fixed nav ─────────────────────────────────────────────────────── */}
       <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 pt-12 pb-3 z-10">
@@ -597,7 +604,7 @@ export default function SellerRecruitmentPage() {
         {/* List */}
         {loading ? (
           <div className="flex items-center justify-center py-16">
-            <Loader2 size={24} className="text-[#5AC8FA] animate-spin" />
+            <Loader2 size={24} className="text-[#C03D25] animate-spin" />
           </div>
         ) : filtered.length === 0 ? (
           <GlassCard className="p-8 text-center">
@@ -615,9 +622,10 @@ export default function SellerRecruitmentPage() {
                 className="flex items-center gap-3 p-3 cursor-pointer active:scale-[0.98] transition-transform"
                 onClick={() => setSelected(r)}
               >
-                <div className="w-10 h-10 rounded-full bg-[#E5E5EA] flex items-center justify-center shrink-0">
-                  <span className="text-sm font-bold text-[#8E8E93]">
-                    {r.seller_name.split(' ').map((w: string) => w[0]).slice(0, 2).join('')}
+                <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0"
+                  style={{ background: 'linear-gradient(135deg, #E05A3A 0%, #A83020 100%)' }}>
+                  <span className="text-sm font-bold text-white">
+                    {r.seller_name.split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()}
                   </span>
                 </div>
                 <div className="flex-1 min-w-0">

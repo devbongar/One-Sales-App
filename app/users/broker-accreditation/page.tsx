@@ -5,7 +5,7 @@ import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import SearchInput from '@/components/ui/SearchInput';
 import {
-  Loader2, Users, Plus, ChevronLeft, Edit2, Check, X,
+  Loader2, Users, Plus, ChevronLeft, Check, X,
   Mail, Building2, Tag, User, ChevronDown, SlidersHorizontal, ShieldCheck,
 } from 'lucide-react';
 import {
@@ -129,7 +129,8 @@ function DetailSheet({ broker, onClose, onSaved }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50" style={{ background: PAGE_GRADIENT }}>
+    <div className="fixed inset-0 z-50" style={{ background: PAGE_GRADIENT, animation: 'overlaySlideUp 0.32s cubic-bezier(0.32,0.72,0,1) both' }}>
+      <style>{`@keyframes overlaySlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
 
       {/* Fixed nav */}
       <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 pt-12 pb-3 z-10">
@@ -168,9 +169,12 @@ function DetailSheet({ broker, onClose, onSaved }: {
               <p className="text-[13px] text-[#3C3C43] font-medium">{form.broker_category}</p>
             )}
             {form.broker_status && (
-              <span className={`text-[11px] font-semibold px-3 py-1 rounded-full mt-0.5 ${
-                form.broker_status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'
-              }`}>{form.broker_status}</span>
+              <span className="text-[11px] font-semibold px-3 py-1 rounded-full mt-0.5"
+                style={form.broker_status === 'Active'
+                  ? { background: 'rgba(52,199,89,0.15)', color: '#1A7F37' }
+                  : { background: 'rgba(255,59,48,0.12)', color: '#C0001E' }}>
+                {form.broker_status}
+              </span>
             )}
           </div>
 
@@ -325,7 +329,8 @@ function AddSheet({ onClose, onAdded }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50" style={{ background: PAGE_GRADIENT }}>
+    <div className="fixed inset-0 z-50" style={{ background: PAGE_GRADIENT, animation: 'overlaySlideUp 0.32s cubic-bezier(0.32,0.72,0,1) both' }}>
+      <style>{`@keyframes overlaySlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
 
       {/* Fixed nav */}
       <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 pt-12 pb-3 z-10">
@@ -484,7 +489,7 @@ export default function BrokerAccreditationPage() {
         {/* List */}
         {loading ? (
           <div className="flex items-center justify-center py-16">
-            <Loader2 size={24} className="text-[#5AC8FA] animate-spin" />
+            <Loader2 size={24} className="text-[#C03D25] animate-spin" />
           </div>
         ) : filtered.length === 0 ? (
           <GlassCard className="p-8 text-center">
@@ -502,8 +507,9 @@ export default function BrokerAccreditationPage() {
                 className="flex items-center gap-3 p-3 cursor-pointer active:scale-[0.98] transition-transform"
                 onClick={() => setSelected(b)}
               >
-                <div className="w-10 h-10 rounded-full bg-[#E5E5EA] flex items-center justify-center shrink-0">
-                  <span className="text-sm font-bold text-[#8E8E93]">
+                <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0"
+                  style={{ background: 'linear-gradient(135deg, #E05A3A 0%, #A83020 100%)' }}>
+                  <span className="text-sm font-bold text-white">
                     {(b.full_name ?? '').split(' ').filter(Boolean).map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()}
                   </span>
                 </div>
@@ -512,9 +518,12 @@ export default function BrokerAccreditationPage() {
                   <p className="text-xs text-[#8E8E93]">{b.broker_category ?? '—'}</p>
                 </div>
                 {b.broker_status && (
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
-                    b.broker_status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'
-                  }`}>{b.broker_status}</span>
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0"
+                    style={b.broker_status === 'Active'
+                      ? { background: 'rgba(52,199,89,0.12)', color: '#1A7F37' }
+                      : { background: 'rgba(255,59,48,0.12)', color: '#C0001E' }}>
+                    {b.broker_status}
+                  </span>
                 )}
               </GlassCard>
             ))}

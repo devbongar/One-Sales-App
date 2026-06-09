@@ -12,7 +12,7 @@ import { fetchAttyInFact, AttyInFactRecord } from '@/lib/atty-in-fact';
 import {
   Hash, Building2, Tag, User, FileText, FolderOpen,
   CheckCircle2, XCircle, AlertTriangle, ChevronDown,
-  ChevronRight, ShieldCheck, X,
+  ChevronRight, Loader2, ShieldCheck, X,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -41,6 +41,7 @@ interface ReviewBooking {
   promo_discount_amount:   number | null;
   payterm_discount_pct:    number | null;
   payterm_discount_amount: number | null;
+  hic_discount:            number | null;
   employee_discount_amount:number | null;
   dp_rate:                 number | null;
   term_months:             number | null;
@@ -162,7 +163,7 @@ function A4Page({ children, pageNum, total, reservationId, title, branded }: {
     <div className="bg-white shadow-[0_4px_24px_rgba(0,0,0,0.28)] flex flex-col"
       style={{ minHeight: 'calc((100vw - 24px) * 1.4142)' }}>
       <div className={`flex items-center justify-between px-5 py-2.5 border-b shrink-0 ${
-        branded ? 'bg-[#E8634A] border-[#C03D25]' : 'border-gray-200'
+        branded ? 'bg-[#C03D25] border-[#C03D25]' : 'border-gray-200'
       }`}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
@@ -338,7 +339,7 @@ function AgreementPreviewCard({ b, onClick }: { b: ReviewBooking; onClick: () =>
             <p className="text-[11px] font-semibold text-[#1C1C1E]">{b.client_name ?? '—'}</p>
             <p className="text-[10px] text-gray-400 mt-0.5">{formatDate(b.created_at)} · 4 pages</p>
           </div>
-          <div className="flex items-center gap-1 bg-[#E8634A] px-3 py-1.5 rounded-full">
+          <div className="flex items-center gap-1 bg-[#C03D25] px-3 py-1.5 rounded-full">
             <FileText size={11} className="text-white" />
             <span className="text-[10px] font-semibold text-white">View</span>
             <ChevronRight size={10} className="text-white" />
@@ -391,7 +392,7 @@ function PrivacyViewer({ open, onClose, b }: { open: boolean; onClose: () => voi
               'I agree to affix my e-signature below to signify my conformity and consent to this Data Privacy Statement.',
             ].map((label, i) => (
               <div key={i} className="flex items-start gap-2.5">
-                <div className="mt-0.5 w-4 h-4 rounded bg-[#E8634A] border-2 border-[#E8634A] flex items-center justify-center shrink-0">
+                <div className="mt-0.5 w-4 h-4 rounded bg-[#C03D25] border-2 border-[#C03D25] flex items-center justify-center shrink-0">
                   <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
                     <path d="M1 3.5L3.2 5.5L8 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
@@ -432,7 +433,7 @@ function PrivacyPreviewCard({ b, onClick }: { b: ReviewBooking; onClick: () => v
             <p className="text-[11px] font-semibold text-[#1C1C1E]">{b.client_name ?? '—'}</p>
             <p className="text-[10px] text-gray-400 mt-0.5">{formatDate(b.created_at)} · 1 page</p>
           </div>
-          <div className="flex items-center gap-1 bg-[#E8634A] px-3 py-1.5 rounded-full">
+          <div className="flex items-center gap-1 bg-[#C03D25] px-3 py-1.5 rounded-full">
             <ShieldCheck size={11} className="text-white" />
             <span className="text-[10px] font-semibold text-white">View</span>
             <ChevronRight size={10} className="text-white" />
@@ -496,7 +497,7 @@ function TermsViewer({ open, onClose, b }: { open: boolean; onClose: () => void;
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
         <div className="bg-white shadow-[0_4px_24px_rgba(0,0,0,0.28)] flex flex-col"
           style={{ minHeight: 'calc((100vw - 24px) * 1.4142)' }}>
-          <div className="bg-[#E8634A] border-b border-[#C03D25] px-5 py-2.5 flex items-center justify-between shrink-0">
+          <div className="bg-[#C03D25] border-b border-[#C03D25] px-5 py-2.5 flex items-center justify-between shrink-0">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/document logo.png" alt="PH1 World Developers" className="h-7 object-contain object-left" />
             <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-center px-2 text-white">Terms of Payment</p>
@@ -540,6 +541,7 @@ function TermsViewer({ open, onClose, b }: { open: boolean; onClose: () => void;
                 {(b.promo_discount_amount ?? 0) > 0 && <PriceRow label={`(-) Promo Discount ${fmtPct(b.promo_discount_pct)}`} value={`(${fmtN(b.promo_discount_amount)})`} indent />}
                 {(b.payterm_discount_amount ?? 0) > 0 && <PriceRow label={`(-) Payterm Discount ${fmtPct(b.payterm_discount_pct)}`} value={`(${fmtN(b.payterm_discount_amount)})`} indent />}
                 {(b.employee_discount_amount ?? 0) > 0 && <PriceRow label="(-) Special Discount" value={`(${fmtN(b.employee_discount_amount)})`} indent />}
+                {(b.hic_discount ?? 0) > 0 && <PriceRow label="(-) HIC Discount" value={`(${fmtN(b.hic_discount)})`} indent />}
                 <PriceRow label="Discounted Price" value={fmtN(b.net_list_price)} />
                 <PriceRow label="Value Added Tax 12%" value={fmtN(b.vat)} />
                 <PriceRow label="Other Charges" value={fmtN(b.other_charges)} />
@@ -554,7 +556,7 @@ function TermsViewer({ open, onClose, b }: { open: boolean; onClose: () => void;
               </div>
               <div className="w-[42%] shrink-0 space-y-2">
                 <div className="border border-gray-300 overflow-hidden">
-                  <div className="bg-[#E8634A] px-2 py-1 text-center">
+                  <div className="bg-[#C03D25] px-2 py-1 text-center">
                     <p className="text-[7.5px] font-bold text-white uppercase tracking-wide">Bank Amortization</p>
                   </div>
                   <AmortRow label="Balance for end-user financing" value={fmtN(b.balance_for_financing)} />
@@ -563,7 +565,7 @@ function TermsViewer({ open, onClose, b }: { open: boolean; onClose: () => void;
                   <AmortRow label="Monthly Amortization" value={fmtN(b.bank_monthly)} bold />
                 </div>
                 <div className="border border-gray-300 overflow-hidden">
-                  <div className="bg-[#E8634A] px-2 py-1 text-center">
+                  <div className="bg-[#C03D25] px-2 py-1 text-center">
                     <p className="text-[7.5px] font-bold text-white uppercase tracking-wide">HDMF Amortization</p>
                   </div>
                   <AmortRow label="Balance for end-user financing" value={fmtN(b.balance_for_financing)} />
@@ -602,7 +604,7 @@ function TermsPreviewCard({ b, onClick }: { b: ReviewBooking; onClick: () => voi
             <p className="text-[11px] font-semibold text-[#1C1C1E]">{b.client_name ?? '—'}</p>
             <p className="text-[10px] text-gray-400 mt-0.5">{formatDate(b.created_at)} · 1 page</p>
           </div>
-          <div className="flex items-center gap-1 bg-[#E8634A] px-3 py-1.5 rounded-full">
+          <div className="flex items-center gap-1 bg-[#C03D25] px-3 py-1.5 rounded-full">
             <FileText size={11} className="text-white" />
             <span className="text-[10px] font-semibold text-white">View</span>
             <ChevronRight size={10} className="text-white" />
@@ -623,7 +625,7 @@ function FileTile({ url }: { url: string }) {
         <img src={url} alt={fileName(url)} className="w-full h-full object-cover" /> // eslint-disable-line @next/next/no-img-element
       ) : (
         <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 p-2">
-          <FileText size={26} className="text-[#E8634A]" />
+          <FileText size={26} className="text-[#C03D25]" />
           <span className="text-[10px] text-[#6C6C70] text-center leading-tight line-clamp-2 break-all">{fileName(url)}</span>
         </div>
       )}
@@ -723,7 +725,7 @@ function BuyerInfoViewer({
         {loading ? (
           <A4Page pageNum={1} total={1} reservationId={resId} title={TITLE} branded>
             <div className="flex items-center justify-center py-16">
-              <div className="w-6 h-6 rounded-full border-2 border-[#E8634A] border-t-transparent animate-spin" />
+              <Loader2 size={24} className="text-[#C03D25] animate-spin" />
             </div>
           </A4Page>
         ) : (<>
@@ -906,7 +908,7 @@ function BuyerInfoPreviewCard({ b, onClick }: { b: ReviewBooking; onClick: () =>
             <p className="text-[11px] font-semibold text-[#1C1C1E]">{b.client_name ?? '—'}</p>
             <p className="text-[10px] text-gray-400 mt-0.5">{formatDate(b.created_at)}</p>
           </div>
-          <div className="flex items-center gap-1 bg-[#E8634A] px-3 py-1.5 rounded-full">
+          <div className="flex items-center gap-1 bg-[#C03D25] px-3 py-1.5 rounded-full">
             <User size={11} className="text-white" />
             <span className="text-[10px] font-semibold text-white">View</span>
             <ChevronRight size={10} className="text-white" />
@@ -1015,7 +1017,7 @@ export default function DirectorReviewPage() {
           </p>
           <button
             onClick={() => router.push('/account/buyers-verification')}
-            className="mt-2 px-6 py-3 rounded-2xl bg-[#E8634A] text-white text-sm font-bold active:opacity-80"
+            className="mt-2 px-6 py-3 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80"
           >
             Back to Queue
           </button>
@@ -1028,7 +1030,7 @@ export default function DirectorReviewPage() {
     return (
       <PageShell title="Director Review" backButton onBack={() => router.push('/account/buyers-verification')}>
         <div className="flex items-center justify-center py-16">
-          <div className="w-7 h-7 rounded-full border-2 border-[#E8634A] border-t-transparent animate-spin" />
+          <Loader2 size={28} className="text-[#C03D25] animate-spin" />
         </div>
       </PageShell>
     );
@@ -1067,7 +1069,7 @@ export default function DirectorReviewPage() {
             [<Tag size={15} />,       'Unit',           [booking.tower, booking.floor, booking.unit_no, booking.inventory_code].filter(Boolean).join(' · ') || '—'],
           ] as [React.ReactNode, string, string][]).map(([icon, label, value]) => (
             <div key={label} className="flex items-center gap-3 py-2.5 border-b border-black/[0.06] last:border-0">
-              <span className="text-[#E8634A] shrink-0">{icon}</span>
+              <span className="text-[#C03D25] shrink-0">{icon}</span>
               <span className="flex-1 text-sm font-medium text-[#1C1C1E]">{label}</span>
               <span className="text-xs text-right text-[#6C6C70] max-w-[55%]">{value || '—'}</span>
             </div>
@@ -1144,7 +1146,7 @@ export default function DirectorReviewPage() {
                   onChange={e => setRejectNotes(e.target.value)}
                   placeholder="Describe what needs to be corrected…"
                   rows={4}
-                  className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#E8634A]/50 focus:bg-white resize-none placeholder:text-[#C7C7CC]"
+                  className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/50 focus:bg-white resize-none placeholder:text-[#C7C7CC]"
                 />
                 <div className="flex gap-3">
                   <button

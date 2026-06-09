@@ -244,15 +244,18 @@ export interface ReceivableLine {
   type_of_payment: string;
   due_date: string;
   total_amount_due: number;
+  amount_paid: number | null;
   principal: number | null;
   hic: number | null;
   vat: number | null;
   other_charges: number | null;
-  payment_status: 'Paid' | 'Unpaid';
+  payment_status: 'Paid' | 'Unpaid' | 'Partial';
   mode_of_payment: string | null;
   acknowledgement_receipt_no: string | null;
   posting_date: string | null;
   sales_invoice_number: string | null;
+  check_no: string | null;
+  check_date: string | null;
 }
 
 export interface ReservationReceivableSummary {
@@ -274,7 +277,7 @@ export async function fetchReceivableSummaries(): Promise<ReservationReceivableS
 
   const { data: lines, error: linesErr } = await supabase
     .from('receivables_database')
-    .select('reservation_id, client_name, inventory_code, due_date, total_amount_due, payment_status');
+    .select('reservation_id, client_name, inventory_code, due_date, total_amount_due, amount_paid, payment_status');
   if (linesErr) throw linesErr;
   if (!lines || lines.length === 0) return [];
 
@@ -297,11 +300,19 @@ export async function fetchReceivableSummaries(): Promise<ReservationReceivableS
   const summaries: ReservationReceivableSummary[] = [];
   for (const [reservation_id, rLines] of grouped) {
     const first = rLines[0];
-    const unpaid = rLines.filter((l) => l.payment_status !== 'Paid');
+    const unpaid     = rLines.filter((l) => l.payment_status !== 'Paid');
     const paid_lines = rLines.length - unpaid.length;
-    const outstanding = unpaid.reduce((sum, l) => sum + (Number(l.total_amount_due) || 0), 0);
+    // Outstanding is the remaining balance on each non-Paid line
+    const outstanding = unpaid.reduce(
+      (sum, l) => sum + Math.max(0, Number(l.total_amount_due) - Number(l.amount_paid ?? 0)),
+      0,
+    );
     const unpaidSorted = [...unpaid].sort((a, b) => (a.due_date < b.due_date ? -1 : 1));
-    const nextDue = unpaidSorted[0] ?? null;
+    const nextDue      = unpaidSorted[0] ?? null;
+    // For partial lines, next_due_amount shows the remaining balance, not the full amount
+    const nextDueAmount = nextDue
+      ? Math.max(0, Number(nextDue.total_amount_due) - Number(nextDue.amount_paid ?? 0))
+      : null;
 
     let status: 'Complete' | 'Overdue' | 'Unpaid';
     if (unpaid.length === 0) {
@@ -320,8 +331,8 @@ export async function fetchReceivableSummaries(): Promise<ReservationReceivableS
       total_lines: rLines.length,
       paid_lines,
       outstanding,
-      next_due_date: nextDue?.due_date ?? null,
-      next_due_amount: nextDue ? Number(nextDue.total_amount_due) : null,
+      next_due_date:   nextDue?.due_date ?? null,
+      next_due_amount: nextDueAmount,
       status,
     });
   }
@@ -339,24 +350,3 @@ export async function fetchReceivableLines(reservationId: string): Promise<Recei
   return (data ?? []) as ReceivableLine[];
 }
 
-export async function postPaymentLine(
-  id: string,
-  payload: {
-    mode_of_payment: string;
-    acknowledgement_receipt_no: string;
-    posting_date: string;
-    sales_invoice_number: string;
-  },
-): Promise<void> {
-  const { error } = await supabase
-    .from('receivables_database')
-    .update({
-      payment_status: 'Paid',
-      mode_of_payment: payload.mode_of_payment,
-      acknowledgement_receipt_no: payload.acknowledgement_receipt_no,
-      posting_date: payload.posting_date,
-      sales_invoice_number: payload.sales_invoice_number,
-    })
-    .eq('id', id);
-  if (error) throw error;
-}

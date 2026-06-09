@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import { supabase } from '@/lib/supabase';
-import { FileText, FolderOpen, X, ChevronRight, ShieldCheck, User } from 'lucide-react';
+import { FileText, FolderOpen, Loader2, X, ChevronRight, ShieldCheck, User } from 'lucide-react';
 import { fetchAllClients, fetchBuyerInfo, BuyerInfoRecord, ClientRecord } from '@/lib/clients';
 import { fetchSpouseInfo, SpouseInfoRecord } from '@/lib/spouse-info';
 import { fetchCoOwner, CoOwnerRecord } from '@/lib/co-owners';
@@ -38,6 +38,7 @@ interface FolderData {
   promo_discount_amount:   number | null;
   payterm_discount_pct:    number | null;
   payterm_discount_amount: number | null;
+  hic_discount:            number | null;
   employee_discount_amount:number | null;
   dp_rate:                 number | null;
   term_months:             number | null;
@@ -154,7 +155,7 @@ function A4Page({
     >
       {/* Page header — logo · title · res ID */}
       <div className={`flex items-center justify-between px-5 py-2.5 border-b shrink-0 ${
-        branded ? 'bg-[#E8634A] border-[#C03D25]' : 'border-gray-200'
+        branded ? 'bg-[#C03D25] border-[#C03D25]' : 'border-gray-200'
       }`}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
@@ -468,7 +469,7 @@ function AgreementPreviewCard({
               {formatDate(d.created_at)} · 3 pages
             </p>
           </div>
-          <div className="flex items-center gap-1 bg-[#E8634A] px-3 py-1.5 rounded-full">
+          <div className="flex items-center gap-1 bg-[#C03D25] px-3 py-1.5 rounded-full">
             <FileText size={11} className="text-white" />
             <span className="text-[10px] font-semibold text-white">View</span>
             <ChevronRight size={10} className="text-white" />
@@ -592,7 +593,7 @@ function PrivacyViewer({
               'I agree to affix my e-signature below to signify my conformity and consent to this Data Privacy Statement.',
             ].map((label, i) => (
               <div key={i} className="flex items-start gap-2.5">
-                <div className="mt-0.5 w-4 h-4 rounded bg-[#E8634A] border-2 border-[#E8634A] flex items-center justify-center shrink-0">
+                <div className="mt-0.5 w-4 h-4 rounded bg-[#C03D25] border-2 border-[#C03D25] flex items-center justify-center shrink-0">
                   <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
                     <path d="M1 3.5L3.2 5.5L8 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
@@ -666,7 +667,7 @@ function PrivacyPreviewCard({
               {formatDate(d.created_at)} · 1 page
             </p>
           </div>
-          <div className="flex items-center gap-1 bg-[#E8634A] px-3 py-1.5 rounded-full">
+          <div className="flex items-center gap-1 bg-[#C03D25] px-3 py-1.5 rounded-full">
             <ShieldCheck size={11} className="text-white" />
             <span className="text-[10px] font-semibold text-white">View</span>
             <ChevronRight size={10} className="text-white" />
@@ -692,7 +693,7 @@ function FileTile({ url, onOpen }: { url: string; onOpen: (url: string) => void 
         <img src={url} alt={fileName(url)} className="w-full h-full object-cover" />
       ) : (
         <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 p-2">
-          <FileText size={28} className="text-[#E8634A]" />
+          <FileText size={28} className="text-[#C03D25]" />
           <span className="text-[10px] text-[#6C6C70] text-center leading-tight line-clamp-2 break-all">
             {fileName(url)}
           </span>
@@ -798,7 +799,7 @@ function TermsViewer({ open, onClose, d }: { open: boolean; onClose: () => void;
           style={{ minHeight: 'calc((100vw - 24px) * 1.4142)' }}>
 
           {/* Document header */}
-          <div className="bg-[#E8634A] border-b border-[#C03D25] px-5 py-2.5 flex items-center justify-between shrink-0">
+          <div className="bg-[#C03D25] border-b border-[#C03D25] px-5 py-2.5 flex items-center justify-between shrink-0">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/document logo.png" alt="PH1 World Developers" className="h-7 object-contain object-left" />
             <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-center px-2 text-white">Terms of Payment</p>
@@ -870,6 +871,9 @@ function TermsViewer({ open, onClose, d }: { open: boolean; onClose: () => void;
                 {(d.employee_discount_amount ?? 0) > 0 && (
                   <PriceRow label="(-) Special Discount" value={`(${fmtN(d.employee_discount_amount)})`} indent />
                 )}
+                {(d.hic_discount ?? 0) > 0 && (
+                  <PriceRow label="(-) HIC Discount" value={`(${fmtN(d.hic_discount)})`} indent />
+                )}
                 <PriceRow label="Discounted Price" value={fmtN(d.net_list_price)} />
                 <PriceRow label="Value Added Tax 12%" value={fmtN(d.vat)} />
                 <PriceRow label="Other Charges" value={fmtN(d.other_charges)} />
@@ -886,7 +890,7 @@ function TermsViewer({ open, onClose, d }: { open: boolean; onClose: () => void;
               {/* Right — amortization tables */}
               <div className="w-[42%] shrink-0 space-y-2">
                 <div className="border border-gray-300 overflow-hidden">
-                  <div className="bg-[#E8634A] px-2 py-1 text-center">
+                  <div className="bg-[#C03D25] px-2 py-1 text-center">
                     <p className="text-[7.5px] font-bold text-white uppercase tracking-wide">Bank Amortization</p>
                   </div>
                   <AmortRow label="Balance for end-user financing" value={fmtN(d.balance_for_financing)} />
@@ -895,7 +899,7 @@ function TermsViewer({ open, onClose, d }: { open: boolean; onClose: () => void;
                   <AmortRow label="Monthly Amortization" value={fmtN(d.bank_monthly)} bold />
                 </div>
                 <div className="border border-gray-300 overflow-hidden">
-                  <div className="bg-[#E8634A] px-2 py-1 text-center">
+                  <div className="bg-[#C03D25] px-2 py-1 text-center">
                     <p className="text-[7.5px] font-bold text-white uppercase tracking-wide">HDMF Amortization</p>
                   </div>
                   <AmortRow label="Balance for end-user financing" value={fmtN(d.balance_for_financing)} />
@@ -943,7 +947,7 @@ function TermsPreviewCard({ d, onClick }: { d: FolderData; onClick: () => void }
             <p className="text-[11px] font-semibold text-[#1C1C1E]">{d.client_name ?? '—'}</p>
             <p className="text-[10px] text-gray-400 mt-0.5">{formatDate(d.created_at)} · 1 page</p>
           </div>
-          <div className="flex items-center gap-1 bg-[#E8634A] px-3 py-1.5 rounded-full">
+          <div className="flex items-center gap-1 bg-[#C03D25] px-3 py-1.5 rounded-full">
             <FileText size={11} className="text-white" />
             <span className="text-[10px] font-semibold text-white">View</span>
             <ChevronRight size={10} className="text-white" />
@@ -1029,7 +1033,7 @@ function BuyerInfoViewer({
         {loading ? (
           <A4Page pageNum={1} total={1} reservationId={resId} title={TITLE} branded>
             <div className="flex items-center justify-center py-16">
-              <div className="w-6 h-6 rounded-full border-2 border-[#E8634A] border-t-transparent animate-spin" />
+              <Loader2 size={24} className="text-[#C03D25] animate-spin" />
             </div>
           </A4Page>
         ) : (<>
@@ -1258,7 +1262,7 @@ function BuyerInfoPreviewCard({ d, onClick }: { d: FolderData; onClick: () => vo
             <p className="text-[11px] font-semibold text-[#1C1C1E]">{d.client_name ?? '—'}</p>
             <p className="text-[10px] text-gray-400 mt-0.5">{formatDate(d.created_at)}</p>
           </div>
-          <div className="flex items-center gap-1 bg-[#E8634A] px-3 py-1.5 rounded-full">
+          <div className="flex items-center gap-1 bg-[#C03D25] px-3 py-1.5 rounded-full">
             <User size={11} className="text-white" />
             <span className="text-[10px] font-semibold text-white">View</span>
             <ChevronRight size={10} className="text-white" />
@@ -1311,7 +1315,7 @@ export default function BuyersFolderDetailPage() {
           net_list_price, vat, other_charges, total_contract_price,
           scheme_name, payment_term, signature_base64, created_at,
           list_price, promo_discount_pct, promo_discount_amount,
-          payterm_discount_pct, payterm_discount_amount, employee_discount_amount,
+          payterm_discount_pct, payterm_discount_amount, hic_discount, employee_discount_amount,
           dp_rate, term_months, dp_amount, net_spot_dp,
           monthly_stretched_dp, monthly_deferred, bank_monthly, hdmf_monthly,
           balance_for_financing, reservation_fee,
@@ -1399,7 +1403,7 @@ export default function BuyersFolderDetailPage() {
 
         {loading ? (
           <div className="flex items-center justify-center py-16">
-            <div className="w-7 h-7 rounded-full border-2 border-[#E8634A] border-t-transparent animate-spin" />
+            <Loader2 size={28} className="text-[#C03D25] animate-spin" />
           </div>
         ) : data ? (
           <>
@@ -1480,7 +1484,7 @@ export default function BuyersFolderDetailPage() {
                 href={lightboxUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-6 py-3 rounded-2xl bg-[#E8634A] text-white text-sm font-bold active:opacity-80"
+                className="px-6 py-3 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80"
               >
                 Open PDF
               </a>

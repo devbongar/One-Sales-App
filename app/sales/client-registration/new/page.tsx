@@ -3,10 +3,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
-import GlassCard from '@/components/ui/GlassCard';
 import {
   X, Check, ChevronDown, Search, Loader2,
-  Phone, Mail, Globe, User, Calendar, CheckCircle2,
+  Phone, Mail, Globe, User, Calendar,
   Heart, Briefcase, UserCog, Users,
 } from 'lucide-react';
 import {
@@ -71,7 +70,7 @@ function SelectInput({ value, options, onChange, placeholder }: {
         role="button" tabIndex={0}
         onClick={() => setOpen(p => !p)}
         onKeyDown={e => e.key === 'Enter' && setOpen(p => !p)}
-        className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] cursor-pointer"
+        className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/80 cursor-pointer"
       >
         <span className={`text-sm ${value ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
           {value || placeholder}
@@ -89,7 +88,7 @@ function SelectInput({ value, options, onChange, placeholder }: {
             <button key={o} type="button"
               onClick={() => { onChange(o); setOpen(false); }}
               className={`w-full flex items-center justify-between px-3 py-2.5 text-sm border-b border-black/[0.05] last:border-0 active:bg-gray-50 ${
-                o === value ? 'bg-[#E8634A]/10 text-[#E8634A] font-semibold' : 'text-[#1C1C1E]'
+                o === value ? 'bg-[#C03D25]/10 text-[#C03D25] font-semibold' : 'text-[#1C1C1E]'
               }`}>
               {o}
               {o === value && <Check size={13} className="shrink-0" />}
@@ -107,7 +106,7 @@ function TextInput({ value, onChange, placeholder }: {
   return (
     <input type="text" value={value} onChange={e => onChange(e.target.value)}
       placeholder={placeholder}
-      className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#E8634A]/50 focus:bg-white transition-colors placeholder:text-[#C7C7CC]"
+      className="w-full px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/80 text-sm text-[#1C1C1E] outline-none focus:border-black/20 focus:bg-white transition-colors placeholder:text-[#C7C7CC]"
     />
   );
 }
@@ -260,43 +259,65 @@ export default function NewClientPage() {
 
   // ── Success Screen ────────────────────────────────────────
   if (showSuccess && savedClient) {
+    const successInitials = `${savedClient.firstName.charAt(0)}${savedClient.lastName.charAt(0)}`.toUpperCase();
     return (
-      <PageShell title="Client Registration" backButton onBack={() => router.push('/sales/client-registration')}>
-        <div className="flex flex-col items-center px-4 py-12 text-center">
-          <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mb-5">
-            <CheckCircle2 size={40} className="text-green-500" />
-          </div>
-          <p className="text-xl font-bold text-[#1C1C1E]">Client Registered!</p>
-          <p className="text-lg font-bold text-[#E8634A] mt-1">
-            {savedClient.lastName}, {savedClient.firstName}
-            {savedClient.middleName ? ` ${savedClient.middleName}` : ''}
-            {savedClient.suffix ? ` ${savedClient.suffix}` : ''}
-          </p>
+      <div className="fixed inset-0 z-50 flex flex-col" style={{
+        background: 'linear-gradient(to bottom, #FFFFFF 0%, #8E8E93 50%, #3A3A3C 100%)',
+        animation: 'overlaySlideUp 0.38s cubic-bezier(0.22,1,0.36,1) both',
+      }}>
+        <style>{`@keyframes overlaySlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
+        <div className="flex-1 overflow-y-auto">
+          <div className="flex flex-col items-center px-6 pt-20 pb-12 text-center">
 
-          {/* Client ID badge */}
-          <div className="mt-5 px-6 py-3.5 bg-[#C8F0D8] rounded-2xl flex flex-col items-center gap-1">
-            <p className="text-[10px] font-semibold text-green-700/70 uppercase tracking-widest">Client ID</p>
-            <p className="text-2xl font-bold text-green-900 tracking-widest">{savedClientId}</p>
-          </div>
+            {/* Avatar */}
+            <div
+              className="w-24 h-24 rounded-3xl flex items-center justify-center mb-5"
+              style={{
+                background: 'linear-gradient(135deg, #E05A3A 0%, #A83020 100%)',
+                boxShadow: '0 8px 32px rgba(192,61,37,0.40)',
+              }}
+            >
+              <span className="text-3xl font-bold text-white">{successInitials}</span>
+            </div>
 
-          <p className="text-sm text-[#8E8E93] mt-4">
-            Registered as a {savedClient.clientType.toLowerCase()} client.
-          </p>
+            <p className="text-[11px] font-semibold text-[#6C6C70] uppercase tracking-widest mb-1">Registration Complete</p>
+            <p className="text-[26px] font-bold text-[#1C1C1E] leading-tight">
+              {savedClient.firstName}{savedClient.middleName ? ` ${savedClient.middleName}` : ''}{' '}
+              {savedClient.lastName}{savedClient.suffix ? ` ${savedClient.suffix}` : ''}
+            </p>
 
-          <div className="flex flex-col gap-3 w-full max-w-xs mt-8">
-            <button type="button"
-              onClick={() => { setForm(EMPTY_FORM); setErrors({}); setSavedClient(null); setSavedClientId(''); setShowSuccess(false); resetSellerSelections(); }}
-              className="w-full py-3.5 rounded-2xl bg-[#E8634A] text-white text-sm font-bold active:opacity-80">
-              Register Another Client
-            </button>
-            <button type="button"
-              onClick={() => router.push('/sales/client-registration')}
-              className="w-full py-3.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-70">
-              Done
-            </button>
+            {/* Client ID badge */}
+            <div className="mt-5 px-6 py-4 rounded-2xl flex flex-col items-center gap-1" style={{
+              background: 'rgba(255,255,255,0.88)',
+              backdropFilter: 'blur(24px)',
+              border: '1px solid rgba(0,0,0,0.06)',
+              boxShadow: '0 2px 16px rgba(0,0,0,0.08)',
+            }}>
+              <p className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-widest">Client ID</p>
+              <p className="text-2xl font-bold text-[#C03D25] tracking-widest">{savedClientId}</p>
+            </div>
+
+            <p className="text-sm text-[#6C6C70] mt-4 capitalize">
+              Registered as a {savedClient.clientType.toLowerCase()} client
+            </p>
+
+            <div className="flex flex-col gap-3 w-full max-w-xs mt-10">
+              <button type="button"
+                onClick={() => { setForm(EMPTY_FORM); setErrors({}); setSavedClient(null); setSavedClientId(''); setShowSuccess(false); resetSellerSelections(); }}
+                className="w-full py-3.5 rounded-2xl text-white text-sm font-bold active:opacity-80"
+                style={{ background: 'linear-gradient(135deg, #E05A3A 0%, #A83020 100%)' }}>
+                Register Another Client
+              </button>
+              <button type="button"
+                onClick={() => router.push('/sales/client-registration')}
+                className="w-full py-3.5 rounded-2xl text-sm font-semibold active:opacity-70"
+                style={{ background: 'rgba(255,255,255,0.80)', color: '#1C1C1E' }}>
+                Done
+              </button>
+            </div>
           </div>
         </div>
-      </PageShell>
+      </div>
     );
   }
 
@@ -322,13 +343,13 @@ export default function NewClientPage() {
             <button key={`${c.name}-${c.dial}`} type="button"
               onClick={() => { set('countryCode')(c.dial); setCountryPickerOpen(false); setCountrySearch(''); }}
               className={`w-full flex items-center gap-3 px-4 py-3.5 border-b border-black/[0.04] text-left active:bg-gray-50 ${
-                form.countryCode === c.dial && selectedCountry.name === c.name ? 'bg-[#E8634A]/5' : ''
+                form.countryCode === c.dial && selectedCountry.name === c.name ? 'bg-[#C03D25]/5' : ''
               }`}>
               <span className="text-xl shrink-0">{c.flag}</span>
               <span className="flex-1 text-sm text-[#1C1C1E]">{c.name}</span>
               <span className="text-sm font-semibold text-[#8E8E93]">{c.dial}</span>
               {form.countryCode === c.dial && selectedCountry.name === c.name && (
-                <Check size={14} className="text-[#E8634A] shrink-0" />
+                <Check size={14} className="text-[#C03D25] shrink-0" />
               )}
             </button>
           ))}
@@ -359,10 +380,10 @@ export default function NewClientPage() {
             <button key={c} type="button"
               onClick={() => { set('citizenship')(c); setCitizenshipPickerOpen(false); setCitizenshipSearch(''); }}
               className={`w-full flex items-center justify-between px-4 py-3.5 border-b border-black/[0.04] text-left active:bg-gray-50 ${
-                form.citizenship === c ? 'bg-[#E8634A]/5' : ''
+                form.citizenship === c ? 'bg-[#C03D25]/5' : ''
               }`}>
               <span className="text-sm text-[#1C1C1E]">{c}</span>
-              {form.citizenship === c && <Check size={14} className="text-[#E8634A] shrink-0" />}
+              {form.citizenship === c && <Check size={14} className="text-[#C03D25] shrink-0" />}
             </button>
           ))}
         </div>
@@ -379,26 +400,26 @@ export default function NewClientPage() {
         )}
 
         {/* Client Type */}
-        <GlassCard className="p-4 space-y-3">
-          <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Client Type</p>
+        <div className="rounded-3xl p-4 space-y-3" style={{ background: 'rgba(255,255,255,0.88)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 2px 16px rgba(0,0,0,0.08)' }}>
+          <p className="text-xs font-bold text-[#6C6C70] uppercase tracking-wider">Client Type</p>
           <div className="grid grid-cols-2 gap-2">
             {(['Local', 'International'] as const).map(t => (
               <button key={t} type="button" onClick={() => set('clientType')(t)}
                 className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-semibold transition-all ${
                   form.clientType === t
-                    ? 'bg-[#E8634A] border-[#E8634A] text-white'
-                    : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
+                    ? 'bg-[#C03D25] border-[#C03D25]/50 text-white'
+                    : 'bg-white/60 border-black/[0.08] text-[#6C6C70]'
                 }`}>
                 {form.clientType === t && <Check size={13} />}
                 {t}
               </button>
             ))}
           </div>
-        </GlassCard>
+        </div>
 
         {/* Personal Information */}
-        <GlassCard className="p-4 space-y-3">
-          <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Personal Information</p>
+        <div className="rounded-3xl p-4 space-y-3" style={{ background: 'rgba(255,255,255,0.88)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 2px 16px rgba(0,0,0,0.08)' }}>
+          <p className="text-xs font-bold text-[#6C6C70] uppercase tracking-wider">Personal Information</p>
           <InputRow label="Last Name" icon={<User size={11} />} error={errors.lastName} required>
             <TextInput value={form.lastName} onChange={v => set('lastName')(toProperCase(v))} placeholder="e.g. Dela Cruz" />
           </InputRow>
@@ -421,7 +442,7 @@ export default function NewClientPage() {
           </InputRow>
 
           <InputRow label="Date of Birth" icon={<Calendar size={11} />} error={errors.dateOfBirth} required>
-            <div className="w-full flex items-center px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] overflow-hidden focus-within:border-[#E8634A]/50 focus-within:bg-white transition-colors">
+            <div className="w-full flex items-center px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/80 overflow-hidden focus-within:border-black/20 focus-within:bg-white transition-colors">
               <input type="date" value={form.dateOfBirth} onChange={e => set('dateOfBirth')(e.target.value)}
                 className="w-full min-w-0 bg-transparent text-sm text-[#1C1C1E] outline-none"
               />
@@ -431,7 +452,7 @@ export default function NewClientPage() {
             <div role="button" tabIndex={0}
               onClick={() => { setCitizenshipSearch(''); setCitizenshipPickerOpen(true); }}
               onKeyDown={e => e.key === 'Enter' && (setCitizenshipSearch(''), setCitizenshipPickerOpen(true))}
-              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] active:opacity-70 cursor-pointer">
+              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/80 active:opacity-70 cursor-pointer">
               <span className={`text-sm ${form.citizenship ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
                 {form.citizenship || 'Select citizenship'}
               </span>
@@ -443,15 +464,15 @@ export default function NewClientPage() {
               }
             </div>
           </InputRow>
-        </GlassCard>
+        </div>
 
         {/* Contact Details */}
-        <GlassCard className="p-4 space-y-3">
-          <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Contact Details</p>
+        <div className="rounded-3xl p-4 space-y-3" style={{ background: 'rgba(255,255,255,0.88)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 2px 16px rgba(0,0,0,0.08)' }}>
+          <p className="text-xs font-bold text-[#6C6C70] uppercase tracking-wider">Contact Details</p>
           <InputRow label="Mobile Number" icon={<Phone size={11} />} error={errors.mobileNumber} required>
             <div className="flex gap-2">
               <button type="button" onClick={() => { setCountrySearch(''); setCountryPickerOpen(true); }}
-                className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm shrink-0 active:opacity-70">
+                className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/80 text-sm shrink-0 active:opacity-70">
                 <span>{selectedCountry.flag}</span>
                 <span className="font-medium text-[#1C1C1E]">{selectedCountry.dial}</span>
                 <ChevronDown size={12} className="text-[#C7C7CC]" />
@@ -467,7 +488,7 @@ export default function NewClientPage() {
                 }}
                 placeholder={form.countryCode === '+63' ? '9171234567' : ''}
                 maxLength={form.countryCode === '+63' ? 10 : 15}
-                className="flex-1 px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#E8634A]/50 focus:bg-white transition-colors placeholder:text-[#C7C7CC]"
+                className="flex-1 px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/80 text-sm text-[#1C1C1E] outline-none focus:border-black/20 focus:bg-white transition-colors placeholder:text-[#C7C7CC]"
               />
             </div>
           </InputRow>
@@ -478,7 +499,7 @@ export default function NewClientPage() {
               value={form.landlineNo}
               onChange={e => set('landlineNo')(e.target.value.replace(/[^0-9\-\s()]/g, ''))}
               placeholder="02-8123-4567"
-              className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#E8634A]/50 focus:bg-white transition-colors placeholder:text-[#C7C7CC]"
+              className="w-full px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/80 text-sm text-[#1C1C1E] outline-none focus:border-black/20 focus:bg-white transition-colors placeholder:text-[#C7C7CC]"
             />
           </InputRow>
           <InputRow label="Email Address" icon={<Mail size={11} />} error={errors.email} required>
@@ -498,16 +519,16 @@ export default function NewClientPage() {
                   setErrors(prev => ({ ...prev, email: '' }));
               }}
               placeholder="juan@email.com"
-              className={`w-full px-3 py-2.5 rounded-xl border bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none transition-colors placeholder:text-[#C7C7CC] focus:bg-white ${
-                errors.email ? 'border-red-400 focus:border-red-400' : 'border-black/[0.1] focus:border-[#E8634A]/50'
+              className={`w-full px-3 py-2.5 rounded-xl border bg-white/80 text-sm text-[#1C1C1E] outline-none transition-colors placeholder:text-[#C7C7CC] focus:bg-white ${
+                errors.email ? 'border-red-400 focus:border-red-400' : 'border-black/[0.10] focus:border-black/20'
               }`}
             />
           </InputRow>
-        </GlassCard>
+        </div>
 
         {/* Purchase Information */}
-        <GlassCard className="p-4 space-y-3">
-          <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Purchase Information</p>
+        <div className="rounded-3xl p-4 space-y-3" style={{ background: 'rgba(255,255,255,0.88)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 2px 16px rgba(0,0,0,0.08)' }}>
+          <p className="text-xs font-bold text-[#6C6C70] uppercase tracking-wider">Purchase Information</p>
           <InputRow label="Reason for Buying" icon={<Heart size={11} />} error={errors.reasonForBuying} required>
             <SelectInput value={form.reasonForBuying} options={REASON_OPTIONS}
               onChange={set('reasonForBuying')} placeholder="Select reason" />
@@ -520,11 +541,11 @@ export default function NewClientPage() {
             <SelectInput value={form.monthlyHouseholdIncome} options={INCOME_OPTIONS}
               onChange={set('monthlyHouseholdIncome')} placeholder="Select income range" />
           </InputRow>
-        </GlassCard>
+        </div>
 
         {/* Seller Information */}
-        <GlassCard className="p-4 space-y-3">
-          <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Seller Information</p>
+        <div className="rounded-3xl p-4 space-y-3" style={{ background: 'rgba(255,255,255,0.88)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 2px 16px rgba(0,0,0,0.08)' }}>
+          <p className="text-xs font-bold text-[#6C6C70] uppercase tracking-wider">Seller Information</p>
 
           {/* Seller Type toggle */}
           <div className="grid grid-cols-2 gap-2">
@@ -533,8 +554,8 @@ export default function NewClientPage() {
                 onClick={() => { set('sellerType')(t); resetSellerSelections(); }}
                 className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-semibold transition-all ${
                   form.sellerType === t
-                    ? 'bg-[#E8634A] border-[#E8634A] text-white'
-                    : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
+                    ? 'bg-[#C03D25] border-[#C03D25]/50 text-white'
+                    : 'bg-white/60 border-black/[0.08] text-[#6C6C70]'
                 }`}>
                 {form.sellerType === t && <Check size={13} />}
                 {t}
@@ -609,10 +630,11 @@ export default function NewClientPage() {
               </InputRow>
             </>
           )}
-        </GlassCard>
+        </div>
 
         <button type="button" onClick={handleSave} disabled={saving}
-          className="w-full py-4 rounded-2xl bg-[#E8634A] text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60 active:opacity-80">
+          className="w-full py-4 rounded-2xl text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60 active:opacity-80"
+          style={{ background: 'linear-gradient(135deg, #E05A3A 0%, #A83020 100%)' }}>
           {saving
             ? <><Loader2 size={15} className="animate-spin" /> Saving…</>
             : <><Check size={15} /> Register Client</>

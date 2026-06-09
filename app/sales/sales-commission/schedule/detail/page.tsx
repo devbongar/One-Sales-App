@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import { CommissionRecord, CommissionTranche, fetchCommissionTranches } from '@/lib/commission';
-import { Building2, FileText, User, Tag, Percent, UserCheck } from 'lucide-react';
+import { Building2, FileText, Loader2, User, Tag, Percent, UserCheck } from 'lucide-react';
 
 function fmt(n: number | null | undefined) {
   if (n == null) return '—';
@@ -46,7 +46,7 @@ export default function CommissionScheduleDetailPage() {
 
       {/* Rows 1–3 — inside the red card */}
       <GlassCard strong className="overflow-hidden">
-        <div className="bg-[#E8634A] px-5 py-4 flex flex-col gap-4">
+        <div className="bg-[#C03D25] px-5 py-4 flex flex-col gap-4">
 
           {/* Row 1: Reservation number */}
           <p className="text-white font-bold text-lg leading-tight">
@@ -116,7 +116,7 @@ export default function CommissionScheduleDetailPage() {
       <GlassCard className="overflow-hidden">
         {loading && (
           <div className="flex items-center justify-center py-10">
-            <div className="w-6 h-6 rounded-full border-2 border-[#E8634A] border-t-transparent animate-spin" />
+            <Loader2 size={24} className="text-[#C03D25] animate-spin" />
           </div>
         )}
         {error && <p className="text-center text-sm text-red-500 py-6 px-4">{error}</p>}
@@ -155,7 +155,7 @@ export default function CommissionScheduleDetailPage() {
       {!loading && !error && tranches.length > 0 && (
         <GlassCard strong className="px-5 py-4 flex items-center justify-between">
           <p className="text-sm font-bold text-[#1C1C1E]">Total Gross Commission</p>
-          <p className="text-base font-bold text-[#E8634A]">{fmt(totalGross)}</p>
+          <p className="text-base font-bold text-[#C03D25]">{fmt(totalGross)}</p>
         </GlassCard>
       )}
 

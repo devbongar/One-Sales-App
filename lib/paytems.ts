@@ -13,7 +13,19 @@ export interface PaytermRecord {
 }
 
 export async function fetchAllPayterms(): Promise<PaytermRecord[]> {
-  const { data, error } = await supabase.rpc('get_all_paytems');
+  const { data, error } = await supabase
+    .from('Payterm')
+    .select('"Payterm Code","Payterm Scheme","Project","Tower","DP (%)","Discount","Term","PaymentTerm","Status"');
   if (error) throw error;
-  return (data ?? []) as PaytermRecord[];
+  return (data ?? []).map((r: any) => ({
+    payterm_code:   r['Payterm Code']   ?? null,
+    payterm_scheme: r['Payterm Scheme'] ?? null,
+    project:        r['Project']        ?? null,
+    tower:          r['Tower']          ?? null,
+    dp_percent:     r['DP (%)']         ?? null,
+    discount:       r['Discount']       ?? null,
+    term:           r['Term']           ?? null,
+    payment_term:   r['PaymentTerm']    ?? null,
+    status:         r['Status']         ?? null,
+  }));
 }

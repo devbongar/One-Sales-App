@@ -38,7 +38,7 @@ function TextInput({ value, onChange, placeholder, disabled }: {
       onChange={e => onChange(e.target.value)}
       placeholder={placeholder}
       disabled={disabled}
-      className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#E8634A]/50 focus:bg-white transition-colors placeholder:text-[#C7C7CC] disabled:border-black/[0.06] disabled:bg-[#F2F2F7]/50 disabled:text-[#6C6C70] disabled:opacity-100"
+      className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/50 focus:bg-white transition-colors placeholder:text-[#C7C7CC] disabled:border-black/[0.06] disabled:bg-[#F2F2F7]/50 disabled:text-[#6C6C70] disabled:opacity-100"
     />
   );
 }
@@ -91,7 +91,7 @@ function PhoneInputField({ code, onCodeChange, number, onNumberChange, disabled 
               <button key={c.dial + c.name} type="button"
                 onClick={() => { onCodeChange(c.dial); setOpen(false); setQuery(''); }}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm border-b border-black/[0.05] last:border-0 active:bg-gray-50 ${
-                  c.dial === code ? 'bg-[#E8634A]/10 text-[#E8634A] font-semibold' : 'text-[#1C1C1E]'
+                  c.dial === code ? 'bg-[#C03D25]/10 text-[#C03D25] font-semibold' : 'text-[#1C1C1E]'
                 }`}>
                 <span>{c.flag}</span>
                 <span className="flex-1 text-left">{c.name}</span>
@@ -108,7 +108,7 @@ function PhoneInputField({ code, onCodeChange, number, onNumberChange, disabled 
 function ReadOnlyRow({ icon, label, value }: { icon: React.ReactNode; label: string; value?: string | null }) {
   return (
     <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06] last:border-0">
-      <span className="text-[#E8634A] shrink-0">{icon}</span>
+      <span className="text-[#C03D25] shrink-0">{icon}</span>
       <span className="flex-1 text-sm font-medium text-[#1C1C1E]">{label}</span>
       <span className="text-sm text-right text-[#6C6C70] max-w-[180px] truncate">{value || '—'}</span>
     </div>
@@ -231,7 +231,7 @@ export default function AttyInFactPage() {
         <button type="button"
           onClick={() => isSaved ? handleSave() : setShowConfirmModal(true)}
           disabled={isSaving}
-          className="w-full py-4 rounded-2xl bg-[#E8634A] text-white text-sm font-bold shadow-[0_4px_16px_rgba(232,99,74,0.35)] active:opacity-80 transition-opacity disabled:opacity-60">
+          className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity disabled:opacity-60">
           {isSaving ? 'Saving...' : isSaved ? 'Done' : 'Save'}
         </button>
 
@@ -249,8 +249,8 @@ export default function AttyInFactPage() {
             </button>
 
             <div className="flex flex-col items-center gap-2 text-center">
-              <div className="w-12 h-12 rounded-2xl bg-[rgba(232,99,74,0.12)] flex items-center justify-center">
-                <CheckCircle2 size={24} className="text-[#E8634A]" />
+              <div className="w-12 h-12 rounded-2xl bg-[rgba(192,61,37,0.12)] flex items-center justify-center">
+                <CheckCircle2 size={24} className="text-[#C03D25]" />
               </div>
               <p className="text-base font-bold text-[#1C1C1E]">Confirm Details</p>
               <p className="text-sm text-[#6C6C70] leading-relaxed">
@@ -261,7 +261,7 @@ export default function AttyInFactPage() {
             <div className="space-y-2">
               <button type="button"
                 onClick={() => { setShowConfirmModal(false); handleSave(); }}
-                className="w-full py-3.5 rounded-2xl bg-[#E8634A] text-white text-sm font-bold active:opacity-80">
+                className="w-full py-3.5 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80">
                 Confirm &amp; Save
               </button>
               <button type="button"
@@ -287,8 +287,8 @@ export default function AttyInFactPage() {
             </button>
 
             <div className="flex flex-col items-center gap-2 text-center">
-              <div className="w-12 h-12 rounded-2xl bg-[rgba(232,99,74,0.12)] flex items-center justify-center">
-                <CheckCircle2 size={24} className="text-[#E8634A]" />
+              <div className="w-12 h-12 rounded-2xl bg-[rgba(192,61,37,0.12)] flex items-center justify-center">
+                <CheckCircle2 size={24} className="text-[#C03D25]" />
               </div>
               <p className="text-base font-bold text-[#1C1C1E]">Buyer's Information Complete!</p>
               <p className="text-sm text-[#6C6C70] leading-relaxed">
@@ -297,7 +297,7 @@ export default function AttyInFactPage() {
             </div>
 
             <button type="button" onClick={() => router.push('/sales/booking/detail')}
-              className="w-full py-3.5 rounded-2xl bg-[#E8634A] text-white text-sm font-bold active:opacity-80">
+              className="w-full py-3.5 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80">
               Done
             </button>
 

@@ -63,7 +63,7 @@ function SelectRow({ label, value, options, disabled, placeholder, isOpen, onTog
               onClick={() => onChange(o.value)}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-colors ${
                 o.value === value
-                  ? 'bg-[#E8634A]/10 text-[#E8634A] font-semibold'
+                  ? 'bg-[#C03D25]/10 text-[#C03D25] font-semibold'
                   : 'text-[#1C1C1E] hover:bg-gray-50 active:bg-gray-100'
               }`}
             >
@@ -204,8 +204,8 @@ export default function InventoryPage() {
   return (
     <PageShell title="Inventory" backButton>
       <GlassCard strong className="p-5 flex items-center gap-4">
-        <div className="w-12 h-12 rounded-2xl bg-[rgba(232,99,74,0.12)] flex items-center justify-center shrink-0">
-          <Layers size={22} className="text-[#E8634A]" />
+        <div className="w-12 h-12 rounded-2xl bg-[rgba(192,61,37,0.12)] flex items-center justify-center shrink-0">
+          <Layers size={22} className="text-[#C03D25]" />
         </div>
         <div>
           <p className="text-[#1C1C1E] font-semibold">Unit Inventory</p>
@@ -292,7 +292,7 @@ export default function InventoryPage() {
                     <p className="text-[#6C6C70] text-[10px] leading-tight">
                       {unit.unit_type}{unit.unit_area != null ? ` (${unit.unit_area} sqm)` : ''}
                     </p>
-                    <p className={`text-xs font-bold leading-tight mt-1 ${price ? 'text-[#E8634A]' : 'text-[#8E8E93]'}`}>
+                    <p className={`text-xs font-bold leading-tight mt-1 ${price ? 'text-[#C03D25]' : 'text-[#8E8E93]'}`}>
                       {price ? price.millions : '—'}
                     </p>
                   </GlassCard>

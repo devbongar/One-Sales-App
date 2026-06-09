@@ -1,11 +1,16 @@
 import { supabase } from '@/lib/supabase';
 
 /*
-  Required Supabase migration (run once):
+  Required Supabase migrations (run once):
 
   create table if not exists public.reservation_fees (
     unit_type text primary key,
     fee       numeric not null default 0
+  );
+
+  create table if not exists public.vat_settings (
+    product_type  text    primary key,
+    vat_threshold numeric not null default 0
   );
 */
 
@@ -168,6 +173,110 @@ export async function fetchReservationFee(productType: string): Promise<number> 
   return (data as any).fee ?? 0;
 }
 
+
+/* ─── VAT Settings ───────────────────────────────────────────────────────── */
+
+export interface VatSettingRecord {
+  product_type:  string;
+  vat_threshold: number;
+}
+
+export async function fetchVatSettings(): Promise<VatSettingRecord[]> {
+  const { data, error } = await supabase
+    .from('vat_settings')
+    .select('product_type, vat_threshold')
+    .order('product_type');
+  if (error) throw error;
+  return (data ?? []) as VatSettingRecord[];
+}
+
+export async function saveVatSettings(records: VatSettingRecord[]): Promise<void> {
+  if (records.length === 0) return;
+  const { error } = await supabase
+    .from('vat_settings')
+    .upsert(records, { onConflict: 'product_type' });
+  if (error) throw error;
+}
+
+export async function deleteVatSettings(productTypes: string[]): Promise<void> {
+  if (productTypes.length === 0) return;
+  const { error } = await supabase
+    .from('vat_settings')
+    .delete()
+    .in('product_type', productTypes);
+  if (error) throw error;
+}
+
+/**
+ * Returns the VAT threshold for a product type.
+ * Returns null if no entry exists — caller must treat this as a config error.
+ */
+export async function fetchVatThreshold(productType: string): Promise<number | null> {
+  const { data, error } = await supabase
+    .from('vat_settings')
+    .select('vat_threshold')
+    .eq('product_type', productType)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return (data as any).vat_threshold ?? null;
+}
+
+/**
+ * Computes VAT amount given net list price, product type threshold.
+ * NLP > threshold → 12% VAT; NLP <= threshold → 0 (exempt).
+ */
+export function computeVat(netListPrice: number, vatThreshold: number): number {
+  return netListPrice > vatThreshold ? Math.round(netListPrice * 0.12) : 0;
+}
+
+/* ─── HIC Settings ───────────────────────────────────────────────────────── */
+
+export interface HicSettingRecord {
+  product_type: string;
+  hic_target:   number;
+}
+
+export async function fetchHicSettings(): Promise<HicSettingRecord[]> {
+  const { data, error } = await supabase
+    .from('hic_settings')
+    .select('product_type, hic_target')
+    .order('product_type');
+  if (error) throw error;
+  return (data ?? []) as HicSettingRecord[];
+}
+
+export async function saveHicSettings(records: HicSettingRecord[]): Promise<void> {
+  if (records.length === 0) return;
+  const { error } = await supabase
+    .from('hic_settings')
+    .upsert(records, { onConflict: 'product_type' });
+  if (error) throw error;
+}
+
+export async function deleteHicSettings(productTypes: string[]): Promise<void> {
+  if (productTypes.length === 0) return;
+  const { error } = await supabase
+    .from('hic_settings')
+    .delete()
+    .in('product_type', productTypes);
+  if (error) throw error;
+}
+
+/**
+ * Returns the HIC target amount for a product type.
+ * Returns null if no entry exists — caller should disable HIC for that unit.
+ */
+export async function fetchHicTarget(productType: string): Promise<number | null> {
+  const { data, error } = await supabase
+    .from('hic_settings')
+    .select('hic_target')
+    .eq('product_type', productType)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return (data as any).hic_target ?? null;
+}
 
 export async function resolveDueDate(reservationDay: number): Promise<{ dueDay: number; sameMonth: boolean }> {
   const { data, error } = await supabase

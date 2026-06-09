@@ -4,9 +4,11 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
-import FilterSelect from '@/components/ui/FilterSelect';
 import { supabase } from '@/lib/supabase';
-import { Hash, User, Building2, Tag, ChevronRight, Banknote } from 'lucide-react';
+import {
+  Banknote, Building2, Check, ChevronRight,
+  Loader2, Search, SlidersHorizontal, X,
+} from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -39,19 +41,30 @@ interface FinanceBooking {
   date_of_reservation_fee:      string | null;
 }
 
-// ─── Badge ────────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function FinanceBadge({ bookingStatus, reservationStatus }: { bookingStatus: string | null; reservationStatus: string | null }) {
+function getInitials(name: string) {
+  const parts = name.trim().split(' ').filter(Boolean);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function financeBadgeStyle(bookingStatus: string | null, reservationStatus: string | null): { style: React.CSSProperties; label: string } {
   if (reservationStatus === 'Pending Review')
-    return <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">Pending Review</span>;
+    return { style: { background: 'rgba(88,86,214,0.12)', color: '#3634A3' }, label: 'Pending Review' };
   if (bookingStatus === 'finance-verified')
-    return <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Verified</span>;
-  return <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Pending</span>;
+    return { style: { background: 'rgba(52,199,89,0.12)', color: '#1A7F37' }, label: 'Verified' };
+  return { style: { background: 'rgba(255,159,10,0.12)', color: '#A05A00' }, label: 'Pending' };
 }
 
 function fmt(n: number | null) {
   if (n == null) return '—';
   return `₱ ${n.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`;
+}
+
+function fmtDate(iso: string | null) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -60,151 +73,310 @@ export default function BuyersPaymentPage() {
   const router = useRouter();
   const [bookings,       setBookings]       = useState<FinanceBooking[]>([]);
   const [loading,        setLoading]        = useState(true);
+  const [search,         setSearch]         = useState('');
+  const [filterOpen,     setFilterOpen]     = useState(false);
+
   const [projectOptions, setProjectOptions] = useState<string[]>([]);
   const [sellerOptions,  setSellerOptions]  = useState<string[]>([]);
-  const [clientOptions,  setClientOptions]  = useState<string[]>([]);
+
   const [projectFilter,  setProjectFilter]  = useState('');
   const [statusFilter,   setStatusFilter]   = useState('');
   const [sellerFilter,   setSellerFilter]   = useState('');
-  const [clientFilter,   setClientFilter]   = useState('');
+
+  const activeFilterCount = [projectFilter, statusFilter, sellerFilter].filter(Boolean).length;
 
   useEffect(() => {
     async function loadOptions() {
       const [r1, r2] = await Promise.all([
-        supabase.from('reservations').select('project, seller_name, client_name').in('booking_review_status', ['director-approved', 'finance-verified']),
-        supabase.from('reservations').select('project, seller_name, client_name').eq('status', 'Pending Review'),
+        supabase.from('reservations').select('project, seller_name').in('booking_review_status', ['director-approved', 'finance-verified']),
+        supabase.from('reservations').select('project, seller_name').eq('status', 'Pending Review'),
       ]);
       const rows = [...(r1.data ?? []), ...(r2.data ?? [])];
       setProjectOptions([...new Set(rows.map(r => r.project).filter(Boolean))] as string[]);
       setSellerOptions([...new Set(rows.map(r => r.seller_name).filter(Boolean))] as string[]);
-      setClientOptions([...new Set(rows.map(r => r.client_name).filter(Boolean))] as string[]);
     }
     loadOptions();
   }, []);
 
   useEffect(() => {
-    async function load() {
-      setLoading(true);
+    setLoading(true);
 
-      const SELECT = `
-        reservation_id, client_name, project, inventory_code, unit_type,
-        seller_name, status, booking_review_status, director_reviewed_at,
-        net_list_price, vat, other_charges, total_contract_price,
-        scheme_name, payment_term, signature_base64, created_at,
-        tower, floor, unit_no, unit_area, payment_proof_url, finance_verified_at,
-        acknowledgement_receipt_no, sales_invoice_no, date_of_reservation_fee
-      `;
+    const SELECT = `
+      reservation_id, client_name, project, inventory_code, unit_type,
+      seller_name, status, booking_review_status, director_reviewed_at,
+      net_list_price, vat, other_charges, total_contract_price,
+      scheme_name, payment_term, signature_base64, created_at,
+      tower, floor, unit_no, unit_area, payment_proof_url, finance_verified_at,
+      acknowledgement_receipt_no, sales_invoice_no, date_of_reservation_fee
+    `;
 
-      let q;
-      if (!statusFilter) {
-        // No filter — show all relevant records
-        q = supabase
-          .from('reservations')
-          .select(SELECT)
-          .or('status.eq.Pending Review,booking_review_status.eq.director-approved,booking_review_status.eq.finance-verified')
-          .order('created_at', { ascending: false });
-      } else if (statusFilter === 'Pending Review') {
-        q = supabase
-          .from('reservations')
-          .select(SELECT)
-          .eq('status', 'Pending Review')
-          .order('created_at', { ascending: false });
-      } else {
-        const statusValues: Record<string, string[]> = {
-          'Pending':  ['director-approved'],
-          'Verified': ['finance-verified'],
-        };
-        q = supabase
-          .from('reservations')
-          .select(SELECT)
-          .in('booking_review_status', statusValues[statusFilter] ?? ['director-approved'])
-          .order('director_reviewed_at', { ascending: false });
-      }
+    let q;
+    if (!statusFilter) {
+      q = supabase
+        .from('reservations')
+        .select(SELECT)
+        .or('status.eq.Pending Review,booking_review_status.eq.director-approved,booking_review_status.eq.finance-verified')
+        .order('created_at', { ascending: false });
+    } else if (statusFilter === 'Pending Review') {
+      q = supabase
+        .from('reservations')
+        .select(SELECT)
+        .eq('status', 'Pending Review')
+        .order('created_at', { ascending: false });
+    } else {
+      const statusValues: Record<string, string[]> = {
+        'Pending':  ['director-approved'],
+        'Verified': ['finance-verified'],
+      };
+      q = supabase
+        .from('reservations')
+        .select(SELECT)
+        .in('booking_review_status', statusValues[statusFilter] ?? ['director-approved'])
+        .order('director_reviewed_at', { ascending: false });
+    }
 
-      if (projectFilter) q = q.eq('project',     projectFilter);
-      if (sellerFilter)  q = q.eq('seller_name', sellerFilter);
-      if (clientFilter)  q = q.eq('client_name', clientFilter);
+    if (projectFilter) q = q.eq('project',     projectFilter);
+    if (sellerFilter)  q = q.eq('seller_name', sellerFilter);
 
-      const { data } = await q;
+    q.then(({ data }) => {
       setBookings((data ?? []) as FinanceBooking[]);
       setLoading(false);
-    }
-    load();
-  }, [projectFilter, statusFilter, sellerFilter, clientFilter]);
+    });
+  }, [projectFilter, statusFilter, sellerFilter]);
 
-  function fmtDate(iso: string | null) {
-    if (!iso) return '—';
-    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  }
+  const filtered = bookings.filter(b => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return (
+      b.client_name.toLowerCase().includes(q) ||
+      b.reservation_id.toLowerCase().includes(q) ||
+      (b.inventory_code ?? '').toLowerCase().includes(q)
+    );
+  });
 
   return (
     <PageShell title="Buyer's Payment">
+      <div className="space-y-3 pb-6">
 
-      <GlassCard className="px-4 py-1">
-        <FilterSelect label="Project"     value={projectFilter} options={projectOptions} onChange={setProjectFilter} icon={<Building2 size={16} />} />
-        <FilterSelect label="Status"      value={statusFilter}  options={['Pending Review', 'Pending', 'Verified']} onChange={setStatusFilter} icon={<Banknote size={16} />} />
-        <FilterSelect label="Seller"      value={sellerFilter}  options={sellerOptions}  onChange={setSellerFilter}  icon={<User size={16} />} />
-        <FilterSelect label="Client Name" value={clientFilter}  options={clientOptions}  onChange={setClientFilter}  icon={<User size={16} />} searchable />
-      </GlassCard>
+        {/* ── Search + Filter ──────────────────────────────────── */}
+        <div className="flex gap-2 items-center">
+          <div className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-2xl bg-white/80 border border-black/[0.08] backdrop-blur-sm">
+            <Search size={15} className="text-[#8E8E93] shrink-0" />
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search by client, ID or unit…"
+              className="flex-1 bg-transparent text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC]"
+            />
+            {search && (
+              <button type="button" onClick={() => setSearch('')}>
+                <X size={13} className="text-[#8E8E93]" />
+              </button>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setFilterOpen(true)}
+            className={`relative w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 transition-all ${
+              activeFilterCount > 0
+                ? 'bg-[#C03D25] text-white shadow-md'
+                : 'bg-white/80 backdrop-blur-sm border border-black/[0.08] text-[#6C6C70]'
+            }`}
+          >
+            <SlidersHorizontal size={18} />
+            {activeFilterCount > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-white text-[#C03D25] text-[9px] font-bold flex items-center justify-center shadow">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+        </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center py-16">
-          <div className="w-8 h-8 rounded-full border-2 border-[#E8634A] border-t-transparent animate-spin" />
-        </div>
-      ) : bookings.length === 0 ? (
-        <GlassCard className="p-8 text-center">
-          <p className="text-sm font-semibold text-[#1C1C1E]">No records found</p>
-          <p className="text-xs text-[#8E8E93] mt-1">Try adjusting your filters</p>
-        </GlassCard>
-      ) : (
-        <div className="space-y-2">
-          {bookings.map(b => (
-            <GlassCard
-              key={b.reservation_id}
-              className="px-4 py-3 space-y-2 active:scale-[0.98] transition-transform cursor-pointer"
-              onClick={() => {
-                sessionStorage.setItem('financeBooking', JSON.stringify(b));
-                router.push('/finance/buyers-payment/verify');
-              }}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <Hash size={12} className="text-[#E8634A]" />
-                  <span className="text-xs font-bold text-[#E8634A] tracking-wider">{b.reservation_id}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <FinanceBadge bookingStatus={b.booking_review_status} reservationStatus={b.status} />
-                  <ChevronRight size={14} className="text-[#C7C7CC]" />
-                </div>
-              </div>
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <User size={11} className="text-[#C7C7CC] shrink-0" />
-                  <span className="text-sm font-semibold text-[#1C1C1E]">{b.client_name}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Building2 size={11} className="text-[#C7C7CC] shrink-0" />
-                  <span className="text-xs text-[#6C6C70]">{b.project}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Tag size={11} className="text-[#C7C7CC] shrink-0" />
-                  <span className="text-xs text-[#6C6C70]">{b.inventory_code ?? '—'}</span>
-                </div>
-                <div className="flex items-center justify-between pt-0.5">
-                  <p className="text-[10px] text-[#8E8E93]">
-                    {b.status === 'Pending Review'
-                      ? `Submitted ${fmtDate(b.created_at)}`
-                      : `Dir. Approved ${fmtDate(b.director_reviewed_at)}`
-                    }
-                  </p>
-                  <p className="text-xs font-bold text-[#1C1C1E]">{fmt(b.total_contract_price)}</p>
-                </div>
-              </div>
-            </GlassCard>
-          ))}
-        </div>
+        {/* ── List ─────────────────────────────────────────────── */}
+        {loading ? (
+          <div className="flex items-center justify-center py-16">
+            <Loader2 size={24} className="text-[#C03D25] animate-spin" />
+          </div>
+        ) : filtered.length === 0 ? (
+          <GlassCard className="p-8 text-center">
+            <Banknote size={28} className="text-[#C7C7CC] mx-auto mb-2" />
+            <p className="text-sm font-semibold text-[#1C1C1E]">No records found</p>
+            <p className="text-xs text-[#8E8E93] mt-1">Try adjusting your search or filters</p>
+          </GlassCard>
+        ) : (
+          <div className="space-y-2">
+            {filtered.map(b => {
+              const { style, label } = financeBadgeStyle(b.booking_review_status, b.status);
+              const dateLabel = b.status === 'Pending Review'
+                ? `Submitted ${fmtDate(b.created_at)}`
+                : `Dir. Approved ${fmtDate(b.director_reviewed_at)}`;
+              return (
+                <GlassCard
+                  key={b.reservation_id}
+                  className="p-3 active:scale-[0.98] transition-transform cursor-pointer"
+                  onClick={() => {
+                    sessionStorage.setItem('financeBooking', JSON.stringify(b));
+                    router.push('/finance/buyers-payment/verify');
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    {/* Avatar */}
+                    <div
+                      className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0"
+                      style={{ background: 'linear-gradient(135deg, #E05A3A 0%, #A83020 100%)' }}
+                    >
+                      <span className="text-sm font-bold text-white">{getInitials(b.client_name)}</span>
+                    </div>
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-[#1C1C1E] truncate">{b.client_name}</p>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0" style={style}>
+                          {label}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <Building2 size={10} className="text-[#C7C7CC] shrink-0" />
+                        <span className="text-xs text-[#6C6C70] truncate">{b.project}</span>
+                        {b.inventory_code && (
+                          <><span className="text-[#D1D1D6]">·</span>
+                          <span className="text-xs font-medium text-[#6C6C70]">{b.inventory_code}</span></>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between mt-0.5">
+                        <p className="text-[10px] text-[#8E8E93]">
+                          {dateLabel}{b.seller_name ? ` · ${b.seller_name}` : ''}
+                        </p>
+                        <p className="text-xs font-bold text-[#1C1C1E] shrink-0">{fmt(b.total_contract_price)}</p>
+                      </div>
+                      <span className="text-[10px] font-semibold text-[#C03D25] tracking-wider">
+                        #{b.reservation_id}
+                      </span>
+                    </div>
+
+                    <ChevronRight size={14} className="text-[#C7C7CC] shrink-0" />
+                  </div>
+                </GlassCard>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ── Filter sheet backdrop ─────────────────────────────── */}
+      {filterOpen && (
+        <div className="fixed inset-0 z-[45] bg-black/40" onClick={() => setFilterOpen(false)} />
       )}
 
+      {/* ── Filter sheet ─────────────────────────────────────── */}
+      <div className={`fixed inset-x-0 bottom-0 z-[46] transition-transform duration-300 ease-out ${filterOpen ? 'translate-y-0' : 'translate-y-full'}`}>
+        <div className="bg-white rounded-t-3xl shadow-2xl">
+          <div className="flex justify-center pt-3 pb-1">
+            <div className="w-9 h-1 rounded-full bg-[#D1D1D6]" />
+          </div>
+          <div className="flex items-center justify-between px-5 py-3">
+            <p className="text-base font-bold text-[#1C1C1E]">Filters</p>
+            <button
+              type="button"
+              onClick={() => setFilterOpen(false)}
+              className="w-7 h-7 rounded-full bg-[#F2F2F7] flex items-center justify-center"
+            >
+              <X size={14} className="text-[#8E8E93]" />
+            </button>
+          </div>
+
+          <div className="px-5 space-y-5 pb-4">
+            {/* Payment Status */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Payment Status</p>
+              <div className="flex gap-2 flex-wrap">
+                {(['', 'Pending Review', 'Pending', 'Verified']).map(s => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setStatusFilter(s)}
+                    className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 ${
+                      statusFilter === s
+                        ? 'bg-[#C03D25] border-[#C03D25] text-white'
+                        : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
+                    }`}
+                  >
+                    {statusFilter === s && s && <Check size={11} />}
+                    {s || 'All'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Project */}
+            {projectOptions.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Project</p>
+                <div className="flex gap-2 flex-wrap">
+                  {(['', ...projectOptions]).map(p => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => setProjectFilter(p)}
+                      className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 ${
+                        projectFilter === p
+                          ? 'bg-[#C03D25] border-[#C03D25] text-white'
+                          : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
+                      }`}
+                    >
+                      {projectFilter === p && p && <Check size={11} />}
+                      {p || 'All'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Seller */}
+            {sellerOptions.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Seller</p>
+                <div className="flex gap-2 flex-wrap">
+                  {(['', ...sellerOptions]).map(s => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setSellerFilter(s)}
+                      className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 ${
+                        sellerFilter === s
+                          ? 'bg-[#C03D25] border-[#C03D25] text-white'
+                          : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
+                      }`}
+                    >
+                      {sellerFilter === s && s && <Check size={11} />}
+                      {s || 'All'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="px-5 pb-10 pt-2 flex gap-3">
+            <button
+              type="button"
+              onClick={() => { setProjectFilter(''); setStatusFilter(''); setSellerFilter(''); }}
+              className="flex-1 py-3.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-70"
+            >
+              Clear All
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterOpen(false)}
+              className="flex-1 py-3.5 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
     </PageShell>
   );
 }

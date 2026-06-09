@@ -87,6 +87,7 @@ export interface InventoryUnit {
   promo_discount: string;
   status: string;
   product_type: string | null;
+  hic: boolean | null;
 }
 
 export async function fetchInventoryUnits(projectName: string, tower: string): Promise<InventoryUnit[]> {

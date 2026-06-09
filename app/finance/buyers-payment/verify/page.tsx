@@ -69,7 +69,7 @@ function FileTile({ url }: { url: string }) {
         <img src={url} alt={fileName(url)} className="w-full h-full object-cover" />
       ) : (
         <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 p-2">
-          <FileText size={26} className="text-[#E8634A]" />
+          <FileText size={26} className="text-[#C03D25]" />
           <span className="text-[10px] text-[#6C6C70] text-center leading-tight line-clamp-2 break-all">
             {fileName(url)}
           </span>
@@ -167,7 +167,7 @@ export default function FinanceVerifyPage() {
           </p>
           <button
             onClick={() => router.push('/finance/buyers-payment')}
-            className="mt-2 px-6 py-3 rounded-2xl bg-[#E8634A] text-white text-sm font-bold active:opacity-80"
+            className="mt-2 px-6 py-3 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80"
           >
             Back to Queue
           </button>
@@ -187,7 +187,7 @@ export default function FinanceVerifyPage() {
           </p>
           <button
             onClick={() => router.push('/finance/buyers-payment')}
-            className="mt-2 px-6 py-3 rounded-2xl bg-[#E8634A] text-white text-sm font-bold active:opacity-80"
+            className="mt-2 px-6 py-3 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80"
           >
             Back to Queue
           </button>
@@ -200,7 +200,7 @@ export default function FinanceVerifyPage() {
     return (
       <PageShell title="Finance Verification" backButton onBack={() => router.push('/finance/buyers-payment')}>
         <div className="flex items-center justify-center py-16">
-          <div className="w-7 h-7 rounded-full border-2 border-[#E8634A] border-t-transparent animate-spin" />
+          <Loader2 size={28} className="text-[#C03D25] animate-spin" />
         </div>
       </PageShell>
     );
@@ -219,7 +219,7 @@ export default function FinanceVerifyPage() {
             [<Tag size={15}/>,       'Unit',           [booking.tower, booking.floor, booking.unit_no, booking.inventory_code].filter(Boolean).join(' · ') || '—'],
           ] as [React.ReactNode, string, string][]).map(([icon, label, value]) => (
             <div key={label} className="flex items-center gap-3 py-2.5 border-b border-black/[0.06] last:border-0">
-              <span className="text-[#E8634A] shrink-0">{icon}</span>
+              <span className="text-[#C03D25] shrink-0">{icon}</span>
               <span className="flex-1 text-sm font-medium text-[#1C1C1E]">{label}</span>
               <span className="text-xs text-right text-[#6C6C70] max-w-[55%]">{value}</span>
             </div>
@@ -256,10 +256,10 @@ export default function FinanceVerifyPage() {
 
           {/* Acknowledgement Receipt No. */}
           <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
-            <Receipt size={15} className="text-[#E8634A] shrink-0" />
+            <Receipt size={15} className="text-[#C03D25] shrink-0" />
             <span className="flex-1 text-sm font-medium text-[#1C1C1E]">
               Acknowledgement Receipt No.
-              <span className="text-[#E8634A] text-xs leading-none ml-0.5">*</span>
+              <span className="text-[#C03D25] text-xs leading-none ml-0.5">*</span>
             </span>
           </div>
           <div className="px-1 pb-3 pt-1">
@@ -272,17 +272,17 @@ export default function FinanceVerifyPage() {
               className={`w-full px-3 py-2.5 rounded-xl border text-sm text-[#1C1C1E] placeholder-[#C7C7CC] outline-none ${
                 alreadyVerified
                   ? 'border-black/[0.06] bg-white text-[#3A3A3C] cursor-default'
-                  : 'border-black/[0.1] bg-[#F2F2F7] focus:border-[#E8634A]/50'
+                  : 'border-black/[0.1] bg-[#F2F2F7] focus:border-[#C03D25]/50'
               }`}
             />
           </div>
 
           {/* Sales Invoice No. */}
           <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06] border-t border-t-black/[0.06]">
-            <FileDigit size={15} className="text-[#E8634A] shrink-0" />
+            <FileDigit size={15} className="text-[#C03D25] shrink-0" />
             <span className="flex-1 text-sm font-medium text-[#1C1C1E]">
               Sales Invoice No.
-              {!alreadyVerified && <span className="text-[#E8634A] text-xs leading-none ml-0.5">*</span>}
+              {!alreadyVerified && <span className="text-[#C03D25] text-xs leading-none ml-0.5">*</span>}
             </span>
           </div>
           <div className="px-1 pb-3 pt-1">
@@ -295,17 +295,17 @@ export default function FinanceVerifyPage() {
               className={`w-full px-3 py-2.5 rounded-xl border text-sm text-[#1C1C1E] placeholder-[#C7C7CC] outline-none ${
                 alreadyVerified
                   ? 'border-black/[0.06] bg-white text-[#3A3A3C] cursor-default'
-                  : 'border-black/[0.1] bg-[#F2F2F7] focus:border-[#E8634A]/50'
+                  : 'border-black/[0.1] bg-[#F2F2F7] focus:border-[#C03D25]/50'
               }`}
             />
           </div>
 
           {/* Date of Reservation Fee */}
           <div className="flex items-center gap-3 py-3 px-1 border-t border-black/[0.06]">
-            <CalendarDays size={15} className="text-[#E8634A] shrink-0" />
+            <CalendarDays size={15} className="text-[#C03D25] shrink-0" />
             <span className="flex-1 text-sm font-medium text-[#1C1C1E]">
               Date of Reservation Fee
-              {!alreadyVerified && <span className="text-[#E8634A] text-xs leading-none ml-0.5">*</span>}
+              {!alreadyVerified && <span className="text-[#C03D25] text-xs leading-none ml-0.5">*</span>}
             </span>
             <input
               type="date"
@@ -374,7 +374,7 @@ export default function FinanceVerifyPage() {
             <div className="px-6 py-3 border-b border-black/[0.06] space-y-1.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-[#8E8E93]">Reservation ID</span>
-                <span className="text-xs font-bold text-[#E8634A]">{booking.reservation_id}</span>
+                <span className="text-xs font-bold text-[#C03D25]">{booking.reservation_id}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-[#8E8E93]">Client</span>
@@ -428,7 +428,7 @@ export default function FinanceVerifyPage() {
             <div className="px-6 py-3 border-b border-black/[0.06] space-y-1.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-[#8E8E93]">Reservation ID</span>
-                <span className="text-xs font-bold text-[#E8634A]">{booking.reservation_id}</span>
+                <span className="text-xs font-bold text-[#C03D25]">{booking.reservation_id}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-[#8E8E93]">Client</span>

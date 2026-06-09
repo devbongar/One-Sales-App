@@ -53,4 +53,6 @@ export interface InventoryUnit {
   total_list_price: string | null;
   promo_discount: string | null;
   status: string | null;
+  product_type?: string | null;
+  hic?: boolean | null;
 }

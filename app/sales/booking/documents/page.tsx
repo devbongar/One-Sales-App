@@ -9,7 +9,7 @@ import {
   fetchBookingDocuments, saveBookingDocuments,
   uploadDocumentFile, removeDocumentFile,
 } from '@/lib/booking-documents';
-import { Plus, X, FileText, CheckCircle2, Upload } from 'lucide-react';
+import { Plus, X, FileText, CheckCircle2, Loader2, Upload } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,7 +31,7 @@ function FileCard({ file, onRemove, disabled }: {
         <img src={file.url} alt={file.name} className="w-full h-full object-cover" />
       ) : (
         <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 p-2">
-          <FileText size={28} className="text-[#E8634A]" />
+          <FileText size={28} className="text-[#C03D25]" />
           <span className="text-[10px] text-[#6C6C70] text-center leading-tight line-clamp-2 break-all">
             {file.name}
           </span>
@@ -60,9 +60,9 @@ function DocSection({ label, files, onAdd, onRemove, uploading, disabled }: {
         <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">{label}</p>
         {!disabled && (
           <button type="button" onClick={onAdd} disabled={uploading}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#E8634A]/10 text-[#E8634A] text-xs font-semibold active:opacity-70 disabled:opacity-50">
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#C03D25]/10 text-[#C03D25] text-xs font-semibold active:opacity-70 disabled:opacity-50">
             {uploading
-              ? <div className="w-3 h-3 rounded-full border-2 border-[#E8634A] border-t-transparent animate-spin" />
+              ? <Loader2 size={12} className="text-[#C03D25] animate-spin" />
               : <Plus size={13} />}
             {uploading ? 'Uploading…' : 'Add File'}
           </button>
@@ -75,9 +75,9 @@ function DocSection({ label, files, onAdd, onRemove, uploading, disabled }: {
           className={`w-full border-2 border-dashed rounded-xl py-10 flex flex-col items-center gap-2 transition-colors ${
             disabled
               ? 'border-black/[0.08] cursor-default'
-              : 'border-[#E8634A]/30 active:border-[#E8634A]/60'
+              : 'border-[#C03D25]/30 active:border-[#C03D25]/60'
           }`}>
-          <Upload size={24} className={disabled ? 'text-[#C7C7CC]' : 'text-[#E8634A]/50'} />
+          <Upload size={24} className={disabled ? 'text-[#C7C7CC]' : 'text-[#C03D25]/50'} />
           <span className={`text-xs font-medium ${disabled ? 'text-[#C7C7CC]' : 'text-[#8E8E93]'}`}>
             {disabled ? 'No files uploaded' : 'Tap to upload a file'}
           </span>
@@ -216,7 +216,7 @@ export default function BookingDocumentsPage() {
 
         {loading ? (
           <div className="flex items-center justify-center py-16">
-            <div className="w-7 h-7 rounded-full border-2 border-[#E8634A] border-t-transparent animate-spin" />
+            <Loader2 size={28} className="text-[#C03D25] animate-spin" />
           </div>
         ) : noDocsRequired ? (
           <GlassCard className="p-8 flex flex-col items-center gap-3 text-center">
@@ -291,7 +291,7 @@ export default function BookingDocumentsPage() {
                 setShowConfirmModal(true);
               }}
               disabled={isSaving || (!isSaved && !canSave)}
-              className="w-full py-4 rounded-2xl bg-[#E8634A] text-white text-sm font-bold shadow-[0_4px_16px_rgba(232,99,74,0.35)] active:opacity-80 transition-opacity disabled:opacity-40">
+              className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity disabled:opacity-40">
               {isSaving ? 'Saving…' : isSaved ? 'Done' : 'Save'}
             </button>
           </>
@@ -309,8 +309,8 @@ export default function BookingDocumentsPage() {
               <X size={16} className="text-[#6C6C70]" />
             </button>
             <div className="flex flex-col items-center gap-2 text-center">
-              <div className="w-12 h-12 rounded-2xl bg-[rgba(232,99,74,0.12)] flex items-center justify-center">
-                <CheckCircle2 size={24} className="text-[#E8634A]" />
+              <div className="w-12 h-12 rounded-2xl bg-[rgba(192,61,37,0.12)] flex items-center justify-center">
+                <CheckCircle2 size={24} className="text-[#C03D25]" />
               </div>
               <p className="text-base font-bold text-[#1C1C1E]">Confirm Documents</p>
               <p className="text-sm text-[#6C6C70] leading-relaxed">
@@ -320,7 +320,7 @@ export default function BookingDocumentsPage() {
             <div className="space-y-2">
               <button type="button"
                 onClick={() => { setShowConfirmModal(false); handleSave(); }}
-                className="w-full py-3.5 rounded-2xl bg-[#E8634A] text-white text-sm font-bold active:opacity-80">
+                className="w-full py-3.5 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80">
                 Confirm &amp; Save
               </button>
               <button type="button" onClick={() => setShowConfirmModal(false)}
@@ -342,8 +342,8 @@ export default function BookingDocumentsPage() {
               <X size={16} className="text-[#6C6C70]" />
             </button>
             <div className="flex flex-col items-center gap-2 text-center">
-              <div className="w-12 h-12 rounded-2xl bg-[rgba(232,99,74,0.12)] flex items-center justify-center">
-                <CheckCircle2 size={24} className="text-[#E8634A]" />
+              <div className="w-12 h-12 rounded-2xl bg-[rgba(192,61,37,0.12)] flex items-center justify-center">
+                <CheckCircle2 size={24} className="text-[#C03D25]" />
               </div>
               <p className="text-base font-bold text-[#1C1C1E]">Documents Submitted!</p>
               <p className="text-sm text-[#6C6C70] leading-relaxed">
@@ -351,7 +351,7 @@ export default function BookingDocumentsPage() {
               </p>
             </div>
             <button type="button" onClick={() => router.push('/sales/booking/detail')}
-              className="w-full py-3.5 rounded-2xl bg-[#E8634A] text-white text-sm font-bold active:opacity-80">
+              className="w-full py-3.5 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80">
               Done
             </button>
           </div>

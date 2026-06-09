@@ -426,8 +426,11 @@ export default function ClientRegistrationPage() {
                 <GlassCard key={c.id}
                   className="flex items-center gap-3 p-3 cursor-pointer active:scale-[0.98] transition-transform"
                   onClick={() => openClient(c)}>
-                  <div className="w-10 h-10 rounded-full bg-[#E5E5EA] flex items-center justify-center shrink-0">
-                    <span className="text-sm font-bold text-[#8E8E93]">
+                  <div
+                    className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0"
+                    style={{ background: 'linear-gradient(135deg, #E05A3A 0%, #A83020 100%)' }}
+                  >
+                    <span className="text-sm font-bold text-white">
                       {c.first_name.charAt(0)}{c.last_name.charAt(0)}
                     </span>
                   </div>
@@ -437,7 +440,9 @@ export default function ClientRegistrationPage() {
                       {c.middle_name ? ` ${c.middle_name}` : ''}
                       {c.suffix ? ` ${c.suffix}` : ''}
                     </p>
-                    <p className="text-xs text-[#8E8E93]">{c.citizenship ?? '—'}</p>
+                    <p className="text-xs text-[#8E8E93] truncate">
+                      {c.email ?? (c.mobile_number ? `${c.country_code ?? '+63'} ${c.mobile_number}` : null) ?? c.citizenship ?? '—'}
+                    </p>
                   </div>
                   <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
                     c.client_type === 'Local' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
@@ -461,7 +466,13 @@ export default function ClientRegistrationPage() {
 
       {/* Detail Overlay */}
       {selectedClient && (
-        <div className="fixed inset-0 z-50" style={{ background: PAGE_GRADIENT }}>
+        <div className="fixed inset-0 z-50" style={{ background: PAGE_GRADIENT, animation: 'overlaySlideUp 0.38s cubic-bezier(0.22,1,0.36,1) both' }}>
+          <style>{`
+            @keyframes overlaySlideUp {
+              from { transform: translateY(100%); }
+              to   { transform: translateY(0); }
+            }
+          `}</style>
 
           {/* Floating nav */}
           <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 pt-12 pb-3 z-10">
@@ -495,7 +506,13 @@ export default function ClientRegistrationPage() {
 
               {/* Hero */}
               <div className="flex flex-col items-center pt-4 pb-8 gap-2">
-                <div className="w-24 h-24 rounded-full flex items-center justify-center bg-[#3A3A3C] border-[3px] border-white/30 shadow-2xl">
+                <div
+                  className="w-24 h-24 rounded-3xl flex items-center justify-center"
+                  style={{
+                    background: 'linear-gradient(135deg, #E05A3A 0%, #A83020 100%)',
+                    boxShadow: '0 8px 32px rgba(192,61,37,0.40)',
+                  }}
+                >
                   <span className="text-3xl font-bold text-white">
                     {selectedClient.first_name.charAt(0)}{selectedClient.last_name.charAt(0)}
                   </span>
@@ -751,7 +768,7 @@ export default function ClientRegistrationPage() {
 
       {/* Citizenship Picker */}
       {selectedClient && citizenshipPickerOpen && (
-        <div className="fixed inset-0 z-[60]" style={{ background: PAGE_GRADIENT }}>
+        <div className="fixed inset-0 z-[60]" style={{ background: PAGE_GRADIENT, animation: 'overlaySlideUp 0.32s cubic-bezier(0.22,1,0.36,1) both' }}>
           <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 pt-12 pb-3 z-10">
             <button type="button" onClick={() => setCitizenshipPickerOpen(false)}
               className="w-9 h-9 rounded-full flex items-center justify-center bg-black/10 backdrop-blur-sm border border-black/10">
@@ -796,7 +813,7 @@ export default function ClientRegistrationPage() {
 
       {/* Country Picker */}
       {selectedClient && countryPickerOpen && (
-        <div className="fixed inset-0 z-[60]" style={{ background: PAGE_GRADIENT }}>
+        <div className="fixed inset-0 z-[60]" style={{ background: PAGE_GRADIENT, animation: 'overlaySlideUp 0.32s cubic-bezier(0.22,1,0.36,1) both' }}>
           <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 pt-12 pb-3 z-10">
             <button type="button" onClick={() => setCountryPickerOpen(false)}
               className="w-9 h-9 rounded-full flex items-center justify-center bg-black/10 backdrop-blur-sm border border-black/10">

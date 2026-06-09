@@ -38,6 +38,23 @@ export default function SalesCommissionPage() {
   const [selectedSeller, setSelectedSeller] = useState<SalespersonRecord | null>(null);
   const [selectedBroker, setSelectedBroker] = useState<BrokerRecord | null>(null);
 
+  // Restore UI state when coming back from schedule/slip page
+  useEffect(() => {
+    const saved = sessionStorage.getItem('salesCommissionState');
+    if (saved) {
+      try {
+        const s = JSON.parse(saved);
+        if (s.mode)              setMode(s.mode);
+        if (s.sellerType)        setSellerType(s.sellerType);
+        if (s.positionRankFilter !== undefined) setPositionRankFilter(s.positionRankFilter);
+        if (s.query !== undefined)              setQuery(s.query);
+        if (s.selectedSeller)   setSelectedSeller(s.selectedSeller);
+        if (s.selectedBroker)   setSelectedBroker(s.selectedBroker);
+      } catch {}
+      sessionStorage.removeItem('salesCommissionState');
+    }
+  }, []);
+
   useEffect(() => {
     Promise.all([fetchAllSalespersons(), fetchAllBrokers()])
       .then(([sp, br]) => { setSalespersons(sp); setBrokers(br); })
@@ -45,9 +62,11 @@ export default function SalesCommissionPage() {
       .finally(() => setLoadingSellers(false));
   }, []);
 
-  // Auto-match My Commission
+  // Auto-match My Commission (only when in 'my' mode and no seller restored from state)
   useEffect(() => {
     if (mode !== 'my' || salespersons.length === 0) return;
+    // If a seller was already restored from saved state, don't overwrite
+    if (selectedSeller) return;
     const session = getSession();
     if (!session) return;
     const match = salespersons.find(
@@ -85,6 +104,10 @@ export default function SalesCommissionPage() {
       ? { seller_name: selectedBroker.seller_name, position_rank: selectedBroker.position_rank } as SalespersonRecord
       : null);
     if (!seller) return;
+    // Save UI state so it's restored when coming back
+    sessionStorage.setItem('salesCommissionState', JSON.stringify({
+      mode, sellerType, positionRankFilter, query, selectedSeller, selectedBroker,
+    }));
     sessionStorage.setItem('selectedSeller', JSON.stringify(seller));
     router.push(`/sales/sales-commission/${path}`);
   }
@@ -117,7 +140,7 @@ export default function SalesCommissionPage() {
         <button
           onClick={() => switchMode('my')}
           className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-            mode === 'my' ? 'bg-[#E8634A] text-white shadow-sm' : 'text-[#6C6C70]'
+            mode === 'my' ? 'bg-[#C03D25] text-white shadow-sm' : 'text-[#6C6C70]'
           }`}
         >
           <User size={14} /> My Commission
@@ -125,7 +148,7 @@ export default function SalesCommissionPage() {
         <button
           onClick={() => switchMode('search')}
           className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-            mode === 'search' ? 'bg-[#E8634A] text-white shadow-sm' : 'text-[#6C6C70]'
+            mode === 'search' ? 'bg-[#C03D25] text-white shadow-sm' : 'text-[#6C6C70]'
           }`}
         >
           <Search size={14} /> Search Sellers
@@ -142,7 +165,7 @@ export default function SalesCommissionPage() {
               onClick={() => switchSellerType('inhouse')}
               className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-all border ${
                 sellerType === 'inhouse'
-                  ? 'bg-[#E8634A] text-white border-[#E8634A]'
+                  ? 'bg-[#C03D25] text-white border-[#C03D25]'
                   : 'bg-[#F2F2F7] text-[#6C6C70] border-transparent'
               }`}
             >
@@ -152,7 +175,7 @@ export default function SalesCommissionPage() {
               onClick={() => switchSellerType('broker')}
               className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-all border ${
                 sellerType === 'broker'
-                  ? 'bg-[#E8634A] text-white border-[#E8634A]'
+                  ? 'bg-[#C03D25] text-white border-[#C03D25]'
                   : 'bg-[#F2F2F7] text-[#6C6C70] border-transparent'
               }`}
             >
@@ -205,15 +228,15 @@ export default function SalesCommissionPage() {
                 key={s.seller_name}
                 onClick={() => { setSelectedSeller(s); setSelectedBroker(null); setSearchFocused(false); }}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all ${
-                  selectedSeller?.seller_name === s.seller_name ? 'bg-[#E8634A]/10' : 'active:bg-gray-100'
+                  selectedSeller?.seller_name === s.seller_name ? 'bg-[#C03D25]/10' : 'active:bg-gray-100'
                 }`}
               >
-                <div className="w-8 h-8 rounded-full bg-[rgba(232,99,74,0.10)] flex items-center justify-center shrink-0">
-                  <User size={14} className="text-[#E8634A]" />
+                <div className="w-8 h-8 rounded-full bg-[rgba(192,61,37,0.10)] flex items-center justify-center shrink-0">
+                  <User size={14} className="text-[#C03D25]" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className={`text-sm font-semibold truncate ${
-                    selectedSeller?.seller_name === s.seller_name ? 'text-[#E8634A]' : 'text-[#1C1C1E]'
+                    selectedSeller?.seller_name === s.seller_name ? 'text-[#C03D25]' : 'text-[#1C1C1E]'
                   }`}>
                     {s.seller_name}
                   </p>
@@ -234,15 +257,15 @@ export default function SalesCommissionPage() {
                 key={b.seller_name ?? i}
                 onClick={() => { setSelectedBroker(b); setSelectedSeller(null); setSearchFocused(false); }}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all ${
-                  selectedBroker?.seller_name === b.seller_name ? 'bg-[#E8634A]/10' : 'active:bg-gray-100'
+                  selectedBroker?.seller_name === b.seller_name ? 'bg-[#C03D25]/10' : 'active:bg-gray-100'
                 }`}
               >
-                <div className="w-8 h-8 rounded-full bg-[rgba(232,99,74,0.10)] flex items-center justify-center shrink-0">
-                  <Building2 size={14} className="text-[#E8634A]" />
+                <div className="w-8 h-8 rounded-full bg-[rgba(192,61,37,0.10)] flex items-center justify-center shrink-0">
+                  <Building2 size={14} className="text-[#C03D25]" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className={`text-sm font-semibold truncate ${
-                    selectedBroker?.seller_name === b.seller_name ? 'text-[#E8634A]' : 'text-[#1C1C1E]'
+                    selectedBroker?.seller_name === b.seller_name ? 'text-[#C03D25]' : 'text-[#1C1C1E]'
                   }`}>
                     {b.bir_registered_name ?? b.seller_name}
                   </p>
@@ -259,7 +282,7 @@ export default function SalesCommissionPage() {
       {/* In-house seller card */}
       {selectedSeller && (
         <GlassCard strong className="overflow-hidden">
-          <div className="bg-[#E8634A] px-5 pt-5 pb-6">
+          <div className="bg-[#C03D25] px-5 pt-5 pb-6">
             <p className="text-white/70 text-[10px] font-bold tracking-widest uppercase mb-1">
               {positionLabel(selectedSeller.position_rank)}
             </p>
@@ -311,9 +334,9 @@ export default function SalesCommissionPage() {
               <span className="text-xs font-semibold text-[#C7C7CC] text-center leading-tight">Commission{'\n'}Payout Slip</span>
               <span className="absolute top-2 right-2 text-[8px] font-bold text-[#C7C7CC] uppercase tracking-wide">Soon</span>
             </button>
-            <button onClick={() => navigate('schedule')} className="flex flex-col items-center gap-2 py-5 rounded-2xl bg-[rgba(232,99,74,0.08)] active:bg-[rgba(232,99,74,0.15)] transition-colors border border-[rgba(232,99,74,0.12)]">
-              <CalendarRange size={22} className="text-[#E8634A]" />
-              <span className="text-xs font-semibold text-[#E8634A] text-center leading-tight">Commission{'\n'}Schedule</span>
+            <button onClick={() => navigate('schedule')} className="flex flex-col items-center gap-2 py-5 rounded-2xl bg-[rgba(192,61,37,0.08)] active:bg-[rgba(192,61,37,0.15)] transition-colors border border-[rgba(192,61,37,0.12)]">
+              <CalendarRange size={22} className="text-[#C03D25]" />
+              <span className="text-xs font-semibold text-[#C03D25] text-center leading-tight">Commission{'\n'}Schedule</span>
             </button>
           </div>
         </GlassCard>
@@ -322,7 +345,7 @@ export default function SalesCommissionPage() {
       {/* Broker card */}
       {selectedBroker && (
         <GlassCard strong className="overflow-hidden">
-          <div className="bg-[#E8634A] px-5 pt-5 pb-6">
+          <div className="bg-[#C03D25] px-5 pt-5 pb-6">
             <p className="text-white/70 text-[10px] font-bold tracking-widest uppercase mb-1">Broker</p>
             <p className="text-white font-bold text-2xl leading-tight mb-5">
               {selectedBroker.bir_registered_name ?? selectedBroker.seller_name}
@@ -363,9 +386,9 @@ export default function SalesCommissionPage() {
               <span className="text-xs font-semibold text-[#C7C7CC] text-center leading-tight">Commission{'\n'}Payout Slip</span>
               <span className="absolute top-2 right-2 text-[8px] font-bold text-[#C7C7CC] uppercase tracking-wide">Soon</span>
             </button>
-            <button onClick={() => navigate('schedule')} className="flex flex-col items-center gap-2 py-5 rounded-2xl bg-[rgba(232,99,74,0.08)] active:bg-[rgba(232,99,74,0.15)] transition-colors border border-[rgba(232,99,74,0.12)]">
-              <CalendarRange size={22} className="text-[#E8634A]" />
-              <span className="text-xs font-semibold text-[#E8634A] text-center leading-tight">Commission{'\n'}Schedule</span>
+            <button onClick={() => navigate('schedule')} className="flex flex-col items-center gap-2 py-5 rounded-2xl bg-[rgba(192,61,37,0.08)] active:bg-[rgba(192,61,37,0.15)] transition-colors border border-[rgba(192,61,37,0.12)]">
+              <CalendarRange size={22} className="text-[#C03D25]" />
+              <span className="text-xs font-semibold text-[#C03D25] text-center leading-tight">Commission{'\n'}Schedule</span>
             </button>
           </div>
         </GlassCard>

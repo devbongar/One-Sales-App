@@ -28,7 +28,7 @@ export default function FilterSelect({ label, value, options, onChange, icon, se
         onKeyDown={e => e.key === 'Enter' && (setOpen(p => !p), setQuery(''))}
         className="w-full flex items-center gap-3 py-3 px-1 cursor-pointer"
       >
-        {icon && <span className="text-[#E8634A] shrink-0">{icon}</span>}
+        {icon && <span className="text-[#C03D25] shrink-0">{icon}</span>}
         <span className="flex-1 text-sm font-medium text-[#1C1C1E] text-left">{label}</span>
         <span className={`text-sm truncate max-w-[140px] ${value ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
           {value || 'All'}
@@ -56,7 +56,7 @@ export default function FilterSelect({ label, value, options, onChange, icon, se
               <button key={o} type="button"
                 onClick={() => { onChange(o); setOpen(false); setQuery(''); }}
                 className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm ${
-                  o === value ? 'bg-[#E8634A]/10 text-[#E8634A] font-semibold' : 'text-[#1C1C1E] active:bg-gray-100'
+                  o === value ? 'bg-[#C03D25]/10 text-[#C03D25] font-semibold' : 'text-[#1C1C1E] active:bg-gray-100'
                 }`}>
                 {o}
                 {o === value && <Check size={13} />}

@@ -1,45 +1,1596 @@
-import PageShell from '@/components/layout/PageShell';
-import GlassCard from '@/components/ui/GlassCard';
-import GlassButton from '@/components/ui/GlassButton';
-import { LayoutDashboard, Users, Settings, Shield } from 'lucide-react';
+'use client';
 
-const adminSections = [
-  { icon: Users, label: 'Manage Users', desc: 'Add, edit, and deactivate users', color: '#E8634A' },
-  { icon: Shield, label: 'Roles & Permissions', desc: 'Configure role-based access', color: '#5E5CE6' },
-  { icon: Settings, label: 'App Settings', desc: 'Configure system preferences', color: '#FF9500' },
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { ChevronLeft, ChevronRight, DollarSign, CalendarDays, Loader2, Save, Plus, Trash2, Eraser, Building2, Layers, Percent, Home } from 'lucide-react';
+import PageShell from '@/components/layout/PageShell';
+import {
+  fetchReservationFees,
+  saveReservationFees,
+  deleteReservationFees,
+  fetchSalesPositions,
+  saveSalesPositions,
+  deleteSalesPositions,
+  fetchDropdownOptions,
+  saveDropdownOptions,
+  deleteDropdownOptions,
+  fetchDueDateAssignments,
+  saveDueDateAssignments,
+  fetchProjectTowers,
+  saveProjectTowers,
+  deleteProjectTowers,
+  fetchVatSettings,
+  saveVatSettings,
+  deleteVatSettings,
+  fetchHicSettings,
+  saveHicSettings,
+  deleteHicSettings,
+  ReservationFeeRecord,
+  SalesPositionRecord,
+  DueDateAssignment,
+  ProjectTowerRecord,
+  VatSettingRecord,
+  HicSettingRecord,
+} from '@/lib/admin';
+import { fetchProjects, fetchTowers } from '@/lib/inventory';
+
+/* ─── Design tokens ───────────────────────────────────────────────────── */
+const overlayInputCls =
+  'w-full px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/40 focus:ring-1 focus:ring-[#C03D25]/20 transition-colors placeholder:text-[#C7C7CC]';
+
+const cardStyle: React.CSSProperties = {
+  background: '#FFFFFF',
+  border: '1px solid rgba(0,0,0,0.08)',
+  boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
+};
+
+
+/* ─── Setup items ─────────────────────────────────────────────────────── */
+interface SetupItem {
+  id: string;
+  label: string;
+  description: string;
+  icon: React.ReactNode;
+}
+
+const SETUP_ITEMS: SetupItem[] = [
+  {
+    id: 'reservation-fee',
+    label: 'Dropdown Settings',
+    description: 'Manage unit types, fees, and sales positions',
+    icon: <DollarSign size={22} />,
+  },
+  {
+    id: 'due-date',
+    label: 'Due Date Settings',
+    description: 'Configure due date rules by reservation day',
+    icon: <CalendarDays size={22} />,
+  },
+  {
+    id: 'project-settings',
+    label: 'Project Settings',
+    description: 'Manage turnover dates per project and tower',
+    icon: <Building2 size={22} />,
+  },
+  {
+    id: 'vat-settings',
+    label: 'VAT Settings',
+    description: 'Set VAT threshold per product type',
+    icon: <Percent size={22} />,
+  },
+  {
+    id: 'hic-settings',
+    label: 'HIC Settings',
+    description: 'Set HIC target amount per product type',
+    icon: <Home size={22} />,
+  },
 ];
 
-export default function AdminUserPage() {
-  return (
-    <PageShell title="Admin User">
-      <GlassCard strong className="p-5 flex items-center gap-4">
-        <div className="w-12 h-12 rounded-2xl bg-[rgba(255,55,95,0.12)] flex items-center justify-center shrink-0">
-          <LayoutDashboard size={22} className="text-[#FF375F]" />
-        </div>
-        <div>
-          <p className="text-[#1C1C1E] font-semibold">Admin User</p>
-          <p className="text-[#6C6C70] text-sm mt-0.5">System administration panel</p>
-        </div>
-      </GlassCard>
+/* ─── Shared row types ────────────────────────────────────────────────── */
+interface FeeRow {
+  key: string;
+  originalUnitType: string;
+  unitType: string;
+  fee: string;
+  isNew: boolean;
+}
 
-      <div className="space-y-3">
-        {adminSections.map(({ icon: Icon, label, desc, color }) => (
-          <GlassCard key={label} className="p-4 flex items-center gap-4 cursor-pointer hover:bg-gray-50 transition-colors active:scale-[0.98]">
-            <div
-              className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-              style={{ background: `${color}1A` }}
-            >
-              <Icon size={18} style={{ color }} />
-            </div>
-            <div className="flex-1">
-              <p className="text-[#1C1C1E] font-medium text-sm">{label}</p>
-              <p className="text-[#8E8E93] text-xs mt-0.5">{desc}</p>
-            </div>
-          </GlassCard>
-        ))}
+interface PositionRow {
+  key: string;
+  originalPosition: string;
+  position: string;
+  positionCode: string;
+  isNew: boolean;
+}
+
+interface OptionRow {
+  key: string;
+  originalValue: string;
+  value: string;
+  isNew: boolean;
+}
+
+function fmtFee(num: number): string {
+  return num === 0 ? '' : num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/* ─── Paint-mode Due Date ─────────────────────────────────────────────── */
+interface PaintRule {
+  key: string;
+  color: string;
+  dueDate: string;
+  sameMonth: boolean;
+}
+
+const RULE_COLORS = ['#C03D25', '#5E5CE6', '#34C759', '#FF9500', '#AF52DE'];
+
+function InteractiveCalendar({
+  dayMap,
+  rules,
+  activeTool,
+  onPaintDay,
+}: {
+  dayMap: Record<number, string>;
+  rules: PaintRule[];
+  activeTool: string | null;
+  onPaintDay: (day: number) => void;
+}) {
+  const isPainting = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const getRuleForDay = (day: number) => {
+    const ruleKey = dayMap[day];
+    return ruleKey ? rules.find(r => r.key === ruleKey) : undefined;
+  };
+
+  const getDayFromPoint = (x: number, y: number): number | null => {
+    const el = document.elementFromPoint(x, y);
+    const dayEl = el?.closest('[data-day]') as HTMLElement | null;
+    return dayEl ? parseInt(dayEl.dataset.day!) : null;
+  };
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!activeTool) return;
+    e.preventDefault();
+    isPainting.current = true;
+    containerRef.current?.setPointerCapture(e.pointerId);
+    const day = getDayFromPoint(e.clientX, e.clientY);
+    if (day !== null) onPaintDay(day);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isPainting.current || !activeTool) return;
+    const day = getDayFromPoint(e.clientX, e.clientY);
+    if (day !== null) onPaintDay(day);
+  };
+
+  const handlePointerUp = () => { isPainting.current = false; };
+
+  const days = Array.from({ length: 31 }, (_, i) => i + 1);
+  const padEnd = (7 - (31 % 7)) % 7;
+
+  return (
+    <div
+      ref={containerRef}
+      className="grid grid-cols-7 gap-1.5 select-none"
+      style={{ touchAction: activeTool ? 'none' : 'auto' }}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+    >
+      {days.map(day => {
+        const rule = getRuleForDay(day);
+        const dueDay = rule ? parseInt(rule.dueDate) : NaN;
+        const isDueDay = !isNaN(dueDay) && dueDay === day;
+        return (
+          <div
+            key={day}
+            data-day={day}
+            className="aspect-square rounded-xl flex items-center justify-center text-xs font-semibold relative"
+            style={{
+              background: rule ? `${rule.color}22` : '#F2F2F7',
+              color: rule ? rule.color : '#C7C7CC',
+              boxShadow: isDueDay ? `0 0 0 2px ${rule!.color}` : undefined,
+              cursor: activeTool ? 'crosshair' : 'default',
+            }}
+          >
+            <span className="pointer-events-none">{day}</span>
+            {isDueDay && (
+              <span
+                className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full pointer-events-none"
+                style={{ background: rule!.color }}
+              />
+            )}
+          </div>
+        );
+      })}
+      {Array.from({ length: padEnd }).map((_, i) => (
+        <div key={`pad-${i}`} className="aspect-square" />
+      ))}
+    </div>
+  );
+}
+
+function DueDateSettingsOverlay({ onClose }: { onClose: () => void }) {
+  const [rules, setRules] = useState<PaintRule[]>([]);
+  const [dayMap, setDayMap] = useState<Record<number, string>>({});
+  const [activeTool, setActiveTool] = useState<string | null>(null);
+  const [selectedRuleKey, setSelectedRuleKey] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [savedMsg, setSavedMsg] = useState(false);
+  const originalDays = useRef<Set<number>>(new Set());
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const assignments = await fetchDueDateAssignments();
+      // Group by (due_date, same_month) → reconstruct rules
+      const ruleMap = new Map<string, { dueDate: number; sameMonth: boolean; days: number[] }>();
+      for (const a of assignments) {
+        const k = `${a.due_date}-${a.same_month}`;
+        if (!ruleMap.has(k)) ruleMap.set(k, { dueDate: a.due_date, sameMonth: a.same_month, days: [] });
+        ruleMap.get(k)!.days.push(a.day);
+      }
+
+      let colorIdx = 0;
+      const newRules: PaintRule[] = [];
+      const newDayMap: Record<number, string> = {};
+
+      for (const [, { dueDate, sameMonth, days }] of ruleMap) {
+        const key = `rule-${colorIdx}-${dueDate}`;
+        const color = RULE_COLORS[colorIdx % RULE_COLORS.length];
+        newRules.push({ key, color, dueDate: String(dueDate), sameMonth });
+        for (const day of days) newDayMap[day] = key;
+        colorIdx++;
+      }
+
+      setRules(newRules);
+      setDayMap(newDayMap);
+      originalDays.current = new Set(assignments.map(a => a.day));
+      setActiveTool(null);
+      setSelectedRuleKey(null);
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const assignments: DueDateAssignment[] = [];
+      for (const [dayStr, ruleKey] of Object.entries(dayMap)) {
+        const day = parseInt(dayStr);
+        const rule = rules.find(r => r.key === ruleKey);
+        if (!rule) continue;
+        const due_date = parseInt(rule.dueDate);
+        if (isNaN(due_date) || due_date < 1 || due_date > 31) continue;
+        assignments.push({ day, due_date, same_month: rule.sameMonth });
+      }
+      const assignedDays = new Set(assignments.map(a => a.day));
+      const removedDays = [...originalDays.current].filter(d => !assignedDays.has(d));
+      await saveDueDateAssignments(assignments, removedDays);
+      await load();
+      setSavedMsg(true);
+      setTimeout(() => setSavedMsg(false), 2000);
+    } catch (e) { console.error(e); }
+    finally { setSaving(false); }
+  };
+
+  const paintDay = useCallback((day: number) => {
+    if (!activeTool) return;
+    setDayMap(prev => {
+      const next = { ...prev };
+      if (activeTool === 'eraser') {
+        delete next[day];
+      } else {
+        next[day] = activeTool;
+      }
+      return next;
+    });
+  }, [activeTool]);
+
+  const addRule = () => {
+    const usedColors = new Set(rules.map(r => r.color));
+    const color = RULE_COLORS.find(c => !usedColors.has(c)) ?? RULE_COLORS[rules.length % RULE_COLORS.length];
+    const key = `rule-new-${Date.now()}`;
+    setRules(prev => [...prev, { key, color, dueDate: '', sameMonth: false }]);
+    setActiveTool(key);
+    setSelectedRuleKey(key);
+  };
+
+  const deleteRule = (ruleKey: string) => {
+    setRules(prev => prev.filter(r => r.key !== ruleKey));
+    setDayMap(prev => {
+      const next: Record<number, string> = {};
+      for (const [d, k] of Object.entries(prev)) {
+        if (k !== ruleKey) next[parseInt(d)] = k;
+      }
+      return next;
+    });
+    if (activeTool === ruleKey) setActiveTool(null);
+    if (selectedRuleKey === ruleKey) setSelectedRuleKey(null);
+  };
+
+  const selectedRule = rules.find(r => r.key === selectedRuleKey) ?? null;
+  const uncoveredCount = Array.from({ length: 31 }, (_, i) => i + 1).filter(d => !dayMap[d]).length;
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-[#F2F2F7]" style={{ animation: 'overlaySlideUp 0.32s cubic-bezier(0.32,0.72,0,1) both' }}>
+      <style>{`@keyframes overlaySlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
+      {/* Nav */}
+      <div className="flex items-center justify-between px-4 pt-14 pb-4 shrink-0 bg-white border-b border-black/[0.06]">
+        <button onClick={onClose} className="p-2.5 rounded-2xl bg-gray-100 text-[#1C1C1E] active:opacity-70 transition-opacity">
+          <ChevronLeft size={20} />
+        </button>
+        <h1 className="text-[#1C1C1E] font-bold text-base">Due Date Settings</h1>
+        <button
+          onClick={handleSave}
+          disabled={saving || loading}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-md active:scale-95 transition-all disabled:opacity-50"
+        >
+          <Save size={14} />
+          {saving ? 'Saving…' : savedMsg ? 'Saved!' : 'Save'}
+        </button>
       </div>
 
-      <GlassButton variant="primary" size="lg">+ Add New User</GlassButton>
-    </PageShell>
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto px-4 py-4 pb-10 space-y-4">
+        {loading ? (
+          <div className="flex items-center justify-center h-40">
+            <Loader2 size={32} className="text-[#C03D25] animate-spin" />
+          </div>
+        ) : (
+          <>
+            {/* ── Calendar ── */}
+            <div>
+              <div className="flex items-center justify-between px-1 mb-2">
+                <p className="text-xs font-bold uppercase tracking-widest text-[#8E8E93]">Calendar</p>
+                {activeTool && (
+                  <p className="text-xs text-[#8E8E93]">
+                    {activeTool === 'eraser' ? 'Tap to clear days' : 'Tap or drag to paint'}
+                  </p>
+                )}
+              </div>
+              <div className="rounded-3xl bg-white p-4" style={{ border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
+                <InteractiveCalendar
+                  dayMap={dayMap}
+                  rules={rules}
+                  activeTool={activeTool}
+                  onPaintDay={paintDay}
+                />
+              </div>
+            </div>
+
+            {/* ── Rules ── */}
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest text-[#8E8E93] px-1 mb-2">Rules</p>
+              <div className="rounded-3xl bg-white" style={{ border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
+
+                {/* Tool chips */}
+                <div className="flex items-center gap-2 px-4 py-3 flex-wrap border-b border-black/[0.06]">
+                  {rules.map(rule => {
+                    const isActive = activeTool === rule.key;
+                    const dayCount = Object.values(dayMap).filter(k => k === rule.key).length;
+                    return (
+                      <button
+                        key={rule.key}
+                        onPointerDown={e => e.stopPropagation()}
+                        onClick={() => {
+                          setActiveTool(isActive ? null : rule.key);
+                          setSelectedRuleKey(selectedRuleKey === rule.key ? null : rule.key);
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all"
+                        style={{
+                          background: isActive ? `${rule.color}22` : '#F2F2F7',
+                          color: isActive ? rule.color : '#8E8E93',
+                          border: `2px solid ${isActive ? rule.color : 'transparent'}`,
+                        }}
+                      >
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: rule.color }} />
+                        Due {rule.dueDate || '?'}
+                        {dayCount > 0 && <span className="opacity-60 ml-0.5">·{dayCount}</span>}
+                      </button>
+                    );
+                  })}
+
+                  {/* Eraser */}
+                  <button
+                    onPointerDown={e => e.stopPropagation()}
+                    onClick={() => {
+                      setActiveTool(prev => prev === 'eraser' ? null : 'eraser');
+                      setSelectedRuleKey(null);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all"
+                    style={{
+                      background: activeTool === 'eraser' ? 'rgba(255,59,48,0.12)' : '#F2F2F7',
+                      color: activeTool === 'eraser' ? '#FF3B30' : '#8E8E93',
+                      border: `2px solid ${activeTool === 'eraser' ? '#FF3B30' : 'transparent'}`,
+                    }}
+                  >
+                    <Eraser size={12} />
+                    Eraser
+                  </button>
+
+                  {/* Add rule */}
+                  {rules.length < RULE_COLORS.length && (
+                    <button
+                      onPointerDown={e => e.stopPropagation()}
+                      onClick={addRule}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold text-[#C03D25] bg-[#C03D25]/10 transition-all active:opacity-70"
+                    >
+                      <Plus size={12} />
+                      Add Rule
+                    </button>
+                  )}
+                </div>
+
+                {/* Rule editor */}
+                {selectedRule && (
+                  <div className="px-4 py-3 border-b border-black/[0.06]">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: selectedRule.color }} />
+                      <p className="text-xs font-semibold text-[#1C1C1E]">Edit Rule</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2 flex-1">
+                        <span className="text-xs text-[#8E8E93] shrink-0">Due day</span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={selectedRule.dueDate}
+                          onChange={e => {
+                            const digits = e.target.value.replace(/\D/g, '').slice(0, 2);
+                            setRules(prev => prev.map(r => r.key === selectedRule.key ? { ...r, dueDate: digits } : r));
+                          }}
+                          placeholder="1–31"
+                          className={overlayInputCls + ' text-center w-20'}
+                        />
+                      </div>
+                      <div className="flex rounded-xl overflow-hidden border border-black/[0.08] text-xs font-semibold shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setRules(prev => prev.map(r => r.key === selectedRule.key ? { ...r, sameMonth: true } : r))}
+                          className="px-3 py-1.5 transition-colors"
+                          style={selectedRule.sameMonth ? { background: selectedRule.color, color: '#fff' } : { background: '#F9FAFB', color: '#8E8E93' }}
+                        >
+                          Same Mo.
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRules(prev => prev.map(r => r.key === selectedRule.key ? { ...r, sameMonth: false } : r))}
+                          className="px-3 py-1.5 transition-colors border-l border-black/[0.08]"
+                          style={!selectedRule.sameMonth ? { background: selectedRule.color, color: '#fff' } : { background: '#F9FAFB', color: '#8E8E93' }}
+                        >
+                          Next Mo.
+                        </button>
+                      </div>
+                      <button
+                        onClick={() => deleteRule(selectedRule.key)}
+                        className="p-2 rounded-xl text-[#FF3B30] bg-[#FF3B30]/10 active:bg-[#FF3B30]/20 transition-colors shrink-0"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Coverage legend */}
+                <div className="px-4 py-3 space-y-2">
+                  {rules.length === 0 && (
+                    <p className="text-xs text-[#8E8E93] text-center py-1">Add a rule, then paint days on the calendar above.</p>
+                  )}
+                  {rules.map(rule => {
+                    const dayCount = Object.values(dayMap).filter(k => k === rule.key).length;
+                    const dueDay = parseInt(rule.dueDate);
+                    return (
+                      <div key={rule.key} className="flex items-center gap-2.5">
+                        <div className="w-3 h-3 rounded-sm shrink-0" style={{ background: `${rule.color}20`, border: `2px solid ${rule.color}` }} />
+                        <span className="text-xs text-[#1C1C1E]">
+                          Due <span className="font-semibold">{isNaN(dueDay) ? '?' : dueDay}</span>
+                          <span className="text-[#8E8E93]"> · {rule.sameMonth ? 'Same month' : 'Next month'}</span>
+                          <span className="text-[#8E8E93]"> · {dayCount} day{dayCount !== 1 ? 's' : ''}</span>
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {rules.length > 0 && (
+                    uncoveredCount > 0 ? (
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-3 h-3 rounded-sm shrink-0 bg-[#F2F2F7] border-2 border-[#E5E5EA]" />
+                        <span className="text-xs text-[#8E8E93]">{uncoveredCount} day{uncoveredCount !== 1 ? 's' : ''} unassigned</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-sm shrink-0 bg-[#DCFCE7] border-2 border-[#34C759]" />
+                        <span className="text-xs text-[#166534] font-medium">All 31 days covered</span>
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Project Settings Overlay ────────────────────────────────────────── */
+interface TowerRow {
+  key: string;
+  project: string;
+  tower: string;
+  turnoverDate: string;
+  isNew: boolean;
+}
+
+function ProjectSettingsOverlay({ onClose }: { onClose: () => void }) {
+  const [rows, setRows]             = useState<TowerRow[]>([]);
+  const [deletedKeys, setDeletedKeys] = useState<{ project: string; tower: string }[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [saving, setSaving]         = useState(false);
+  const [savedMsg, setSavedMsg]     = useState(false);
+
+  // Add-form state
+  const [showAdd, setShowAdd]           = useState(false);
+  const [allProjects, setAllProjects]   = useState<string[]>([]);
+  const [towerOpts, setTowerOpts]       = useState<string[]>([]);
+  const [addProject, setAddProject]     = useState('');
+  const [addTower, setAddTower]         = useState('');
+  const [addDate, setAddDate]           = useState('');
+  const [towersLoading, setTowersLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [records, projects] = await Promise.all([
+        fetchProjectTowers(),
+        fetchProjects(),
+      ]);
+      setRows(records.map(r => ({
+        key: `${r.project}||${r.tower}`,
+        project: r.project,
+        tower: r.tower,
+        turnoverDate: r.turnover_date ?? '',
+        isNew: false,
+      })));
+      setDeletedKeys([]);
+      setAllProjects(projects);
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Load towers when project is picked in add form
+  useEffect(() => {
+    if (!addProject) { setTowerOpts([]); setAddTower(''); return; }
+    setTowersLoading(true);
+    fetchTowers(addProject)
+      .then(t => { setTowerOpts(t); setAddTower(''); })
+      .catch(console.error)
+      .finally(() => setTowersLoading(false));
+  }, [addProject]);
+
+  const handleAdd = () => {
+    if (!addProject || !addTower) return;
+    const key = `${addProject}||${addTower}`;
+    if (rows.some(r => r.key === key)) return; // already exists
+    setRows(prev => [...prev, { key, project: addProject, tower: addTower, turnoverDate: addDate, isNew: true }]);
+    setAddProject(''); setAddTower(''); setAddDate(''); setShowAdd(false);
+  };
+
+  const deleteRow = (row: TowerRow) => {
+    setRows(prev => prev.filter(r => r.key !== row.key));
+    if (!row.isNew) setDeletedKeys(prev => [...prev, { project: row.project, tower: row.tower }]);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      if (deletedKeys.length > 0) await deleteProjectTowers(deletedKeys);
+      const records: ProjectTowerRecord[] = rows.map(r => ({
+        project: r.project,
+        tower: r.tower,
+        turnover_date: r.turnoverDate || null,
+      }));
+      if (records.length > 0) await saveProjectTowers(records);
+      await load();
+      setSavedMsg(true);
+      setTimeout(() => setSavedMsg(false), 2000);
+    } catch (e) { console.error(e); }
+    finally { setSaving(false); }
+  };
+
+  // Group existing rows by project
+  const grouped = rows.reduce<Record<string, TowerRow[]>>((acc, row) => {
+    (acc[row.project] ??= []).push(row);
+    return acc;
+  }, {});
+
+  const selectCls = 'w-full px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/40 transition-colors';
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-[#F2F2F7]" style={{ animation: 'overlaySlideUp 0.32s cubic-bezier(0.32,0.72,0,1) both' }}>
+      <style>{`@keyframes overlaySlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
+      {/* Nav */}
+      <div className="flex items-center justify-between px-4 pt-14 pb-4 shrink-0 bg-white border-b border-black/[0.06]">
+        <button onClick={onClose} className="p-2.5 rounded-2xl bg-gray-100 text-[#1C1C1E] active:opacity-70 transition-opacity">
+          <ChevronLeft size={20} />
+        </button>
+        <h1 className="text-[#1C1C1E] font-bold text-base">Project Settings</h1>
+        <button
+          onClick={handleSave}
+          disabled={saving || loading}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-md active:scale-95 transition-all disabled:opacity-50"
+        >
+          <Save size={14} />
+          {saving ? 'Saving…' : savedMsg ? 'Saved!' : 'Save'}
+        </button>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto px-4 py-4 pb-10 space-y-4">
+        {loading ? (
+          <div className="flex items-center justify-center h-40">
+            <Loader2 size={32} className="text-[#C03D25] animate-spin" />
+          </div>
+        ) : (
+          <>
+            {/* Rows grouped by project */}
+            {Object.entries(grouped).map(([project, projectRows]) => (
+              <div key={project}>
+                <p className="text-xs font-bold uppercase tracking-widest text-[#8E8E93] px-1 mb-2">{project}</p>
+                <div className="rounded-3xl overflow-hidden" style={cardStyle}>
+                  <div className="flex items-center px-4 py-3 border-b border-black/[0.06] bg-[#F9FAFB]">
+                    <span className="flex-1 text-xs font-bold uppercase tracking-widest text-[#8E8E93]">Tower</span>
+                    <span className="w-36 text-xs font-bold uppercase tracking-widest text-[#8E8E93] text-center">Turnover Date</span>
+                    <span className="w-9" />
+                  </div>
+                  {projectRows.map(row => (
+                    <div key={row.key} className="flex items-center px-4 py-3 gap-3 border-b border-black/[0.06] last:border-0">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <Layers size={13} className="text-[#C7C7CC] shrink-0" />
+                        <span className="text-sm font-medium text-[#1C1C1E] truncate">{row.tower}</span>
+                      </div>
+                      <input
+                        type="date"
+                        value={row.turnoverDate}
+                        onChange={e => setRows(prev => prev.map(r => r.key === row.key ? { ...r, turnoverDate: e.target.value } : r))}
+                        className={overlayInputCls + ' w-36 text-center text-xs'}
+                      />
+                      <button
+                        onClick={() => deleteRow(row)}
+                        className="p-2 rounded-xl text-[#FF3B30] bg-[#FF3B30]/10 active:bg-[#FF3B30]/20 transition-colors shrink-0"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+
+            {rows.length === 0 && !showAdd && (
+              <p className="text-xs text-[#8E8E93] text-center py-6">No towers configured yet. Tap below to add one.</p>
+            )}
+
+            {/* Add form */}
+            {showAdd && (
+              <div>
+                <p className="text-xs font-bold uppercase tracking-widest text-[#8E8E93] px-1 mb-2">Add Tower</p>
+                <div className="rounded-3xl overflow-hidden space-y-0" style={cardStyle}>
+                  {/* Project */}
+                  <div className="px-4 py-3 border-b border-black/[0.06] space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <Building2 size={13} className="text-[#C7C7CC] shrink-0" />
+                      <span className="text-xs font-medium text-[#8E8E93]">Project</span>
+                    </div>
+                    <select
+                      value={addProject}
+                      onChange={e => setAddProject(e.target.value)}
+                      className={selectCls}
+                    >
+                      <option value="">Select project…</option>
+                      {allProjects.map(p => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+
+                  {/* Tower */}
+                  <div className="px-4 py-3 border-b border-black/[0.06] space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <Layers size={13} className="text-[#C7C7CC] shrink-0" />
+                      <span className="text-xs font-medium text-[#8E8E93]">Tower</span>
+                    </div>
+                    <select
+                      value={addTower}
+                      onChange={e => setAddTower(e.target.value)}
+                      disabled={!addProject || towersLoading}
+                      className={selectCls + (!addProject || towersLoading ? ' opacity-40' : '')}
+                    >
+                      <option value="">
+                        {!addProject ? 'Select project first' : towersLoading ? 'Loading…' : 'Select tower…'}
+                      </option>
+                      {towerOpts.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+
+                  {/* Turnover Date */}
+                  <div className="flex items-center gap-3 px-4 py-3 border-b border-black/[0.06]">
+                    <CalendarDays size={15} className="text-[#C03D25] shrink-0" />
+                    <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Turnover Date</span>
+                    <input
+                      type="date"
+                      value={addDate}
+                      onChange={e => setAddDate(e.target.value)}
+                      className="text-sm text-[#1C1C1E] bg-transparent outline-none text-right"
+                    />
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex gap-2 px-4 py-3">
+                    <button
+                      onClick={handleAdd}
+                      disabled={!addProject || !addTower}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-2xl bg-[#C03D25] text-white text-sm font-semibold disabled:opacity-40 active:opacity-80"
+                    >
+                      <Plus size={14} />
+                      Add
+                    </button>
+                    <button
+                      onClick={() => { setShowAdd(false); setAddProject(''); setAddTower(''); setAddDate(''); }}
+                      className="flex-1 py-2.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-70"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Add Tower button */}
+            {!showAdd && (
+              <button
+                onClick={() => setShowAdd(true)}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-3xl text-[#C03D25] text-sm font-semibold border-2 border-dashed border-[#C03D25]/30 active:bg-[#C03D25]/5 transition-colors"
+              >
+                <Plus size={16} />
+                Add Tower
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Dropdown Settings Overlay ───────────────────────────────────────── */
+function DropdownSettingsOverlay({ onClose }: { onClose: () => void }) {
+  /* — Reservation fee state — */
+  const [feeRows, setFeeRows] = useState<FeeRow[]>([]);
+  const [deletedFeeKeys, setDeletedFeeKeys] = useState<string[]>([]);
+
+  /* — Sales position state — */
+  const [posRows, setPosRows] = useState<PositionRow[]>([]);
+  const [deletedPosKeys, setDeletedPosKeys] = useState<string[]>([]);
+
+  /* — Gender state — */
+  const [genderRows, setGenderRows] = useState<OptionRow[]>([]);
+  const [deletedGenderKeys, setDeletedGenderKeys] = useState<string[]>([]);
+
+  /* — Civil status state — */
+  const [civilRows, setCivilRows] = useState<OptionRow[]>([]);
+  const [deletedCivilKeys, setDeletedCivilKeys] = useState<string[]>([]);
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [savedMsg, setSavedMsg] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [fees, positions, genders, civils] = await Promise.all([
+        fetchReservationFees(),
+        fetchSalesPositions(),
+        fetchDropdownOptions('gender'),
+        fetchDropdownOptions('civil_status'),
+      ]);
+      setFeeRows(fees.map((r) => ({
+        key: r.unit_type,
+        originalUnitType: r.unit_type,
+        unitType: r.unit_type,
+        fee: fmtFee(Number(r.fee)),
+        isNew: false,
+      })));
+      setDeletedFeeKeys([]);
+      setPosRows(positions.map((r) => ({
+        key: r.position,
+        originalPosition: r.position,
+        position: r.position,
+        positionCode: r.position_code,
+        isNew: false,
+      })));
+      setDeletedPosKeys([]);
+      setGenderRows(genders.map((v) => ({ key: v, originalValue: v, value: v, isNew: false })));
+      setDeletedGenderKeys([]);
+      setCivilRows(civils.map((v) => ({ key: v, originalValue: v, value: v, isNew: false })));
+      setDeletedCivilKeys([]);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      // Save reservation fees (handle renames by deleting old PKs)
+      const renamedFeeKeys = feeRows
+        .filter((r) => !r.isNew && r.originalUnitType !== r.unitType.trim())
+        .map((r) => r.originalUnitType);
+      await deleteReservationFees([...deletedFeeKeys, ...renamedFeeKeys]);
+      const feeRecords: ReservationFeeRecord[] = feeRows
+        .filter((r) => r.unitType.trim() !== '')
+        .map((r) => ({
+          unit_type: r.unitType.trim(),
+          fee: parseFloat(r.fee.replace(/,/g, '')) || 0,
+        }));
+      await saveReservationFees(feeRecords);
+
+      // Save sales positions (handle renames)
+      const renamedPosKeys = posRows
+        .filter((r) => !r.isNew && r.originalPosition !== r.position.trim())
+        .map((r) => r.originalPosition);
+      await deleteSalesPositions([...deletedPosKeys, ...renamedPosKeys]);
+      const posRecords: SalesPositionRecord[] = posRows
+        .filter((r) => r.position.trim() !== '')
+        .map((r) => ({
+          position: r.position.trim(),
+          position_code: r.positionCode.trim(),
+        }));
+      await saveSalesPositions(posRecords);
+
+      // Save gender (handle renames)
+      const renamedGenderKeys = genderRows
+        .filter((r) => !r.isNew && r.originalValue !== r.value.trim())
+        .map((r) => r.originalValue);
+      await deleteDropdownOptions('gender', [...deletedGenderKeys, ...renamedGenderKeys]);
+      await saveDropdownOptions('gender', genderRows.filter((r) => r.value.trim() !== '').map((r) => r.value.trim()));
+
+      // Save civil status (handle renames)
+      const renamedCivilKeys = civilRows
+        .filter((r) => !r.isNew && r.originalValue !== r.value.trim())
+        .map((r) => r.originalValue);
+      await deleteDropdownOptions('civil_status', [...deletedCivilKeys, ...renamedCivilKeys]);
+      await saveDropdownOptions('civil_status', civilRows.filter((r) => r.value.trim() !== '').map((r) => r.value.trim()));
+
+      await load();
+      setSavedMsg(true);
+      setTimeout(() => setSavedMsg(false), 2000);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /* — Fee row helpers — */
+  const updateFee = (key: string, value: string) =>
+    setFeeRows((prev) => prev.map((r) => r.key === key ? { ...r, fee: value } : r));
+
+  const handleFeeFocus = (key: string) =>
+    setFeeRows((prev) => prev.map((r) =>
+      r.key === key ? { ...r, fee: r.fee.replace(/,/g, '') } : r
+    ));
+
+  const handleFeeBlur = (key: string) =>
+    setFeeRows((prev) => prev.map((r) => {
+      if (r.key !== key) return r;
+      const raw = r.fee.replace(/,/g, '');
+      if (raw === '') return r;
+      const num = parseFloat(raw);
+      return { ...r, fee: isNaN(num) ? r.fee : fmtFee(num) };
+    }));
+
+  const deleteFeeRow = (row: FeeRow) => {
+    setFeeRows((prev) => prev.filter((r) => r.key !== row.key));
+    if (!row.isNew) setDeletedFeeKeys((prev) => [...prev, row.unitType]);
+  };
+
+  const addFeeRow = () => {
+    const key = `new-fee-${Date.now()}`;
+    setFeeRows((prev) => [...prev, { key, originalUnitType: '', unitType: '', fee: '', isNew: true }]);
+  };
+
+  /* — Position row helpers — */
+  const deletePosRow = (row: PositionRow) => {
+    setPosRows((prev) => prev.filter((r) => r.key !== row.key));
+    if (!row.isNew) setDeletedPosKeys((prev) => [...prev, row.position]);
+  };
+
+  const addPosRow = () => {
+    const key = `new-pos-${Date.now()}`;
+    setPosRows((prev) => [...prev, { key, originalPosition: '', position: '', positionCode: '', isNew: true }]);
+  };
+
+  /* — Option row helpers (reusable for gender & civil status) — */
+  function makeOptionHelpers(
+    setRows: React.Dispatch<React.SetStateAction<OptionRow[]>>,
+    setDeletedKeys: React.Dispatch<React.SetStateAction<string[]>>,
+    prefix: string,
+  ) {
+    const deleteRow = (row: OptionRow) => {
+      setRows((prev) => prev.filter((r) => r.key !== row.key));
+      if (!row.isNew) setDeletedKeys((prev) => [...prev, row.value]);
+    };
+    const addRow = () => {
+      const key = `new-${prefix}-${Date.now()}`;
+      setRows((prev) => [...prev, { key, originalValue: '', value: '', isNew: true }]);
+    };
+    return { deleteRow, addRow };
+  }
+
+  const gender = makeOptionHelpers(setGenderRows, setDeletedGenderKeys, 'gender');
+  const civil  = makeOptionHelpers(setCivilRows,  setDeletedCivilKeys,  'civil');
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-[#F2F2F7]" style={{ animation: 'overlaySlideUp 0.32s cubic-bezier(0.32,0.72,0,1) both' }}>
+      <style>{`@keyframes overlaySlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
+      {/* Nav */}
+      <div className="flex items-center justify-between px-4 pt-14 pb-4 shrink-0 bg-white border-b border-black/[0.06]">
+        <button
+          onClick={onClose}
+          className="p-2.5 rounded-2xl bg-gray-100 text-[#1C1C1E] active:opacity-70 transition-opacity"
+        >
+          <ChevronLeft size={20} />
+        </button>
+
+        <h1 className="text-[#1C1C1E] font-bold text-base">Dropdown Settings</h1>
+
+        <button
+          onClick={handleSave}
+          disabled={saving || loading}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-md active:scale-95 transition-all disabled:opacity-50"
+        >
+          <Save size={14} />
+          {saving ? 'Saving…' : savedMsg ? 'Saved!' : 'Save'}
+        </button>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto px-4 py-4 pb-10 space-y-4">
+        {loading ? (
+          <div className="flex items-center justify-center h-40">
+            <Loader2 size={32} className="text-[#C03D25] animate-spin" />
+          </div>
+        ) : (
+          <>
+            {/* ── Reservation Fee card ── */}
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest text-[#8E8E93] px-1 mb-2">
+                Reservation Fee
+              </p>
+              <div className="rounded-3xl overflow-hidden" style={cardStyle}>
+                <div className="flex items-center px-4 py-3 border-b border-black/[0.06] bg-[#F9FAFB]">
+                  <span className="flex-1 text-xs font-bold uppercase tracking-widest text-[#8E8E93]">
+                    Unit Type
+                  </span>
+                  <span className="w-40 text-xs font-bold uppercase tracking-widest text-[#8E8E93] text-right pr-9">
+                    Fee
+                  </span>
+                </div>
+
+                {feeRows.map((row) => (
+                  <div key={row.key} className="flex items-center px-4 py-3 gap-3 border-b border-black/[0.06]">
+                    <input
+                      type="text"
+                      value={row.unitType}
+                      onChange={(e) =>
+                        setFeeRows((prev) => prev.map((r) =>
+                          r.key === row.key ? { ...r, unitType: e.target.value } : r
+                        ))
+                      }
+                      placeholder="Unit type name"
+                      className={overlayInputCls + ' flex-1'}
+                    />
+                    <div className="w-40 flex items-center gap-1">
+                      <span className="text-[#8E8E93] text-sm shrink-0">₱</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={row.fee}
+                        onChange={(e) => updateFee(row.key, e.target.value)}
+                        onFocus={() => handleFeeFocus(row.key)}
+                        onBlur={() => handleFeeBlur(row.key)}
+                        placeholder="0.00"
+                        className={overlayInputCls + ' text-right'}
+                      />
+                    </div>
+                    <button
+                      onClick={() => deleteFeeRow(row)}
+                      className="p-2 rounded-xl text-[#FF3B30] bg-[#FF3B30]/10 active:bg-[#FF3B30]/20 transition-colors shrink-0"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                ))}
+
+                <button
+                  onClick={addFeeRow}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 text-[#C03D25] text-sm font-semibold active:bg-black/[0.03] transition-colors"
+                >
+                  <Plus size={16} />
+                  Add Unit Type
+                </button>
+              </div>
+            </div>
+
+            {/* ── Sales Position card ── */}
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest text-[#8E8E93] px-1 mb-2">
+                Sales Position
+              </p>
+              <div className="rounded-3xl overflow-hidden" style={cardStyle}>
+                <div className="flex items-center px-4 py-3 border-b border-black/[0.06] bg-[#F9FAFB]">
+                  <span className="flex-1 text-xs font-bold uppercase tracking-widest text-[#8E8E93]">
+                    Position
+                  </span>
+                  <span className="w-36 text-xs font-bold uppercase tracking-widest text-[#8E8E93] text-right pr-9">
+                    Code
+                  </span>
+                </div>
+
+                {posRows.map((row) => (
+                  <div key={row.key} className="flex items-center px-4 py-3 gap-3 border-b border-black/[0.06]">
+                    <input
+                      type="text"
+                      value={row.position}
+                      onChange={(e) =>
+                        setPosRows((prev) => prev.map((r) =>
+                          r.key === row.key ? { ...r, position: e.target.value } : r
+                        ))
+                      }
+                      placeholder="Position name"
+                      className={overlayInputCls + ' flex-1'}
+                    />
+                    <div className="w-36">
+                      <input
+                        type="text"
+                        value={row.positionCode}
+                        onChange={(e) =>
+                          setPosRows((prev) => prev.map((r) =>
+                            r.key === row.key ? { ...r, positionCode: e.target.value } : r
+                          ))
+                        }
+                        placeholder="e.g. SA"
+                        className={overlayInputCls + ' text-right'}
+                      />
+                    </div>
+                    <button
+                      onClick={() => deletePosRow(row)}
+                      className="p-2 rounded-xl text-[#FF3B30] bg-[#FF3B30]/10 active:bg-[#FF3B30]/20 transition-colors shrink-0"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                ))}
+
+                <button
+                  onClick={addPosRow}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 text-[#C03D25] text-sm font-semibold active:bg-black/[0.03] transition-colors"
+                >
+                  <Plus size={16} />
+                  Add Position
+                </button>
+              </div>
+            </div>
+
+            {/* ── Personal Info section ── */}
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest text-[#8E8E93] px-1 mb-2">
+                Personal Info
+              </p>
+              <div className="space-y-3">
+
+                {/* Gender */}
+                <div className="rounded-3xl overflow-hidden" style={cardStyle}>
+                  <div className="flex items-center px-4 py-3 border-b border-black/[0.06] bg-[#F9FAFB]">
+                    <span className="flex-1 text-xs font-bold uppercase tracking-widest text-[#8E8E93]">
+                      Gender
+                    </span>
+                  </div>
+                  {genderRows.map((row) => (
+                    <div key={row.key} className="flex items-center px-4 py-3 gap-3 border-b border-black/[0.06]">
+                      <input
+                        type="text"
+                        value={row.value}
+                        onChange={(e) =>
+                          setGenderRows((prev) => prev.map((r) =>
+                            r.key === row.key ? { ...r, value: e.target.value } : r
+                          ))
+                        }
+                        placeholder="e.g. Non-Binary"
+                        className={overlayInputCls + ' flex-1'}
+                      />
+                      <button
+                        onClick={() => gender.deleteRow(row)}
+                        className="p-2 rounded-xl text-[#FF3B30] bg-[#FF3B30]/10 active:bg-[#FF3B30]/20 transition-colors shrink-0"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={gender.addRow}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 text-[#C03D25] text-sm font-semibold active:bg-black/[0.03] transition-colors"
+                  >
+                    <Plus size={16} />
+                    Add Gender
+                  </button>
+                </div>
+
+                {/* Civil Status */}
+                <div className="rounded-3xl overflow-hidden" style={cardStyle}>
+                  <div className="flex items-center px-4 py-3 border-b border-black/[0.06] bg-[#F9FAFB]">
+                    <span className="flex-1 text-xs font-bold uppercase tracking-widest text-[#8E8E93]">
+                      Civil Status
+                    </span>
+                  </div>
+                  {civilRows.map((row) => (
+                    <div key={row.key} className="flex items-center px-4 py-3 gap-3 border-b border-black/[0.06]">
+                      <input
+                        type="text"
+                        value={row.value}
+                        onChange={(e) =>
+                          setCivilRows((prev) => prev.map((r) =>
+                            r.key === row.key ? { ...r, value: e.target.value } : r
+                          ))
+                        }
+                        placeholder="e.g. Annulled"
+                        className={overlayInputCls + ' flex-1'}
+                      />
+                      <button
+                        onClick={() => civil.deleteRow(row)}
+                        className="p-2 rounded-xl text-[#FF3B30] bg-[#FF3B30]/10 active:bg-[#FF3B30]/20 transition-colors shrink-0"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={civil.addRow}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 text-[#C03D25] text-sm font-semibold active:bg-black/[0.03] transition-colors"
+                  >
+                    <Plus size={16} />
+                    Add Civil Status
+                  </button>
+                </div>
+
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── VAT Settings Overlay ────────────────────────────────────────────── */
+interface VatRow {
+  key: string;
+  originalProductType: string;
+  productType: string;
+  threshold: string;
+  isNew: boolean;
+}
+
+function fmtThreshold(num: number): string {
+  return num === 0 ? '' : num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function VatSettingsOverlay({ onClose }: { onClose: () => void }) {
+  const [rows, setRows]           = useState<VatRow[]>([]);
+  const [deletedKeys, setDeletedKeys] = useState<string[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [saving, setSaving]       = useState(false);
+  const [savedMsg, setSavedMsg]   = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const records = await fetchVatSettings();
+      setRows(records.map(r => ({
+        key: r.product_type,
+        originalProductType: r.product_type,
+        productType: r.product_type,
+        threshold: fmtThreshold(Number(r.vat_threshold)),
+        isNew: false,
+      })));
+      setDeletedKeys([]);
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      // Delete removed + renamed original PKs
+      const renamedKeys = rows
+        .filter(r => !r.isNew && r.originalProductType !== r.productType.trim())
+        .map(r => r.originalProductType);
+      await deleteVatSettings([...deletedKeys, ...renamedKeys]);
+
+      const records: VatSettingRecord[] = rows
+        .filter(r => r.productType.trim() !== '')
+        .map(r => ({
+          product_type: r.productType.trim(),
+          vat_threshold: parseFloat(r.threshold.replace(/,/g, '')) || 0,
+        }));
+      await saveVatSettings(records);
+
+      await load();
+      setSavedMsg(true);
+      setTimeout(() => setSavedMsg(false), 2000);
+    } catch (e) { console.error(e); }
+    finally { setSaving(false); }
+  };
+
+  const updateThreshold = (key: string, value: string) =>
+    setRows(prev => prev.map(r => r.key === key ? { ...r, threshold: value } : r));
+
+  const handleThresholdFocus = (key: string) =>
+    setRows(prev => prev.map(r => r.key === key ? { ...r, threshold: r.threshold.replace(/,/g, '') } : r));
+
+  const handleThresholdBlur = (key: string) =>
+    setRows(prev => prev.map(r => {
+      if (r.key !== key) return r;
+      const raw = r.threshold.replace(/,/g, '');
+      if (raw === '') return r;
+      const num = parseFloat(raw);
+      return { ...r, threshold: isNaN(num) ? r.threshold : fmtThreshold(num) };
+    }));
+
+  const deleteRow = (row: VatRow) => {
+    setRows(prev => prev.filter(r => r.key !== row.key));
+    if (!row.isNew) setDeletedKeys(prev => [...prev, row.originalProductType]);
+  };
+
+  const addRow = () => {
+    const key = `new-vat-${Date.now()}`;
+    setRows(prev => [...prev, { key, originalProductType: '', productType: '', threshold: '', isNew: true }]);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-[#F2F2F7]" style={{ animation: 'overlaySlideUp 0.32s cubic-bezier(0.32,0.72,0,1) both' }}>
+      <style>{`@keyframes overlaySlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
+      {/* Nav */}
+      <div className="flex items-center justify-between px-4 pt-14 pb-4 shrink-0 bg-white border-b border-black/[0.06]">
+        <button onClick={onClose} className="p-2.5 rounded-2xl bg-gray-100 text-[#1C1C1E] active:opacity-70 transition-opacity">
+          <ChevronLeft size={20} />
+        </button>
+        <h1 className="text-[#1C1C1E] font-bold text-base">VAT Settings</h1>
+        <button
+          onClick={handleSave}
+          disabled={saving || loading}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-md active:scale-95 transition-all disabled:opacity-50"
+        >
+          <Save size={14} />
+          {saving ? 'Saving…' : savedMsg ? 'Saved!' : 'Save'}
+        </button>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto px-4 py-4 pb-10 space-y-4">
+        {loading ? (
+          <div className="flex items-center justify-center h-40">
+            <Loader2 size={32} className="text-[#C03D25] animate-spin" />
+          </div>
+        ) : (
+          <>
+            {/* Info note */}
+            <div className="rounded-2xl px-4 py-3 text-xs text-[#6C6C70]" style={{ background: 'rgba(192,61,37,0.06)', border: '1px solid rgba(192,61,37,0.12)' }}>
+              <span className="font-semibold text-[#C03D25]">Rule: </span>
+              If Net List Price &gt; threshold → 12% VAT applies. If NLP ≤ threshold → VAT exempt. Product types with no entry will block computation.
+            </div>
+
+            {/* Table */}
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest text-[#8E8E93] px-1 mb-2">Product Types</p>
+              <div className="rounded-3xl overflow-hidden" style={cardStyle}>
+                <div className="flex items-center px-4 py-3 border-b border-black/[0.06] bg-[#F9FAFB]">
+                  <span className="flex-1 text-xs font-bold uppercase tracking-widest text-[#8E8E93]">Product Type</span>
+                  <span className="w-44 text-xs font-bold uppercase tracking-widest text-[#8E8E93] text-right pr-9">NLP Threshold</span>
+                </div>
+
+                {rows.length === 0 && (
+                  <p className="text-xs text-[#8E8E93] text-center py-5 px-4">
+                    No product types configured. Tap below to add one.
+                  </p>
+                )}
+
+                {rows.map(row => (
+                  <div key={row.key} className="flex items-center px-4 py-3 gap-3 border-b border-black/[0.06]">
+                    <input
+                      type="text"
+                      value={row.productType}
+                      onChange={e => setRows(prev => prev.map(r => r.key === row.key ? { ...r, productType: e.target.value } : r))}
+                      placeholder="e.g. RFO"
+                      className={overlayInputCls + ' flex-1'}
+                    />
+                    <div className="w-44 flex items-center gap-1">
+                      <span className="text-[#8E8E93] text-sm shrink-0">₱</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={row.threshold}
+                        onChange={e => updateThreshold(row.key, e.target.value)}
+                        onFocus={() => handleThresholdFocus(row.key)}
+                        onBlur={() => handleThresholdBlur(row.key)}
+                        placeholder="0.00"
+                        className={overlayInputCls + ' text-right'}
+                      />
+                    </div>
+                    <button
+                      onClick={() => deleteRow(row)}
+                      className="p-2 rounded-xl text-[#FF3B30] bg-[#FF3B30]/10 active:bg-[#FF3B30]/20 transition-colors shrink-0"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                ))}
+
+                <button
+                  onClick={addRow}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 text-[#C03D25] text-sm font-semibold active:bg-black/[0.03] transition-colors"
+                >
+                  <Plus size={16} />
+                  Add Product Type
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── HIC Settings Overlay ────────────────────────────────────────────── */
+interface HicRow {
+  key: string;
+  originalProductType: string;
+  productType: string;
+  target: string;
+  isNew: boolean;
+}
+
+function fmtTarget(num: number): string {
+  return num === 0 ? '' : num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function HicSettingsOverlay({ onClose }: { onClose: () => void }) {
+  const [rows, setRows]             = useState<HicRow[]>([]);
+  const [deletedKeys, setDeletedKeys] = useState<string[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [saving, setSaving]         = useState(false);
+  const [savedMsg, setSavedMsg]     = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const records = await fetchHicSettings();
+      setRows(records.map(r => ({
+        key: r.product_type,
+        originalProductType: r.product_type,
+        productType: r.product_type,
+        target: fmtTarget(Number(r.hic_target)),
+        isNew: false,
+      })));
+      setDeletedKeys([]);
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const renamedKeys = rows
+        .filter(r => !r.isNew && r.originalProductType !== r.productType.trim())
+        .map(r => r.originalProductType);
+      await deleteHicSettings([...deletedKeys, ...renamedKeys]);
+
+      const records: HicSettingRecord[] = rows
+        .filter(r => r.productType.trim() !== '')
+        .map(r => ({
+          product_type: r.productType.trim(),
+          hic_target: parseFloat(r.target.replace(/,/g, '')) || 0,
+        }));
+      await saveHicSettings(records);
+
+      await load();
+      setSavedMsg(true);
+      setTimeout(() => setSavedMsg(false), 2000);
+    } catch (e) { console.error(e); }
+    finally { setSaving(false); }
+  };
+
+  const updateTarget = (key: string, value: string) =>
+    setRows(prev => prev.map(r => r.key === key ? { ...r, target: value } : r));
+
+  const handleTargetFocus = (key: string) =>
+    setRows(prev => prev.map(r => r.key === key ? { ...r, target: r.target.replace(/,/g, '') } : r));
+
+  const handleTargetBlur = (key: string) =>
+    setRows(prev => prev.map(r => {
+      if (r.key !== key) return r;
+      const raw = r.target.replace(/,/g, '');
+      if (raw === '') return r;
+      const num = parseFloat(raw);
+      return { ...r, target: isNaN(num) ? r.target : fmtTarget(num) };
+    }));
+
+  const deleteRow = (row: HicRow) => {
+    setRows(prev => prev.filter(r => r.key !== row.key));
+    if (!row.isNew) setDeletedKeys(prev => [...prev, row.originalProductType]);
+  };
+
+  const addRow = () => {
+    const key = `new-hic-${Date.now()}`;
+    setRows(prev => [...prev, { key, originalProductType: '', productType: '', target: '', isNew: true }]);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-[#F2F2F7]" style={{ animation: 'overlaySlideUp 0.32s cubic-bezier(0.32,0.72,0,1) both' }}>
+      <style>{`@keyframes overlaySlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
+      {/* Nav */}
+      <div className="flex items-center justify-between px-4 pt-14 pb-4 shrink-0 bg-white border-b border-black/[0.06]">
+        <button onClick={onClose} className="p-2.5 rounded-2xl bg-gray-100 text-[#1C1C1E] active:opacity-70 transition-opacity">
+          <ChevronLeft size={20} />
+        </button>
+        <h1 className="text-[#1C1C1E] font-bold text-base">HIC Settings</h1>
+        <button
+          onClick={handleSave}
+          disabled={saving || loading}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-md active:scale-95 transition-all disabled:opacity-50"
+        >
+          <Save size={14} />
+          {saving ? 'Saving…' : savedMsg ? 'Saved!' : 'Save'}
+        </button>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto px-4 py-4 pb-10 space-y-4">
+        {loading ? (
+          <div className="flex items-center justify-center h-40">
+            <Loader2 size={32} className="text-[#C03D25] animate-spin" />
+          </div>
+        ) : (
+          <>
+            {/* Info note */}
+            <div className="rounded-2xl px-4 py-3 text-xs text-[#6C6C70]" style={{ background: 'rgba(192,61,37,0.06)', border: '1px solid rgba(192,61,37,0.12)' }}>
+              <span className="font-semibold text-[#C03D25]">Rule: </span>
+              The HIC discount reduces the Net List Price down to the target amount. Units with no HIC entry will not show the HIC option in the payment calculator.
+            </div>
+
+            {/* Table */}
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest text-[#8E8E93] px-1 mb-2">Product Types</p>
+              <div className="rounded-3xl overflow-hidden" style={cardStyle}>
+                <div className="flex items-center px-4 py-3 border-b border-black/[0.06] bg-[#F9FAFB]">
+                  <span className="flex-1 text-xs font-bold uppercase tracking-widest text-[#8E8E93]">Product Type</span>
+                  <span className="w-44 text-xs font-bold uppercase tracking-widest text-[#8E8E93] text-right pr-9">HIC Target</span>
+                </div>
+
+                {rows.length === 0 && (
+                  <p className="text-xs text-[#8E8E93] text-center py-5 px-4">
+                    No product types configured. Tap below to add one.
+                  </p>
+                )}
+
+                {rows.map(row => (
+                  <div key={row.key} className="flex items-center px-4 py-3 gap-3 border-b border-black/[0.06]">
+                    <input
+                      type="text"
+                      value={row.productType}
+                      onChange={e => setRows(prev => prev.map(r => r.key === row.key ? { ...r, productType: e.target.value } : r))}
+                      placeholder="e.g. RFO"
+                      className={overlayInputCls + ' flex-1'}
+                    />
+                    <div className="w-44 flex items-center gap-1">
+                      <span className="text-[#8E8E93] text-sm shrink-0">₱</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={row.target}
+                        onChange={e => updateTarget(row.key, e.target.value)}
+                        onFocus={() => handleTargetFocus(row.key)}
+                        onBlur={() => handleTargetBlur(row.key)}
+                        placeholder="0.00"
+                        className={overlayInputCls + ' text-right'}
+                      />
+                    </div>
+                    <button
+                      onClick={() => deleteRow(row)}
+                      className="p-2 rounded-xl text-[#FF3B30] bg-[#FF3B30]/10 active:bg-[#FF3B30]/20 transition-colors shrink-0"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                ))}
+
+                <button
+                  onClick={addRow}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 text-[#C03D25] text-sm font-semibold active:bg-black/[0.03] transition-colors"
+                >
+                  <Plus size={16} />
+                  Add Product Type
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Admin landing page ──────────────────────────────────────────────── */
+export default function AdminUserPage() {
+  const [activeOverlay, setActiveOverlay] = useState<string | null>(null);
+
+  return (
+    <>
+      <PageShell title="Admin User">
+        <div className="px-4 pt-4 pb-24 space-y-3">
+          <p className="text-sm text-[#6C6C70] px-1 mb-4">
+            Select a setting to configure.
+          </p>
+
+          {SETUP_ITEMS.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => setActiveOverlay(item.id)}
+              className="w-full flex items-center gap-4 px-4 py-4 rounded-3xl text-left active:scale-[0.98] transition-all"
+              style={cardStyle}
+            >
+              <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: 'rgba(192,61,37,0.10)', color: '#C03D25' }}>
+                {item.icon}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[#1C1C1E] font-semibold text-sm">{item.label}</p>
+                <p className="text-[#6C6C70] text-xs mt-0.5">{item.description}</p>
+              </div>
+              <ChevronRight size={18} className="text-[#C7C7CC] shrink-0" />
+            </button>
+          ))}
+        </div>
+      </PageShell>
+
+      {activeOverlay === 'reservation-fee' && (
+        <DropdownSettingsOverlay onClose={() => setActiveOverlay(null)} />
+      )}
+      {activeOverlay === 'due-date' && (
+        <DueDateSettingsOverlay onClose={() => setActiveOverlay(null)} />
+      )}
+      {activeOverlay === 'project-settings' && (
+        <ProjectSettingsOverlay onClose={() => setActiveOverlay(null)} />
+      )}
+      {activeOverlay === 'vat-settings' && (
+        <VatSettingsOverlay onClose={() => setActiveOverlay(null)} />
+      )}
+      {activeOverlay === 'hic-settings' && (
+        <HicSettingsOverlay onClose={() => setActiveOverlay(null)} />
+      )}
+    </>
   );
 }

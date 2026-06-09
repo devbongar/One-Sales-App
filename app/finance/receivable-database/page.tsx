@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
-  ChevronLeft, Search, ArrowUpDown, X, Check,
+  ChevronLeft, Search, ArrowUpDown, X, Check, Loader2,
 } from 'lucide-react';
 import PageShell from '@/components/layout/PageShell';
 import {
@@ -77,13 +77,18 @@ function PostPaymentSheet({
   const [orNo, setOrNo]                     = useState('');
   const [salesInvoiceNo, setSalesInvoiceNo] = useState('');
   const [postingDate, setPostingDate]       = useState(localToday());
+  const [checkNo, setCheckNo]               = useState('');
+  const [checkDate, setCheckDate]           = useState('');
   const [posting, setPosting]               = useState(false);
+
+  const isCheck   = mop === 'Check';
+  const canSubmit = mop && postingDate && (!isCheck || (checkNo.trim() && checkDate));
 
   const inputCls =
     'w-full px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/40 focus:ring-1 focus:ring-[#C03D25]/20 transition-colors placeholder:text-[#C7C7CC]';
 
   const handleSubmit = async () => {
-    if (!mop || !postingDate) return;
+    if (!canSubmit) return;
     setPosting(true);
     try {
       await postPaymentLine(line.id, {
@@ -91,6 +96,8 @@ function PostPaymentSheet({
         acknowledgement_receipt_no: orNo,
         posting_date:               postingDate,
         sales_invoice_number:       salesInvoiceNo,
+        check_no:                   isCheck ? checkNo.trim() : undefined,
+        check_date:                 isCheck ? checkDate      : undefined,
       });
       onPosted();
     } catch (e) {
@@ -176,10 +183,40 @@ function PostPaymentSheet({
           />
         </div>
 
+        {/* Check Details — shown only when MOP is Check */}
+        {isCheck && (
+          <div className="rounded-2xl bg-[#F2F2F7] p-3 space-y-3">
+            <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-widest">Check Details</p>
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold text-[#6C6C70]">
+                Check No. <span className="text-[#C03D25]">*</span>
+              </p>
+              <input
+                type="text"
+                value={checkNo}
+                onChange={(e) => setCheckNo(e.target.value)}
+                placeholder="e.g. 0012345"
+                className={inputCls}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold text-[#6C6C70]">
+                Check Date <span className="text-[#C03D25]">*</span>
+              </p>
+              <input
+                type="date"
+                value={checkDate}
+                onChange={(e) => setCheckDate(e.target.value)}
+                className={inputCls}
+              />
+            </div>
+          </div>
+        )}
+
         {/* Submit */}
         <button
           onClick={handleSubmit}
-          disabled={posting || !mop || !postingDate}
+          disabled={posting || !canSubmit}
           className="w-full py-3.5 rounded-2xl bg-[#C03D25] text-white font-bold text-sm shadow-md active:scale-95 transition-all disabled:opacity-50"
         >
           {posting ? 'Posting…' : 'Confirm Payment'}
@@ -254,7 +291,7 @@ function ReservationDetailOverlay({
       <div className="flex-1 overflow-y-auto px-4 py-4 pb-10 space-y-2">
         {loading ? (
           <div className="flex items-center justify-center h-48">
-            <div className="w-8 h-8 border-2 border-black/10 border-t-[#C03D25] rounded-full animate-spin" />
+            <Loader2 size={32} className="text-[#C03D25] animate-spin" />
           </div>
         ) : lines.length === 0 ? (
           <p className="text-center text-sm text-[#8E8E93] py-12">No receivable lines found.</p>
@@ -289,6 +326,8 @@ function ReservationDetailOverlay({
                         {line.mode_of_payment && ` · ${line.mode_of_payment}`}
                         {line.acknowledgement_receipt_no && ` · OR# ${line.acknowledgement_receipt_no}`}
                         {line.sales_invoice_number && ` · SI# ${line.sales_invoice_number}`}
+                        {line.mode_of_payment === 'Check' && line.check_no && ` · Chk# ${line.check_no}`}
+                        {line.mode_of_payment === 'Check' && line.check_date && ` · ${fmtDate(line.check_date)}`}
                       </p>
                     )}
                   </div>
@@ -460,7 +499,7 @@ export default function ReceivableDatabasePage() {
           <div className="px-4 py-4 pb-24 space-y-3">
             {loading ? (
               <div className="flex items-center justify-center h-48">
-                <div className="w-8 h-8 border-2 border-black/10 border-t-[#C03D25] rounded-full animate-spin" />
+                <Loader2 size={32} className="text-[#C03D25] animate-spin" />
               </div>
             ) : filtered.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-48">

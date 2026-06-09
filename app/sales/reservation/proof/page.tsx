@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { uploadPaymentProof, uploadDocumentFile, updateReservationPayment, updateReservationStatus } from '@/lib/reservations';
+import { generateReceivableLines } from '@/lib/receivables';
+import { generateCommissionSchedule } from '@/lib/commission';
 import { updateInventoryUnitStatus } from '@/lib/inventory';
 
 const MAX_FILES     = 5;
@@ -79,7 +81,7 @@ function ExistingThumb({ url, onRemove }: { url: string; onRemove: () => void })
     <div className="relative aspect-square rounded-xl overflow-hidden border border-black/[0.08]">
       {isPdf ? (
         <div className="w-full h-full bg-[#F2F2F7] flex flex-col items-center justify-center gap-1">
-          <FileText size={22} className="text-[#E8634A]" />
+          <FileText size={22} className="text-[#C03D25]" />
           <span className="text-[9px] font-semibold text-[#8E8E93]">PDF</span>
         </div>
       ) : (
@@ -367,6 +369,20 @@ export default function ProofOfPaymentPage() {
       const inventoryCode = getInventoryCode();
       if (inventoryCode) await updateInventoryUnitStatus(inventoryCode, 'Reserved');
 
+      // Generate receivable lines (first-time only; non-fatal)
+      if (!editMode) {
+        try {
+          await generateReceivableLines(reservationId, paymentDate);
+        } catch (e) {
+          console.error('[receivables] Failed to generate lines:', e);
+        }
+        try {
+          await generateCommissionSchedule(reservationId);
+        } catch (e) {
+          console.error('[commission] Failed to generate schedule:', e);
+        }
+      }
+
       if (editMode) {
         setShowConfirm(false);
         setEditMode(false);
@@ -443,15 +459,15 @@ export default function ProofOfPaymentPage() {
       {/* Hero card */}
       <GlassCard className="p-5 space-y-4">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-full bg-[rgba(232,99,74,0.1)] flex items-center justify-center shrink-0">
+          <div className="w-12 h-12 rounded-full bg-[rgba(192,61,37,0.1)] flex items-center justify-center shrink-0">
             {alreadyPaid
               ? <BadgeCheck size={24} className="text-green-600" />
-              : <Receipt size={24} className="text-[#E8634A]" />
+              : <Receipt size={24} className="text-[#C03D25]" />
             }
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-[10px] text-[#8E8E93] uppercase tracking-wider font-semibold">Reservation ID</p>
-            <p className="text-base font-bold text-[#E8634A] tracking-wider">{reservationId || '—'}</p>
+            <p className="text-base font-bold text-[#C03D25] tracking-wider">{reservationId || '—'}</p>
           </div>
           {reservation && (
             isApproved ? (
@@ -515,7 +531,7 @@ export default function ProofOfPaymentPage() {
               return isPdf ? (
                 <button key={i} type="button" onClick={() => setLightboxUrl(url)}
                   className="aspect-square rounded-xl bg-[#F2F2F7] border border-black/[0.08] flex flex-col items-center justify-center gap-1 active:opacity-70">
-                  <FileText size={22} className="text-[#E8634A]" />
+                  <FileText size={22} className="text-[#C03D25]" />
                   <span className="text-[9px] font-semibold text-[#8E8E93]">PDF {i + 1}</span>
                 </button>
               ) : (
@@ -558,7 +574,7 @@ export default function ProofOfPaymentPage() {
                   return isPdf ? (
                     <button key={i} type="button" onClick={() => setLightboxUrl(url)}
                       className="aspect-square rounded-xl bg-[#F2F2F7] border border-black/[0.08] flex flex-col items-center justify-center gap-1 active:opacity-70">
-                      <FileText size={22} className="text-[#E8634A]" />
+                      <FileText size={22} className="text-[#C03D25]" />
                       <span className="text-[9px] font-semibold text-[#8E8E93]">PDF {i + 1}</span>
                     </button>
                   ) : (
@@ -583,7 +599,7 @@ export default function ProofOfPaymentPage() {
             <p className="text-xs font-semibold text-[#8E8E93] flex items-center gap-1.5">
               <CreditCard size={11} className="text-[#8E8E93]" />
               Subsequent Mode of Payment
-              <span className="text-[#E8634A] text-xs leading-none">*</span>
+              <span className="text-[#C03D25] text-xs leading-none">*</span>
             </p>
             <button
               type="button"
@@ -606,7 +622,7 @@ export default function ProofOfPaymentPage() {
                     }}
                     className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm ${
                       subsequentMode === mode
-                        ? 'bg-[#E8634A]/10 text-[#E8634A] font-semibold'
+                        ? 'bg-[#C03D25]/10 text-[#C03D25] font-semibold'
                         : 'text-[#1C1C1E] hover:bg-gray-50 active:bg-gray-100'
                     }`}
                   >
@@ -624,7 +640,7 @@ export default function ProofOfPaymentPage() {
               <p className="text-xs font-semibold text-[#8E8E93] flex items-center gap-1.5">
                 <Building2 size={11} className="text-[#8E8E93]" />
                 ADA Bank / Platform
-                <span className="text-[#E8634A] text-xs leading-none">*</span>
+                <span className="text-[#C03D25] text-xs leading-none">*</span>
               </p>
               <button
                 type="button"
@@ -643,7 +659,7 @@ export default function ProofOfPaymentPage() {
                       onClick={() => { setAdaBank(bank); setAdaBankDropdownOpen(false); }}
                       className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm ${
                         adaBank === bank
-                          ? 'bg-[#E8634A]/10 text-[#E8634A] font-semibold'
+                          ? 'bg-[#C03D25]/10 text-[#C03D25] font-semibold'
                           : 'text-[#1C1C1E] hover:bg-gray-50 active:bg-gray-100'
                       }`}
                     >
@@ -663,10 +679,10 @@ export default function ProofOfPaymentPage() {
             return (
               <div key={target} className="border-b border-black/[0.06] last:border-0 py-3 px-1 space-y-2">
                 <div className="flex items-center gap-3">
-                  <span className="text-[#E8634A] shrink-0">{icon}</span>
+                  <span className="text-[#C03D25] shrink-0">{icon}</span>
                   <span className="text-sm font-medium text-[#1C1C1E] flex-1 flex items-center gap-0.5">
                     {label}
-                    <span className="text-[#E8634A] text-xs leading-none">*</span>
+                    <span className="text-[#C03D25] text-xs leading-none">*</span>
                   </span>
                   {total > 0 && <span className="text-xs text-[#8E8E93]">{total}/{MAX_DOC_FILES}</span>}
                 </div>
@@ -689,7 +705,7 @@ export default function ProofOfPaymentPage() {
                 )}
                 {canAdd && (
                   <button type="button" onClick={() => openUpload(target)}
-                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl border-2 border-dashed border-[#E8634A]/40 text-[#E8634A] text-xs font-semibold active:bg-[#E8634A]/5">
+                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl border-2 border-dashed border-[#C03D25]/40 text-[#C03D25] text-xs font-semibold active:bg-[#C03D25]/5">
                     <Upload size={13} />
                     {total === 0 ? `Upload ${label}` : 'Add More'}
                   </button>
@@ -706,7 +722,7 @@ export default function ProofOfPaymentPage() {
         <GlassCard className="px-4 py-1">
           {/* Payment Date */}
           <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
-            <CalendarDays size={16} className="text-[#E8634A] shrink-0" />
+            <CalendarDays size={16} className="text-[#C03D25] shrink-0" />
             <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Payment Date</span>
             <input
               type="date"
@@ -739,7 +755,7 @@ export default function ProofOfPaymentPage() {
           {totalPaymentFiles < MAX_FILES ? (
             <div className="py-3 px-1">
               <button type="button" onClick={() => openUpload('payment')}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-dashed border-[#E8634A]/40 text-[#E8634A] text-sm font-semibold active:bg-[#E8634A]/5">
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-dashed border-[#C03D25]/40 text-[#C03D25] text-sm font-semibold active:bg-[#C03D25]/5">
                 <Upload size={16} />
                 {totalPaymentFiles === 0 ? 'Upload Proof of Payment' : `Add More (${totalPaymentFiles}/${MAX_FILES})`}
               </button>
@@ -758,7 +774,7 @@ export default function ProofOfPaymentPage() {
             disabled={!canConfirm}
             onClick={() => setShowConfirm(true)}
             className={`w-full py-4 rounded-2xl text-sm font-bold transition-all ${
-              canConfirm ? 'bg-[#E8634A] text-white active:opacity-80' : 'bg-[#E5E5EA] text-[#C7C7CC] cursor-not-allowed'
+              canConfirm ? 'bg-[#C03D25] text-white active:opacity-80' : 'bg-[#E5E5EA] text-[#C7C7CC] cursor-not-allowed'
             }`}
           >
             {editMode ? 'Save Changes' : 'Confirm Payment'}
@@ -779,14 +795,14 @@ export default function ProofOfPaymentPage() {
             type="button"
             disabled={loadingEdit}
             onClick={handleEnterEditMode}
-            className="w-full py-4 rounded-2xl border-2 border-[#E8634A] text-[#E8634A] text-sm font-bold active:bg-[#E8634A]/10 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+            className="w-full py-4 rounded-2xl border-2 border-[#C03D25] text-[#C03D25] text-sm font-bold active:bg-[#C03D25]/10 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
           >
             {loadingEdit ? <><Loader2 size={15} className="animate-spin" /> Loading...</> : 'Edit'}
           </button>
           <button
             type="button"
             onClick={() => { setActionError(''); setShowSubmitConfirm(true); }}
-            className="w-full py-4 rounded-2xl bg-[#E8634A] text-white text-sm font-bold shadow-[0_4px_16px_rgba(232,99,74,0.35)] active:opacity-80"
+            className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80"
           >
             Submit for Verification
           </button>
@@ -837,7 +853,7 @@ export default function ProofOfPaymentPage() {
               ].map(({ option, icon, label, desc }) => (
                 <button key={option} type="button" onClick={() => triggerOption(option)}
                   className="w-full flex items-center gap-4 px-5 py-4 border-b border-black/[0.06] last:border-0 active:bg-gray-50 text-left">
-                  <span className="text-[#E8634A] shrink-0">{icon}</span>
+                  <span className="text-[#C03D25] shrink-0">{icon}</span>
                   <div>
                     <p className="text-sm font-semibold text-[#1C1C1E]">{label}</p>
                     <p className="text-xs text-[#8E8E93]">{desc}</p>
@@ -875,7 +891,7 @@ export default function ProofOfPaymentPage() {
             <div className="px-6 py-3 border-b border-black/[0.06] space-y-1.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-[#8E8E93]">Reservation ID</span>
-                <span className="text-xs font-bold text-[#E8634A]">{reservationId}</span>
+                <span className="text-xs font-bold text-[#C03D25]">{reservationId}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-[#8E8E93]">Payment Date</span>
@@ -889,7 +905,7 @@ export default function ProofOfPaymentPage() {
             {saveError && <p className="text-red-500 text-xs text-center px-6 pt-3">{saveError}</p>}
             <div className="px-6 pb-7 pt-4 flex flex-col gap-2.5">
               <button type="button" disabled={saving} onClick={handleConfirmPayment}
-                className="w-full py-3.5 rounded-2xl bg-[#E8634A] text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60 active:opacity-80">
+                className="w-full py-3.5 rounded-2xl bg-[#C03D25] text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60 active:opacity-80">
                 {saving
                   ? <><Loader2 size={15} className="animate-spin" /> Saving...</>
                   : <><CheckCircle2 size={15} /> {editMode ? 'Yes, Save Changes' : 'Yes, Confirm Payment'}</>
@@ -910,8 +926,8 @@ export default function ProofOfPaymentPage() {
           style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}>
           <div className="w-full max-w-sm bg-white rounded-3xl overflow-hidden shadow-2xl">
             <div className="flex flex-col items-center px-6 pt-7 pb-4 border-b border-black/[0.06]">
-              <div className="w-12 h-12 rounded-full bg-[rgba(232,99,74,0.12)] flex items-center justify-center mb-3">
-                <CheckCircle2 size={24} className="text-[#E8634A]" />
+              <div className="w-12 h-12 rounded-full bg-[rgba(192,61,37,0.12)] flex items-center justify-center mb-3">
+                <CheckCircle2 size={24} className="text-[#C03D25]" />
               </div>
               <p className="text-base font-bold text-[#1C1C1E] text-center">Submit for Verification?</p>
               <p className="text-sm text-[#8E8E93] mt-1 text-center leading-relaxed">
@@ -921,7 +937,7 @@ export default function ProofOfPaymentPage() {
             <div className="px-6 py-3 border-b border-black/[0.06] space-y-1.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-[#8E8E93]">Reservation ID</span>
-                <span className="text-xs font-bold text-[#E8634A]">{reservationId}</span>
+                <span className="text-xs font-bold text-[#C03D25]">{reservationId}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-[#8E8E93]">New Status</span>
@@ -931,7 +947,7 @@ export default function ProofOfPaymentPage() {
             {actionError && <p className="text-red-500 text-xs text-center px-6 pt-3">{actionError}</p>}
             <div className="px-6 pb-7 pt-4 flex flex-col gap-2.5">
               <button type="button" disabled={submitting} onClick={handleSubmitForVerification}
-                className="w-full py-3.5 rounded-2xl bg-[#E8634A] text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60 active:opacity-80">
+                className="w-full py-3.5 rounded-2xl bg-[#C03D25] text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60 active:opacity-80">
                 {submitting
                   ? <><Loader2 size={15} className="animate-spin" /> Submitting...</>
                   : <><CheckCircle2 size={15} /> Yes, Submit for Verification</>
@@ -963,7 +979,7 @@ export default function ProofOfPaymentPage() {
             <div className="px-6 py-3 border-b border-black/[0.06] space-y-1.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-[#8E8E93]">Reservation ID</span>
-                <span className="text-xs font-bold text-[#E8634A]">{reservationId}</span>
+                <span className="text-xs font-bold text-[#C03D25]">{reservationId}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-[#8E8E93]">Client</span>
@@ -1005,7 +1021,7 @@ export default function ProofOfPaymentPage() {
             <div className="px-6 py-3 border-b border-black/[0.06] space-y-1.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-[#8E8E93]">Reservation ID</span>
-                <span className="text-xs font-bold text-[#E8634A]">{reservationId}</span>
+                <span className="text-xs font-bold text-[#C03D25]">{reservationId}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-[#8E8E93]">New Status</span>
@@ -1044,7 +1060,7 @@ export default function ProofOfPaymentPage() {
               <FileText size={64} className="text-white/60" />
               <p className="text-white text-sm font-semibold">PDF Document</p>
               <a href={lightboxUrl} target="_blank" rel="noopener noreferrer"
-                className="px-6 py-3 rounded-2xl bg-[#E8634A] text-white text-sm font-bold active:opacity-80">
+                className="px-6 py-3 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80">
                 Open PDF
               </a>
             </div>

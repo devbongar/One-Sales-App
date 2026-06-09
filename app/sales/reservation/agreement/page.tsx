@@ -15,16 +15,19 @@ interface ReservationData {
   paymentScheme: string; schemeName: string; paymentTerm: string; dpRate: string; termMonths: number;
   // Prices
   listPrice: number; promoPct: number; promoAmount: number; employeeAmount: number;
-  paytermPctDisplay: number; paytermAmount: number; netListPrice: number;
+  paytermPctDisplay: number; paytermAmount: number; hicDiscount: number; netListPrice: number;
   vat: number; otherCharges: number; totalContractPrice: number;
   // Summary
   netAmount: number; dpAmount: number; netSpotDP: number;
   balanceForFinancing: number; monthlyDeferred: number; monthlyStretchedDP: number;
   bankMonthly: number; hdmfMonthly: number;
+  reservationFee?: number;
   // Client
   clientName: string;
+  clientId: string | null;
   // Seller
   sellerName: string;
+  sellerId: string | null;
   salesManager: string;
   salesDirector: string;
   salesDivisionHead: string;
@@ -190,11 +193,12 @@ export default function ReservationAgreementPage() {
         employee_discount_amount: data.employeeAmount,
         payterm_discount_pct: data.paytermPctDisplay,
         payterm_discount_amount: data.paytermAmount,
+        hic_discount: data.hicDiscount ?? 0,
         net_list_price: data.netListPrice,
         vat: data.vat,
         other_charges: data.otherCharges,
         total_contract_price: data.totalContractPrice,
-        reservation_fee: 10000,
+        reservation_fee: data.reservationFee ?? 0,
         retention_fee: 50000,
         net_amount: data.netAmount,
         dp_amount: data.dpAmount,
@@ -204,6 +208,8 @@ export default function ReservationAgreementPage() {
         monthly_stretched_dp: data.monthlyStretchedDP,
         bank_monthly: data.bankMonthly,
         hdmf_monthly: data.hdmfMonthly,
+        client_id: data.clientId ?? null,
+        seller_id: data.sellerId ?? null,
         seller_name: data.sellerName,
         sales_manager: data.salesManager,
         sales_director: data.salesDirector,
@@ -248,7 +254,7 @@ export default function ReservationAgreementPage() {
         <GlassCard className="px-4 py-1">
           {details.map(({ icon, label, value }) => (
             <div key={label} className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06] last:border-0">
-              <span className="text-[#E8634A] shrink-0">{icon}</span>
+              <span className="text-[#C03D25] shrink-0">{icon}</span>
               <span className="flex-1 text-sm font-medium text-[#1C1C1E]">{label}</span>
               <span className="text-sm text-[#8E8E93] text-right max-w-[180px]">{value}</span>
             </div>
@@ -261,7 +267,7 @@ export default function ReservationAgreementPage() {
         {/* Heading */}
         <div className="text-center space-y-0.5">
           <p className="text-sm font-bold text-[#1C1C1E] uppercase tracking-wide">Reservation Agreement</p>
-          <p className="text-xs font-semibold text-[#E8634A] uppercase tracking-wider">Terms and Conditions</p>
+          <p className="text-xs font-semibold text-[#C03D25] uppercase tracking-wider">Terms and Conditions</p>
         </div>
 
         {/* Sections */}
@@ -284,11 +290,11 @@ export default function ReservationAgreementPage() {
         <button type="button" onClick={() => setChecked1(p => !p)}
           className="w-full flex items-start gap-3 py-4 border-b border-black/[0.06] text-left">
           <div className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
-            checked1 ? 'bg-[#E8634A] border-[#E8634A]' : 'border-[#E8634A]'
+            checked1 ? 'bg-[#C03D25] border-[#C03D25]' : 'border-[#C03D25]'
           }`}>
             {checked1 && <Check size={11} className="text-white" />}
           </div>
-          <p className="text-xs font-bold text-[#E8634A] leading-relaxed">
+          <p className="text-xs font-bold text-[#C03D25] leading-relaxed">
             I hereby acknowledge that I have carefully read and understood the Terms and Conditions under Reservation Agreement, and I expressly give my full consent and agreement thereto.
           </p>
         </button>
@@ -296,11 +302,11 @@ export default function ReservationAgreementPage() {
         <button type="button" onClick={() => setChecked2(p => !p)}
           className="w-full flex items-start gap-3 py-4 text-left">
           <div className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
-            checked2 ? 'bg-[#E8634A] border-[#E8634A]' : 'border-[#E8634A]'
+            checked2 ? 'bg-[#C03D25] border-[#C03D25]' : 'border-[#C03D25]'
           }`}>
             {checked2 && <Check size={11} className="text-white" />}
           </div>
-          <p className="text-xs font-bold text-[#E8634A] leading-relaxed">
+          <p className="text-xs font-bold text-[#C03D25] leading-relaxed">
             I agree to affix my e-signature to signify my conformity to the Reservation Agreement.
           </p>
         </button>
@@ -317,11 +323,11 @@ export default function ReservationAgreementPage() {
             <div className="flex items-center justify-between">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-[#8E8E93]">Signature</p>
               <button type="button" onClick={clearSignature}
-                className="flex items-center gap-1 text-[11px] text-[#E8634A] font-semibold">
+                className="flex items-center gap-1 text-[11px] text-[#C03D25] font-semibold">
                 <RotateCcw size={11} /> Clear
               </button>
             </div>
-            <div className="relative rounded-2xl border-2 border-dashed border-[#E8634A]/40 overflow-hidden bg-white">
+            <div className="relative rounded-2xl border-2 border-dashed border-[#C03D25]/40 overflow-hidden bg-white">
               {!hasSigned && (
                 <p className="absolute inset-0 flex items-center justify-center text-xs text-[#C7C7CC] pointer-events-none select-none">
                   Sign here
@@ -338,7 +344,7 @@ export default function ReservationAgreementPage() {
       {reservationId && (
         <GlassCard className="px-4 py-3 flex items-center justify-between">
           <span className="text-sm font-medium text-[#1C1C1E]">Reservation ID</span>
-          <span className="text-sm font-bold text-[#E8634A] tracking-wider">{reservationId}</span>
+          <span className="text-sm font-bold text-[#C03D25] tracking-wider">{reservationId}</span>
         </GlassCard>
       )}
 
@@ -346,7 +352,7 @@ export default function ReservationAgreementPage() {
       <button type="button" disabled={!checked1 || !checked2 || !hasSigned} onClick={handleProceed}
         className={`w-full py-4 rounded-2xl text-sm font-bold transition-all ${
           checked1 && checked2 && hasSigned
-            ? 'bg-[#E8634A] text-white active:opacity-80'
+            ? 'bg-[#C03D25] text-white active:opacity-80'
             : 'bg-[#E5E5EA] text-[#C7C7CC] cursor-not-allowed'
         }`}>
         Proceed to Payment
@@ -369,7 +375,7 @@ export default function ReservationAgreementPage() {
             <div className="px-6 py-3 border-b border-black/[0.06]">
               <div className="flex items-center justify-between py-1">
                 <span className="text-xs text-[#8E8E93]">Reservation ID</span>
-                <span className="text-xs font-bold text-[#E8634A]">{reservationId}</span>
+                <span className="text-xs font-bold text-[#C03D25]">{reservationId}</span>
               </div>
               <div className="flex items-center justify-between py-1">
                 <span className="text-xs text-[#8E8E93]">Client</span>
@@ -383,7 +389,7 @@ export default function ReservationAgreementPage() {
             {saveError && <p className="text-red-500 text-xs text-center px-6 pt-3">{saveError}</p>}
             <div className="px-6 pb-7 pt-4 flex flex-col gap-2.5">
               <button type="button" disabled={saving} onClick={handleConfirm}
-                className="w-full py-3.5 rounded-2xl bg-[#E8634A] text-white text-sm font-bold active:opacity-80 flex items-center justify-center gap-2 disabled:opacity-60">
+                className="w-full py-3.5 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80 flex items-center justify-center gap-2 disabled:opacity-60">
                 {saving && <Loader2 size={15} className="animate-spin" />}
                 {saving ? 'Saving...' : 'Yes, Proceed to Payment'}
               </button>

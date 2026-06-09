@@ -36,8 +36,8 @@ export default function WelcomePage() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-6 relative overflow-hidden">
       {/* Background blobs */}
-      <div className="absolute top-[-15%] right-[-15%] w-[28rem] h-[28rem] rounded-full bg-[#E8634A]/20 blur-[100px] pointer-events-none" />
-      <div className="absolute bottom-[-15%] left-[-15%] w-96 h-96 rounded-full bg-[#E8634A]/12 blur-[100px] pointer-events-none" />
+      <div className="absolute top-[-15%] right-[-15%] w-[28rem] h-[28rem] rounded-full bg-[#C03D25]/20 blur-[100px] pointer-events-none" />
+      <div className="absolute bottom-[-15%] left-[-15%] w-96 h-96 rounded-full bg-[#C03D25]/12 blur-[100px] pointer-events-none" />
 
       <div className="flex flex-col items-center text-center animate-fade-in">
         {/* Logo */}
@@ -62,7 +62,7 @@ export default function WelcomePage() {
         {/* Progress bar */}
         <div className="w-48 h-1 rounded-full bg-white/10 overflow-hidden">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-[#E8634A] to-[#F07A62]"
+            className="h-full rounded-full bg-gradient-to-r from-[#C03D25] to-[#F07A62]"
             style={{ width: `${progress}%`, transition: 'width 30ms linear' }}
           />
         </div>

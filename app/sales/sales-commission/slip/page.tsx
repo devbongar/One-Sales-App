@@ -6,7 +6,7 @@ import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import { SalespersonRecord } from '@/lib/salesperson';
 import { fetchCommissionRecords, CommissionRecord } from '@/lib/commission';
-import { User, FileText } from 'lucide-react';
+import { Loader2, User, FileText } from 'lucide-react';
 
 function positionLabel(rank: string | null) {
   const map: Record<string, string> = {
@@ -60,7 +60,7 @@ export default function CommissionSlipPage() {
 
       {/* Coral hero */}
       <GlassCard strong className="overflow-hidden">
-        <div className="bg-[#E8634A] px-5 pt-4 pb-6">
+        <div className="bg-[#C03D25] px-5 pt-4 pb-6">
           {/* Slip label */}
           <div className="inline-flex items-center gap-1.5 bg-white/20 rounded-full px-3 py-1 mb-4">
             <FileText size={11} className="text-white" />
@@ -120,7 +120,7 @@ export default function CommissionSlipPage() {
 
           {loading && (
             <div className="flex items-center justify-center py-10">
-              <div className="w-6 h-6 rounded-full border-2 border-[#E8634A] border-t-transparent animate-spin" />
+              <Loader2 size={24} className="text-[#C03D25] animate-spin" />
             </div>
           )}
 
@@ -160,7 +160,7 @@ export default function CommissionSlipPage() {
                     <div className="w-px h-7 bg-[rgba(0,0,0,0.08)]" />
                     <div>
                       <p className="text-[10px] text-[#8E8E93]">Rate</p>
-                      <p className="text-xs font-semibold text-[#E8634A]">
+                      <p className="text-xs font-semibold text-[#C03D25]">
                         {r.commission_rate != null ? `${r.commission_rate}%` : '—'}
                       </p>
                     </div>
@@ -177,7 +177,7 @@ export default function CommissionSlipPage() {
               {/* Total */}
               <div className="flex items-center justify-between pt-1 px-1">
                 <p className="text-sm font-bold text-[#1C1C1E]">Total Commission</p>
-                <p className="text-sm font-bold text-[#E8634A]">{fmt(totalCommission)}</p>
+                <p className="text-sm font-bold text-[#C03D25]">{fmt(totalCommission)}</p>
               </div>
             </div>
           )}
@@ -186,7 +186,7 @@ export default function CommissionSlipPage() {
         {/* Footer */}
         <div className="bg-[#F9F9F9] border-t border-[rgba(0,0,0,0.06)] px-5 py-3 flex items-center justify-between">
           <p className="text-[11px] text-[#8E8E93]">
-            Generated on <span className="text-[#E8634A] font-semibold">{today}</span>
+            Generated on <span className="text-[#C03D25] font-semibold">{today}</span>
           </p>
           <p className="text-[11px] text-[#8E8E93] font-semibold">
             Total Units: {records.length}

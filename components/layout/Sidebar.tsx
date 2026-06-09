@@ -17,29 +17,29 @@ const NAV: NavGroup[] = [
   {
     title: 'Sales Transaction',
     items: [
-      { label: 'Client Registration',          href: '/sales/client-registration', icon: 'UserPlus' },
-      { label: 'Reservation',                  href: '/sales/reservation',          icon: 'CalendarCheck' },
-      { label: 'Booking',                      href: '/sales/booking',              icon: 'BookOpen' },
-      { label: 'Sales Commission',             href: '/sales/sales-commission',     icon: 'DollarSign' },
-      { label: 'Generate Sample Computation',  href: '/sales/sample-computation',   icon: 'Calculator'  },
+      { label: 'Client Registration',         href: '/sales/client-registration', icon: 'UserPlus' },
+      { label: 'Reservation',                 href: '/sales/reservation',         icon: 'CalendarCheck' },
+      { label: 'Booking',                     href: '/sales/booking',             icon: 'BookOpen' },
+      { label: 'Sales Commission',            href: '/sales/sales-commission',    icon: 'DollarSign' },
+      { label: 'Sample Computation',          href: '/sales/sample-computation',  icon: 'Calculator' },
     ],
   },
   {
     title: 'Account Management',
     items: [
-      { label: "Buyer's Verification",   href: '/account/buyers-verification', icon: 'ShieldCheck' },
-      { label: "Buyer's Foldering",      href: '/account/buyers-foldering',    icon: 'FolderOpen' },
-      { label: 'Request and Inquiry',    href: '/account/request-inquiry',     icon: 'MessageSquare', comingSoon: true },
-      { label: 'Billing and Collection', href: '/account/billing-collection',  icon: 'Receipt',       comingSoon: true },
-      { label: 'End-Use Financing',      href: '/account/end-use-financing',   icon: 'CreditCard',    comingSoon: true },
+      { label: "Buyer's Verification", href: '/account/buyers-verification', icon: 'ShieldCheck' },
+      { label: "Buyer's Foldering",    href: '/account/buyers-foldering',    icon: 'FolderOpen' },
+      { label: 'Request and Inquiry',  href: '/account/request-inquiry',     icon: 'MessageSquare', comingSoon: true },
+      { label: 'Billing and Collection', href: '/account/billing-collection', icon: 'Receipt',      comingSoon: true },
+      { label: 'End-Use Financing',    href: '/account/end-use-financing',   icon: 'CreditCard',    comingSoon: true },
     ],
   },
   {
     title: 'Finance',
     items: [
-      { label: 'Commission Payout',    href: '/finance/commission-payout',      icon: 'Wallet',    comingSoon: true },
-      { label: "Buyer's Payment",      href: '/finance/buyers-payment',         icon: 'Banknote' },
-      { label: 'Collection Posting',   href: '/finance/receivable-database',    icon: 'Database' },
+      { label: 'Commission Payout',  href: '/finance/commission-payout',   icon: 'Wallet',   comingSoon: true },
+      { label: "Buyer's Payment",    href: '/finance/buyers-payment',      icon: 'Banknote' },
+      { label: 'Collection Posting', href: '/finance/collection-posting',  icon: 'Database' },
     ],
   },
   {
@@ -66,24 +66,42 @@ interface SidebarProps {
   userRole?: string;
 }
 
+function getInitials(name?: string) {
+  if (!name) return 'SA';
+  const parts = name.trim().split(' ').filter(Boolean);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+const ANIM_DURATION = 260;
+
 export default function Sidebar({ open, onClose, userName, userRole }: SidebarProps) {
   const pathname = usePathname();
-  const router = useRouter();
+  const router   = useRouter();
+  const [closing, setClosing] = useState(false);
 
-  // All groups open by default
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(
     Object.fromEntries(NAV.map((g) => [g.title, true]))
   );
 
   useEffect(() => {
-    if (open) document.body.style.overflow = 'hidden';
-    else document.body.style.overflow = '';
+    if (open) {
+      setClosing(false);
+      document.body.style.overflow = 'hidden';
+    }
     return () => { document.body.style.overflow = ''; };
   }, [open]);
 
-  const toggleGroup = (title: string) => {
-    setOpenGroups((prev) => ({ ...prev, [title]: !prev[title] }));
+  const handleClose = () => {
+    setClosing(true);
+    setTimeout(() => {
+      setClosing(false);
+      onClose();
+    }, ANIM_DURATION);
   };
+
+  const toggleGroup = (title: string) =>
+    setOpenGroups((prev) => ({ ...prev, [title]: !prev[title] }));
 
   const handleLogout = () => {
     clearSession();
@@ -92,157 +110,220 @@ export default function Sidebar({ open, onClose, userName, userRole }: SidebarPr
 
   if (!open) return null;
 
+  const initials = getInitials(userName);
+
   return (
-    <div className="fixed inset-0 z-50 flex">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-        onClick={onClose}
-      />
+    <>
+      <style>{`
+        @keyframes backdropFadeIn  { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes backdropFadeOut { from { opacity: 1; } to { opacity: 0; } }
+        @keyframes panelSlideIn    { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+        @keyframes panelSlideOut   { from { transform: translateX(0); } to { transform: translateX(-100%); } }
 
-      {/* Panel */}
-      <aside
-        className="relative w-[80vw] max-w-xs h-full flex flex-col animate-slide-left overflow-y-auto"
-        style={{
-          background: 'linear-gradient(160deg, #D94F35 0%, #C03D25 40%, #8B2515 100%)',
-          borderRight: '1px solid rgba(255,255,255,0.12)',
-        }}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 pt-14 pb-5 border-b border-white/15">
-          <div>
-            <p className="text-[10px] text-white/50 font-semibold uppercase tracking-widest mb-0.5">
-              Welcome
-            </p>
-            <p className="text-white font-bold text-base leading-tight">
-              {userName ?? 'Sales Agent'}
-            </p>
-            <p className="text-white/50 text-xs mt-0.5 capitalize">{userRole ?? 'agent'}</p>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-2xl bg-white/15 border border-white/20 text-white hover:bg-white/25 transition-colors"
-          >
-            <X size={18} />
-          </button>
-        </div>
+        @media (hover: hover) and (pointer: fine) {
+          .sb-item:hover      { background: rgba(255,255,255,0.12); color: rgba(255,255,255,1); }
+          .sb-footer:hover    { background: rgba(255,255,255,0.10); color: rgba(255,255,255,1); }
+        }
+      `}</style>
 
-        {/* Home button */}
-        <div className="px-3 pt-3 pb-1">
-          <Link
-            href="/home"
-            onClick={onClose}
-            className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-white text-[#C03D25] font-semibold text-sm shadow-[0_2px_12px_rgba(0,0,0,0.2)] transition-all active:scale-[0.98]"
-          >
-            <Home size={17} />
-            Home
-          </Link>
-        </div>
+      <div className="fixed inset-0 z-50 flex">
 
-        {/* Nav */}
-        <nav className="flex-1 px-3 py-4 space-y-1">
-          {NAV.map((group) => {
-            const isOpen = openGroups[group.title];
-            const hasActive = group.items.some((i) => pathname === i.href);
+        {/* Backdrop */}
+        <div
+          className="absolute inset-0 bg-black/50"
+          style={{ animation: `${closing ? 'backdropFadeOut' : 'backdropFadeIn'} ${ANIM_DURATION}ms cubic-bezier(0.23,1,0.32,1) both` }}
+          onClick={handleClose}
+        />
 
-            return (
-              <div key={group.title}>
-                {/* Group header — collapsible toggle */}
-                <button
-                  onClick={() => toggleGroup(group.title)}
-                  className={`
-                    w-full flex items-center justify-between px-3 py-2.5 rounded-2xl
-                    transition-all duration-200 mb-0.5
-                    ${hasActive && !isOpen
-                      ? 'bg-white/20 text-white'
-                      : 'text-white/70 hover:bg-white/10 hover:text-white'
-                    }
-                  `}
-                >
-                  <span className="text-xs font-bold uppercase tracking-[0.12em]">
-                    {group.title}
-                  </span>
-                  <ChevronDown
-                    size={14}
-                    className={`transition-transform duration-300 text-white/50 ${isOpen ? 'rotate-180' : 'rotate-0'}`}
-                  />
-                </button>
+        {/* Panel */}
+        <aside
+          className="relative w-[80vw] max-w-[300px] h-full flex flex-col overflow-y-auto"
+          style={{
+            background: 'linear-gradient(170deg, #E05A3A 0%, #C03D25 45%, #8B2515 100%)',
+            animation: `${closing ? 'panelSlideOut' : 'panelSlideIn'} ${ANIM_DURATION}ms cubic-bezier(0.22,1,0.36,1) both`,
+            boxShadow: '4px 0 40px rgba(0,0,0,0.35)',
+          }}
+        >
 
-                {/* Collapsible items */}
+          {/* ── Header ── */}
+          <div className="px-5 pt-14 pb-5">
+            <div className="flex items-center justify-between">
+
+              {/* Avatar + identity */}
+              <div className="flex items-center gap-3">
                 <div
-                  className="overflow-hidden transition-all duration-300"
-                  style={{ maxHeight: isOpen ? `${group.items.length * 52}px` : '0px' }}
+                  className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0"
+                  style={{ background: 'rgba(255,255,255,0.18)' }}
                 >
-                  <ul className="space-y-0.5 pb-2 pl-1">
-                    {group.items.map((item) => {
-                      const Icon = ICONS[item.icon ?? ''];
-                      const active = pathname === item.href;
-
-                      if (item.comingSoon) {
-                        return (
-                          <li key={item.href}>
-                            <div className="flex items-center gap-3 px-3 py-2.5 rounded-2xl text-sm font-medium text-white/35 cursor-default">
-                              {Icon && <Icon size={16} className="text-white/25 shrink-0" />}
-                              <span className="flex-1 truncate">{item.label}</span>
-                              <span className="text-[9px] font-semibold bg-white/15 text-white/50 px-1.5 py-0.5 rounded-full shrink-0 whitespace-nowrap">
-                                Soon
-                              </span>
-                            </div>
-                          </li>
-                        );
-                      }
-
-                      return (
-                        <li key={item.href}>
-                          <Link
-                            href={item.href}
-                            onClick={onClose}
-                            className={`
-                              flex items-center gap-3 px-3 py-2.5 rounded-2xl text-sm font-medium
-                              transition-all duration-150
-                              ${active
-                                ? 'bg-white text-[#C03D25] shadow-[0_2px_12px_rgba(0,0,0,0.2)]'
-                                : 'text-white/80 hover:bg-white/15 hover:text-white'
-                              }
-                            `}
-                          >
-                            {Icon && (
-                              <Icon
-                                size={16}
-                                className={active ? 'text-[#C03D25]' : 'text-white/60'}
-                              />
-                            )}
-                            {item.label}
-                          </Link>
-                        </li>
-                      );
-                    })}
-                  </ul>
+                  <span className="text-white font-bold text-base tracking-tight">{initials}</span>
+                </div>
+                <div>
+                  <p className="text-white font-bold text-[15px] leading-tight">
+                    {userName ?? 'Sales Agent'}
+                  </p>
+                  <p className="text-white/55 text-[11px] mt-0.5 capitalize">
+                    {userRole ?? 'agent'}
+                  </p>
                 </div>
               </div>
-            );
-          })}
-        </nav>
 
-        {/* Settings + Sign Out */}
-        <div className="px-4 pb-10 pt-3 border-t border-white/15 space-y-2">
-          <Link
-            href="/settings"
-            onClick={onClose}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-white bg-white/15 border border-white/20 hover:bg-white/25 transition-colors active:scale-[0.98]"
+              {/* Close */}
+              <button
+                onClick={handleClose}
+                className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 active:scale-[0.92]"
+                style={{
+                  background: 'rgba(255,255,255,0.12)',
+                  transition: 'transform 100ms ease-out',
+                }}
+              >
+                <X size={16} className="text-white" />
+              </button>
+            </div>
+          </div>
+
+          {/* ── Home ── */}
+          <div className="px-3 pb-2">
+            <Link
+              href="/home"
+              onClick={handleClose}
+              className={`flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-semibold active:scale-[0.97] ${
+                pathname === '/home'
+                  ? 'bg-white text-[#C03D25] shadow-[0_2px_16px_rgba(0,0,0,0.2)]'
+                  : 'sb-item text-white/90'
+              }`}
+              style={{ transition: 'background-color 150ms ease, color 150ms ease, transform 100ms ease-out' }}
+            >
+              <Home size={17} className={pathname === '/home' ? 'text-[#C03D25]' : 'text-white/70'} />
+              Home
+            </Link>
+          </div>
+
+          {/* ── Divider ── */}
+          <div className="mx-4 mb-2" style={{ height: '1px', background: 'rgba(255,255,255,0.10)' }} />
+
+          {/* ── Nav groups ── */}
+          <nav className="flex-1 px-3 space-y-0.5 pb-4">
+            {NAV.map((group) => {
+              const isOpen    = openGroups[group.title];
+              const hasActive = group.items.some((i) => pathname === i.href);
+
+              return (
+                <div key={group.title}>
+
+                  {/* Section header */}
+                  <button
+                    onClick={() => toggleGroup(group.title)}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl active:scale-[0.98]"
+                    style={{ transition: 'transform 100ms ease-out' }}
+                  >
+                    <span
+                      className="text-[10px] font-bold uppercase tracking-[0.14em]"
+                      style={{ color: hasActive && !isOpen ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.45)' }}
+                    >
+                      {group.title}
+                    </span>
+                    <ChevronDown
+                      size={13}
+                      style={{
+                        color: 'rgba(255,255,255,0.35)',
+                        transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                        transition: 'transform 200ms cubic-bezier(0.23,1,0.32,1)',
+                      }}
+                    />
+                  </button>
+
+                  {/* CSS grid collapse — animates real content height, no layout thrash */}
+                  <div
+                    className="grid"
+                    style={{
+                      gridTemplateRows: isOpen ? '1fr' : '0fr',
+                      transition: 'grid-template-rows 250ms cubic-bezier(0.23,1,0.32,1)',
+                    }}
+                  >
+                    <div className="overflow-hidden">
+                      <ul className="space-y-0.5 pb-1">
+                        {group.items.map((item) => {
+                          const Icon   = ICONS[item.icon ?? ''];
+                          const active = pathname === item.href;
+
+                          if (item.comingSoon) {
+                            return (
+                              <li key={item.href}>
+                                <div
+                                  className="flex items-center gap-3 px-3 py-2.5 rounded-2xl cursor-default"
+                                  style={{ opacity: 0.35 }}
+                                >
+                                  {Icon && <Icon size={15} className="text-white shrink-0" />}
+                                  <span className="flex-1 truncate text-[13px] font-medium text-white">{item.label}</span>
+                                  <span
+                                    className="text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 whitespace-nowrap text-white"
+                                    style={{ background: 'rgba(255,255,255,0.18)' }}
+                                  >
+                                    Soon
+                                  </span>
+                                </div>
+                              </li>
+                            );
+                          }
+
+                          return (
+                            <li key={item.href}>
+                              <Link
+                                href={item.href}
+                                onClick={handleClose}
+                                className={`flex items-center gap-3 px-3 py-2.5 rounded-2xl text-[13px] font-medium active:scale-[0.97] ${
+                                  active
+                                    ? 'bg-white text-[#C03D25] shadow-[0_2px_12px_rgba(0,0,0,0.18)]'
+                                    : 'sb-item text-white/80'
+                                }`}
+                                style={{ transition: 'background-color 150ms ease, color 150ms ease, transform 100ms ease-out' }}
+                              >
+                                {Icon && (
+                                  <Icon
+                                    size={15}
+                                    className={active ? 'text-[#C03D25] shrink-0' : 'text-white/55 shrink-0'}
+                                  />
+                                )}
+                                <span className="truncate">{item.label}</span>
+                              </Link>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  </div>
+
+                </div>
+              );
+            })}
+          </nav>
+
+          {/* ── Footer ── */}
+          <div
+            className="px-4 pb-10 pt-3 space-y-1"
+            style={{ borderTop: '1px solid rgba(255,255,255,0.10)' }}
           >
-            <Settings size={16} />
-            System Settings
-          </Link>
-          <button
-            onClick={handleLogout}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-white bg-white/15 border border-white/20 hover:bg-white/25 transition-colors active:scale-[0.98]"
-          >
-            <LogOut size={16} />
-            Sign Out
-          </button>
-        </div>
-      </aside>
-    </div>
+            <Link
+              href="/settings"
+              onClick={handleClose}
+              className="sb-footer w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-[13px] font-medium text-white/75 active:scale-[0.97]"
+              style={{ transition: 'background-color 150ms ease, color 150ms ease, transform 100ms ease-out' }}
+            >
+              <Settings size={15} className="text-white/50 shrink-0" />
+              System Settings
+            </Link>
+            <button
+              onClick={handleLogout}
+              className="sb-footer w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-[13px] font-medium active:scale-[0.97]"
+              style={{ color: 'rgba(255,200,190,0.85)', transition: 'background-color 150ms ease, transform 100ms ease-out' }}
+            >
+              <LogOut size={15} style={{ color: 'rgba(255,180,165,0.7)' }} className="shrink-0" />
+              Sign Out
+            </button>
+          </div>
+
+        </aside>
+      </div>
+    </>
   );
 }

@@ -2,7 +2,7 @@
 
 @theme inline {
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
-  --color-brand:        #E8634A;
+  --color-brand:        #C03D25;
   --color-brand-dark:   #C5432A;
   --color-brand-light:  #F07A62;
   --color-ios-green:    #34C759;
@@ -27,7 +27,7 @@ body {
 }
 
 body {
-  background: radial-gradient(ellipse at 25% 0%, #F07A62 0%, #E8634A 35%, #C5432A 65%, #8B2515 100%);
+  background: radial-gradient(ellipse at 25% 0%, #F07A62 0%, #C03D25 35%, #C5432A 65%, #8B2515 100%);
   background-attachment: scroll;
   color: #ffffff;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;

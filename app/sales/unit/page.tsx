@@ -28,7 +28,7 @@ function StarBadge({ value }: { value: string }) {
       style={{
         clipPath:
           'polygon(50% 0%,58.5% 18.1%,75% 6.7%,73.3% 26.7%,93.3% 25%,81.9% 41.5%,100% 50%,81.9% 58.5%,93.3% 75%,73.3% 73.3%,75% 93.3%,58.5% 81.9%,50% 100%,41.5% 81.9%,25% 93.3%,26.7% 73.3%,6.7% 75%,18.1% 58.5%,0% 50%,18.1% 41.5%,6.7% 25%,26.7% 26.7%,25% 6.7%,41.5% 18.1%)',
-        background: '#E8634A',
+        background: '#C03D25',
       }}
     >
       <span className="text-white text-[11px] font-bold leading-tight text-center">Promo</span>
@@ -80,7 +80,7 @@ export default function UnitDetailPage() {
         <div className="p-5 pb-4 flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
             <p className="text-[#1C1C1E] text-base font-semibold leading-snug">{unit.project_name ?? '—'}</p>
-            <p className="text-[#E8634A] text-2xl font-extrabold mt-1 leading-tight">
+            <p className="text-[#C03D25] text-2xl font-extrabold mt-1 leading-tight">
               Unit {unit.unit_no ?? '—'}
             </p>
             <p className="text-[#1C1C1E] text-3xl font-extrabold mt-1 leading-tight tracking-tight">
@@ -125,6 +125,22 @@ export default function UnitDetailPage() {
             value={unit.inventory_code}
             label="Inventory Code"
           />
+        </div>
+
+        <div className="border-t border-black/[0.06] mx-5" />
+
+        {/* HIC */}
+        <div className="px-5 py-4 flex items-center justify-between">
+          <span className="text-[#8E8E93] text-sm font-medium">Home Improvement Contract (HIC)</span>
+          <span
+            className="px-3 py-1 rounded-full text-xs font-bold"
+            style={unit.hic
+              ? { background: 'rgba(94,92,230,0.12)', color: '#5E5CE6' }
+              : { background: '#F2F2F7', color: '#8E8E93' }
+            }
+          >
+            {unit.hic ? 'Yes' : 'No'}
+          </span>
         </div>
       </div>
 

@@ -70,7 +70,7 @@ function PhotoCarousel({ photos }: { photos: string[] }) {
                 key={i}
                 onClick={() => emblaApi?.scrollTo(i)}
                 className={`rounded-full transition-all duration-300 ${
-                  i === current ? 'w-4 h-1.5 bg-[#E8634A]' : 'w-1.5 h-1.5 bg-white/30'
+                  i === current ? 'w-4 h-1.5 bg-[#C03D25]' : 'w-1.5 h-1.5 bg-white/30'
                 }`}
               />
             ))}
@@ -157,15 +157,15 @@ export default function ProjectPhotoSheet({ project, onClose }: ProjectPhotoShee
           {/* Stats row */}
           <div className="grid grid-cols-3 gap-2">
             <div className="flex flex-col items-center py-1.5 rounded-xl bg-white/8 border border-white/10">
-              <span className="text-[#E8634A] font-bold text-sm">{project.floors}</span>
+              <span className="text-[#C03D25] font-bold text-sm">{project.floors}</span>
               <span className="text-white/40 text-[10px] flex items-center gap-0.5 mt-0.5"><Layers size={9} /> Floors</span>
             </div>
             <div className="flex flex-col items-center py-1.5 rounded-xl bg-white/8 border border-white/10">
-              <span className="text-[#E8634A] font-bold text-sm">{project.no_of_units}</span>
+              <span className="text-[#C03D25] font-bold text-sm">{project.no_of_units}</span>
               <span className="text-white/40 text-[10px] flex items-center gap-0.5 mt-0.5"><Hash size={9} /> Units</span>
             </div>
             <div className="flex flex-col items-center py-1.5 rounded-xl bg-white/8 border border-white/10">
-              <span className="text-[#E8634A] font-bold text-sm">{project.no_of_parkings}</span>
+              <span className="text-[#C03D25] font-bold text-sm">{project.no_of_parkings}</span>
               <span className="text-white/40 text-[10px] flex items-center gap-0.5 mt-0.5"><Car size={9} /> Parking</span>
             </div>
           </div>
@@ -189,7 +189,7 @@ export default function ProjectPhotoSheet({ project, onClose }: ProjectPhotoShee
                 className={`
                   flex-1 py-2 rounded-xl text-xs font-semibold transition-all duration-200
                   ${isActive
-                    ? 'bg-[#E8634A] text-white shadow-[0_2px_8px_rgba(232,99,74,0.4)]'
+                    ? 'bg-[#C03D25] text-white shadow-[0_2px_8px_rgba(192,61,37,0.4)]'
                     : 'bg-white/10 text-white/50 hover:bg-white/15'
                   }
                 `}

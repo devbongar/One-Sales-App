@@ -5,13 +5,12 @@ import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import GlassButton from '@/components/ui/GlassButton';
-import { Check, ChevronDown } from 'lucide-react';
+import { Check, ChevronDown, AlertTriangle } from 'lucide-react';
 import { InventoryUnit } from '@/types';
+import { fetchReservationFee, fetchVatThreshold, computeVat } from '@/lib/admin';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const RESERVATION_FEE   = 20_000;
 const RETENTION_PCT     = 0.05;
-const VAT_PCT           = 0.12;
 const OTHER_CHARGES_PCT = 0.07;
 const PT_DISC_SPOT      = 0.10;
 const PT_DISC_DEFERRED  = 0.075;
@@ -89,7 +88,7 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
 
 function SubSectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[#E8634A] text-[11px] font-bold uppercase tracking-wider px-1 pt-3 pb-0.5">
+    <p className="text-[#C03D25] text-[11px] font-bold uppercase tracking-wider px-1 pt-3 pb-0.5">
       {children}
     </p>
   );
@@ -118,7 +117,7 @@ function ComputedRow({
       <span className={`text-sm leading-snug flex-1 ${sub ? 'text-[#6C6C70]' : 'text-[#1C1C1E] font-medium'}`}>
         {label}
       </span>
-      <span className={`text-sm shrink-0 ${bold ? 'font-bold' : ''} ${highlight ? 'text-[#E8634A]' : 'text-[#1C1C1E]'}`}>
+      <span className={`text-sm shrink-0 ${bold ? 'font-bold' : ''} ${highlight ? 'text-[#C03D25]' : 'text-[#1C1C1E]'}`}>
         {value}
       </span>
     </div>
@@ -132,7 +131,7 @@ function CheckRow({
 }) {
   const box = (
     <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 mt-0.5 ${
-      checked ? 'bg-[#E8634A] border-[#E8634A]' : 'border-[#C7C7CC]'
+      checked ? 'bg-[#C03D25] border-[#C03D25]' : 'border-[#C7C7CC]'
     }`}>
       {checked && <Check size={11} className="text-white" />}
     </div>
@@ -203,7 +202,7 @@ function InlineSelect({
               onClick={() => { onChange(o.value); setOpen(false); }}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-colors ${
                 o.value === value
-                  ? 'bg-[#E8634A]/10 text-[#E8634A] font-semibold'
+                  ? 'bg-[#C03D25]/10 text-[#C03D25] font-semibold'
                   : 'text-[#1C1C1E] hover:bg-gray-50 active:bg-gray-100'
               }`}
             >
@@ -241,7 +240,7 @@ function LoanTermRow({
         <span className="text-[#1C1C1E] text-sm font-medium w-24 shrink-0">Loan Term</span>
         {ageBased && (
           <div className="flex items-center gap-1 shrink-0">
-            <div className="w-4 h-4 rounded border-2 bg-[#E8634A] border-[#E8634A] flex items-center justify-center">
+            <div className="w-4 h-4 rounded border-2 bg-[#C03D25] border-[#C03D25] flex items-center justify-center">
               <Check size={9} className="text-white" />
             </div>
             <span className="text-[#6C6C70] text-xs whitespace-nowrap">Age Based</span>
@@ -262,7 +261,7 @@ function LoanTermRow({
           className="flex items-center gap-1 shrink-0"
         >
           <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${
-            ageBased ? 'bg-[#E8634A] border-[#E8634A]' : 'border-[#C7C7CC]'
+            ageBased ? 'bg-[#C03D25] border-[#C03D25]' : 'border-[#C7C7CC]'
           }`}>
             {ageBased && <Check size={9} className="text-white" />}
           </div>
@@ -287,7 +286,7 @@ function LoanTermRow({
               type="button"
               onClick={() => { onChange(o.value); setOpen(false); }}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm ${
-                o.value === value ? 'bg-[#E8634A]/10 text-[#E8634A] font-semibold' : 'text-[#1C1C1E] hover:bg-gray-50'
+                o.value === value ? 'bg-[#C03D25]/10 text-[#C03D25] font-semibold' : 'text-[#1C1C1E] hover:bg-gray-50'
               }`}
             >
               {o.label}
@@ -390,7 +389,7 @@ function ViewQuotationsDropdown({
               onClick={() => { onSelect(q); setOpen(false); }}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-colors ${
                 q.id === activeId
-                  ? 'bg-[#E8634A]/10 text-[#E8634A] font-semibold'
+                  ? 'bg-[#C03D25]/10 text-[#C03D25] font-semibold'
                   : 'text-[#1C1C1E] hover:bg-gray-50 active:bg-gray-100'
               }`}
             >
@@ -433,9 +432,12 @@ export default function QuotationPage() {
   const [ageBased,         setAgeBased]         = useState(false);
 
   // Saved quotations & view mode
-  const [savedQuotations, setSavedQuotations] = useState<SavedQuotation[]>([]);
-  const [viewMode,         setViewMode]        = useState(false);
-  const [activeId,         setActiveId]        = useState('');
+  const [savedQuotations,  setSavedQuotations]  = useState<SavedQuotation[]>([]);
+  const [viewMode,         setViewMode]         = useState(false);
+  const [activeId,         setActiveId]         = useState('');
+  const [reservationFee,   setReservationFee]   = useState(0);
+  // undefined = loading, null = not configured, number = ok
+  const [vatThreshold,     setVatThreshold]     = useState<number | null | undefined>(undefined);
 
   useEffect(() => {
     const raw = sessionStorage.getItem('selectedUnit');
@@ -444,6 +446,10 @@ export default function QuotationPage() {
         const u = JSON.parse(raw) as InventoryUnit;
         setUnit(u);
         setSavedQuotations(loadQuotations(u));
+        const pt = u.product_type ?? 'Residential Unit';
+        fetchReservationFee(pt).then(setReservationFee).catch(() => setReservationFee(0));
+        setVatThreshold(undefined);
+        fetchVatThreshold(pt).then(setVatThreshold).catch(() => setVatThreshold(null));
       } catch { router.back(); }
     } else {
       router.back();
@@ -465,21 +471,21 @@ export default function QuotationPage() {
     const ptAmt      = listPrice * ptPct;
 
     const discounted = listPrice - promoAmt - ptAmt;
-    const vat        = discounted * VAT_PCT;
+    const vat        = (vatThreshold != null) ? computeVat(discounted, vatThreshold) : 0;
     const other      = discounted * OTHER_CHARGES_PCT;
     const tcp        = discounted + vat + other;
     const retention  = tcp * RETENTION_PCT;
 
     const dpPercent  = parseFloat(dpPct) / 100 || 0;
     const dpAmount   = tcp * dpPercent;
-    const netDP      = dpAmount - RESERVATION_FEE;
+    const netDP      = dpAmount - reservationFee;
     const balance    = tcp - dpAmount;
     const monthlyDP  = netDP > 0 ? netDP / STRETCHED_TERM : 0;
 
     const dcTerm     = parseInt(deferredTerm) || 12;
-    const netDC      = tcp - RESERVATION_FEE - retention;
+    const netDC      = tcp - reservationFee - retention;
     const monthlyDC  = netDC / dcTerm;
-    const netSC      = tcp - RESERVATION_FEE - retention;
+    const netSC      = tcp - reservationFee - retention;
 
     const rate       = parseFloat(indicativeRate) / 100 || 0;
     const years      = parseInt(loanTerm) || 0;
@@ -500,7 +506,7 @@ export default function QuotationPage() {
       strFrom: fmtDate(strFrom),
       strTo:   fmtDate(addMonths(strFrom, STRETCHED_TERM - 1)),
     };
-  }, [unit, paytermScheme, deferredTerm, dpPct, firstInAdvance, indicativeRate, loanTerm, today]);
+  }, [unit, paytermScheme, deferredTerm, dpPct, firstInAdvance, indicativeRate, loanTerm, today, reservationFee, vatThreshold]);
 
   if (!unit || !C) return null;
 
@@ -565,8 +571,20 @@ export default function QuotationPage() {
     readOnly: ro,
   };
 
+  const vatUnconfigured = vatThreshold === null;
+  const vatRowLabel = vatUnconfigured ? 'VAT (not configured)' : C.vat === 0 ? 'VAT (Exempt)' : 'VAT (12%)';
+
   return (
     <PageShell title="Quotation" backButton>
+
+      {vatUnconfigured && (
+        <div className="flex items-start gap-3 px-4 py-3 rounded-2xl mx-0" style={{ background: 'rgba(255,59,48,0.08)', border: '1px solid rgba(255,59,48,0.2)' }}>
+          <AlertTriangle size={16} className="text-[#FF3B30] shrink-0 mt-0.5" />
+          <p className="text-xs text-[#FF3B30] leading-snug">
+            <span className="font-bold">VAT not configured</span> for product type <span className="font-semibold">"{unit.product_type ?? 'Residential Unit'}"</span>. Configure in Admin &gt; VAT Settings. VAT set to ₱0.
+          </p>
+        </div>
+      )}
 
       {/* ── Section 1 ── */}
       <SectionHeader>Section 1 — Project Information</SectionHeader>
@@ -592,7 +610,7 @@ export default function QuotationPage() {
           placeholder="Select payterm"
           readOnly={ro}
         />
-        <ComputedRow label="Reservation Fee" value={fmt(RESERVATION_FEE)} />
+        <ComputedRow label="Reservation Fee" value={fmt(reservationFee)} />
       </GlassCard>
 
       {/* ── Spot Cash ── */}
@@ -605,11 +623,11 @@ export default function QuotationPage() {
           <ComputedRow label={`(-) Payment Term Discount (${Math.round(C.ptPct * 100)}%)`} value={`- ${fmt(C.ptAmt)}`} sub />
           <RowDivider />
           <ComputedRow label="Discounted Price"    value={fmt(C.discounted)} bold />
-          <ComputedRow label="VAT (12%)"            value={fmt(C.vat)} sub />
+          <ComputedRow label={vatRowLabel}           value={fmt(C.vat)} sub />
           <ComputedRow label="Other Charges (7%)"   value={fmt(C.other)} sub />
           <RowDivider />
           <ComputedRow label="Total Contract Price" value={fmt(C.tcp)} bold highlight />
-          <ComputedRow label="(-) Reservation Fee"  value={`- ${fmt(RESERVATION_FEE)}`} sub />
+          <ComputedRow label="(-) Reservation Fee"  value={`- ${fmt(reservationFee)}`} sub />
           <ComputedRow label="(-) Retention"        value={`- ${fmt(C.retention)}`} sub />
           <RowDivider />
           <ComputedRow label="Net Spot Cash" value={fmt(C.netSC)} bold highlight />
@@ -633,11 +651,11 @@ export default function QuotationPage() {
           <ComputedRow label={`(-) Payment Term Discount (${Math.round(C.ptPct * 100)}%)`} value={`- ${fmt(C.ptAmt)}`} sub />
           <RowDivider />
           <ComputedRow label="Discounted Price"    value={fmt(C.discounted)} bold />
-          <ComputedRow label="VAT (12%)"            value={fmt(C.vat)} sub />
+          <ComputedRow label={vatRowLabel}           value={fmt(C.vat)} sub />
           <ComputedRow label="Other Charges (7%)"   value={fmt(C.other)} sub />
           <RowDivider />
           <ComputedRow label="Total Contract Price" value={fmt(C.tcp)} bold highlight />
-          <ComputedRow label="(-) Reservation Fee"  value={`- ${fmt(RESERVATION_FEE)}`} sub />
+          <ComputedRow label="(-) Reservation Fee"  value={`- ${fmt(reservationFee)}`} sub />
           <ComputedRow label="(-) Retention"        value={`- ${fmt(C.retention)}`} sub />
           <RowDivider />
           <ComputedRow label="Net Deferred Cash" value={fmt(C.netDC)} bold highlight />
@@ -658,7 +676,7 @@ export default function QuotationPage() {
           {promoPctLabel && <ComputedRow label={`(-) Promo Discount (${promoPctLabel}%)`} value={`- ${fmt(C.promoAmt)}`} sub />}
           <RowDivider />
           <ComputedRow label="Discounted Price"    value={fmt(C.discounted)} bold />
-          <ComputedRow label="VAT (12%)"            value={fmt(C.vat)} sub />
+          <ComputedRow label={vatRowLabel}           value={fmt(C.vat)} sub />
           <ComputedRow label="Other Charges (7%)"   value={fmt(C.other)} sub />
           <RowDivider />
           <ComputedRow label="Total Contract Price" value={fmt(C.tcp)} bold highlight />
@@ -689,7 +707,7 @@ export default function QuotationPage() {
           {promoPctLabel && <ComputedRow label={`(-) Promo Discount (${promoPctLabel}%)`} value={`- ${fmt(C.promoAmt)}`} sub />}
           <RowDivider />
           <ComputedRow label="Discounted Price"    value={fmt(C.discounted)} bold />
-          <ComputedRow label="VAT (12%)"            value={fmt(C.vat)} sub />
+          <ComputedRow label={vatRowLabel}           value={fmt(C.vat)} sub />
           <ComputedRow label="Other Charges (7%)"   value={fmt(C.other)} sub />
           <RowDivider />
           <ComputedRow label="Total Contract Price" value={fmt(C.tcp)} bold highlight />

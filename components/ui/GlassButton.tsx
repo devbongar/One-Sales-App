@@ -25,7 +25,7 @@ export default function GlassButton({
   const isLight = useTheme() === 'light';
 
   const variants = {
-    primary: 'bg-[#E8634A] hover:bg-[#C5432A] text-white shadow-[0_4px_20px_rgba(232,99,74,0.45)] border border-[rgba(255,255,255,0.2)]',
+    primary: 'bg-[#C03D25] hover:bg-[#C5432A] text-white shadow-[0_4px_20px_rgba(192,61,37,0.45)] border border-[rgba(255,255,255,0.2)]',
     ghost: isLight
       ? 'bg-[#E5E5EA] hover:bg-[#D1D1D6] text-[#1C1C1E] border border-black/[0.08]'
       : 'glass hover:bg-white/15 text-white',

@@ -6,7 +6,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const COLS = `"Project ID","Project Name","Tower","Floor","Unit No.","Inventory Code","Unit Type","Unit Area","Total List Price","Promo Discount","Status"`;
+const COLS = `"Project ID","Project Name","Tower","Floor","Unit No.","Inventory Code","Unit Type","Unit Area","Total List Price","Promo Discount","Status","HIC"`;
 
 function mapRow(row: Record<string, unknown>) {
   return {
@@ -21,6 +21,7 @@ function mapRow(row: Record<string, unknown>) {
     total_list_price:  row['Total List Price']  ?? null,
     promo_discount:    row['Promo Discount']    ?? null,
     status:            row['Status']            ?? null,
+    hic:               row['HIC']              ?? false,
   };
 }
 

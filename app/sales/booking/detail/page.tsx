@@ -9,7 +9,7 @@ import {
 } from '@/lib/booking-progress';
 import {
   Hash, Building2, Tag, User, ChevronRight,
-  Lock, Check, FileText, UserCheck, ShieldCheck, ShieldAlert, Heart,
+  Lock, Check, FileText, Loader2, UserCheck, ShieldCheck, ShieldAlert, Heart,
   CheckCircle2, XCircle, Send, Clock,
 } from 'lucide-react';
 import { submitForReview } from '@/lib/review';
@@ -19,7 +19,7 @@ import { submitForReview } from '@/lib/review';
 function ReadOnlyRow({ icon, label, value }: { icon: React.ReactNode; label: string; value?: string | null }) {
   return (
     <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06] last:border-0">
-      <span className="text-[#E8634A] shrink-0">{icon}</span>
+      <span className="text-[#C03D25] shrink-0">{icon}</span>
       <span className="flex-1 text-sm font-medium text-[#1C1C1E]">{label}</span>
       <span className="text-sm text-right text-[#6C6C70] max-w-[180px] truncate">{value || '—'}</span>
     </div>
@@ -37,14 +37,14 @@ function ToggleRow({ icon, label, value, onToggle, locked, saving }: {
       className={`w-full flex items-center gap-3 px-4 py-3.5 transition-colors ${
         interactive ? 'active:bg-black/[0.03]' : 'cursor-default'
       }`}>
-      <span className={value ? 'text-[#E8634A]' : 'text-[#C7C7CC]'}>{icon}</span>
+      <span className={value ? 'text-[#C03D25]' : 'text-[#C7C7CC]'}>{icon}</span>
       <span className={`flex-1 text-sm font-medium text-left ${value ? 'text-[#1C1C1E]' : 'text-[#8E8E93]'}`}>
         {label}
       </span>
       {locked && <Lock size={12} className="text-[#C7C7CC] shrink-0" />}
-      {saving && <div className="w-4 h-4 rounded-full border-2 border-[#E8634A] border-t-transparent animate-spin shrink-0" />}
+      {saving && <Loader2 size={16} className="text-[#C03D25] animate-spin shrink-0" />}
       <div className={`w-11 h-6 rounded-full transition-colors relative shrink-0 ${
-        value ? 'bg-[#E8634A]' : 'bg-[#E5E5EA]'
+        value ? 'bg-[#C03D25]' : 'bg-[#E5E5EA]'
       } ${locked ? 'opacity-50' : ''}`}>
         <div className={`absolute top-[2px] w-5 h-5 rounded-full bg-white shadow-sm transition-transform duration-200 ${
           value ? 'translate-x-[22px]' : 'translate-x-[2px]'
@@ -66,7 +66,7 @@ function StageCard({ number, title, complete, locked, badge, children }: {
       }`}>
         <div className="flex items-center gap-3">
           <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
-            complete ? 'bg-green-500' : locked ? 'bg-[#C7C7CC]' : 'bg-[#E8634A]'
+            complete ? 'bg-green-500' : locked ? 'bg-[#C7C7CC]' : 'bg-[#C03D25]'
           }`}>
             {complete
               ? <Check size={14} className="text-white" />
@@ -81,7 +81,7 @@ function StageCard({ number, title, complete, locked, badge, children }: {
         </div>
         {badge !== undefined ? badge : (
           complete  ? <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-green-100 text-green-700">Complete</span>
-          : !locked ? <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-[#E8634A]/10 text-[#E8634A]">In Progress</span>
+          : !locked ? <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-[#C03D25]/10 text-[#C03D25]">In Progress</span>
           :           <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-[#F2F2F7] text-[#8E8E93]">Locked</span>
         )}
       </div>
@@ -251,7 +251,7 @@ export default function BookingDetailPage() {
 
         {loading ? (
           <div className="flex items-center justify-center py-10">
-            <div className="w-7 h-7 rounded-full border-2 border-[#E8634A] border-t-transparent animate-spin" />
+            <Loader2 size={28} className="text-[#C03D25] animate-spin" />
           </div>
 
         ) : !privacyConsent ? (
@@ -260,7 +260,7 @@ export default function BookingDetailPage() {
             <GlassCard className="overflow-hidden">
               {/* Header */}
               <div className="px-4 py-3 flex items-center gap-3 bg-[#F2F2F7]/60 border-b border-black/[0.06]">
-                <div className="w-8 h-8 rounded-xl bg-[#E8634A] flex items-center justify-center shrink-0">
+                <div className="w-8 h-8 rounded-xl bg-[#C03D25] flex items-center justify-center shrink-0">
                   <ShieldAlert size={16} className="text-white" />
                 </div>
                 <div>
@@ -286,7 +286,7 @@ export default function BookingDetailPage() {
                 <button type="button" onClick={() => setAgreed(p => !p)}
                   className="flex items-start gap-3 w-full text-left active:opacity-70">
                   <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
-                    agreed ? 'bg-[#E8634A] border-[#E8634A]' : 'border-[#C7C7CC] bg-white'
+                    agreed ? 'bg-[#C03D25] border-[#C03D25]' : 'border-[#C7C7CC] bg-white'
                   }`}>
                     {agreed && <Check size={12} className="text-white" />}
                   </div>
@@ -298,7 +298,7 @@ export default function BookingDetailPage() {
                 <button type="button" onClick={() => setAgreedEsig(p => !p)}
                   className="flex items-start gap-3 w-full text-left active:opacity-70">
                   <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
-                    agreedEsig ? 'bg-[#E8634A] border-[#E8634A]' : 'border-[#C7C7CC] bg-white'
+                    agreedEsig ? 'bg-[#C03D25] border-[#C03D25]' : 'border-[#C7C7CC] bg-white'
                   }`}>
                     {agreedEsig && <Check size={12} className="text-white" />}
                   </div>
@@ -323,7 +323,7 @@ export default function BookingDetailPage() {
 
             <button type="button" onClick={handleConsent}
               disabled={!agreed || !agreedEsig || !signature || savingConsent}
-              className="w-full py-4 rounded-2xl bg-[#E8634A] text-white text-sm font-bold shadow-[0_4px_16px_rgba(232,99,74,0.35)] active:opacity-80 transition-opacity disabled:opacity-40">
+              className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity disabled:opacity-40">
               {savingConsent ? 'Processing…' : 'I Agree & Proceed'}
             </button>
           </>
@@ -491,7 +491,7 @@ export default function BookingDetailPage() {
                       type="button"
                       onClick={handleSubmitForReview}
                       disabled={submitting}
-                      className="w-full py-4 rounded-2xl bg-[#E8634A] text-white text-sm font-bold shadow-[0_4px_16px_rgba(232,99,74,0.35)] active:opacity-80 disabled:opacity-40 transition-opacity"
+                      className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 disabled:opacity-40 transition-opacity"
                     >
                       {submitting
                         ? 'Submitting…'

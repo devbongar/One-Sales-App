@@ -6,6 +6,7 @@ import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import { fetchProjects, fetchTowers, fetchFloorsByCategory, fetchUnitTypes, fetchInventoryUnits, InventoryUnit } from '@/lib/inventory';
 import { fetchAllPayterms, PaytermRecord } from '@/lib/paytems';
+import { fetchReservationFee, fetchVatThreshold, computeVat, fetchHicTarget } from '@/lib/admin';
 import {
   Check, ChevronDown, Calculator,
   Building2, Layers, Home, Car, Bike, LayoutGrid,
@@ -22,11 +23,8 @@ const PAYMENT_SCHEMES = [
 ] as const;
 type PaymentScheme = typeof PAYMENT_SCHEMES[number]['value'];
 
-const RESERVATION_FEE     = 25_000;
 const RETENTION_FEE       = 50_000;
-const VAT_RATE            = 0.12;
 const OTHER_CHARGES_RATE  = 0.07;
-const HIC_TARGET          = 3_600_000;
 
 function calcMonthlyAmort(principal: number, annualRate: number, years: number): number {
   if (principal <= 0) return 0;
@@ -60,6 +58,7 @@ interface ComparisonItem {
   monthlyDeferred: number; dpAmount: number; netSpotDP: number;
   balanceForFinancing: number; monthlyStretchedDP: number;
   bankMonthly: number; hdmfMonthly: number;
+  reservationFee: number;
 }
 
 type CompRow = { label: string; value: (c: ComparisonItem) => string; bold?: boolean; coral?: boolean; green?: boolean; };
@@ -82,18 +81,18 @@ const COMP_SECTIONS: { title: string; rows: CompRow[] }[] = [
     { label: 'Net List Price', value: c => `₱${c.netListPrice.toLocaleString()}`, bold: true },
   ]},
   { title: 'Taxes & Charges', rows: [
-    { label: 'VAT (12%)',      value: c => `₱${c.vat.toLocaleString()}` },
+    { label: 'VAT',            value: c => `₱${c.vat.toLocaleString()}` },
     { label: 'Other (7%)',     value: c => `₱${c.otherCharges.toLocaleString()}` },
     { label: 'Total Contract', value: c => `₱${c.totalContractPrice.toLocaleString()}`, bold: true, coral: true },
   ]},
   { title: 'Fees', rows: [
-    { label: 'Reservation', value: c => `₱${(25_000).toLocaleString()}` },
+    { label: 'Reservation', value: c => `₱${c.reservationFee.toLocaleString()}` },
     { label: 'Retention',   value: c => ['spot_cash','deferred_cash'].includes(c.paymentScheme) ? `₱${(50_000).toLocaleString()}` : '—' },
   ]},
   { title: 'Payment Summary', rows: [
     { label: 'DP Amount',    value: c => ['spot_dp','stretched_dp'].includes(c.paymentScheme) ? `₱${c.dpAmount.toLocaleString()}` : '—' },
     { label: 'Net Amount',   value: c => ['spot_dp','stretched_dp'].includes(c.paymentScheme) ? `₱${c.netSpotDP.toLocaleString()}` : `₱${c.netAmount.toLocaleString()}`, bold: true },
-    { label: 'Monthly DP',   value: c => c.paymentScheme === 'stretched_dp' ? `₱${c.monthlyStretchedDP.toLocaleString()}/mo` : '—', coral: true, bold: true },
+    { label: 'Monthly DP',   value: c => c.paymentScheme === 'stretched_dp' ? `₱${c.monthlyStretchedDP.toLocaleString()}/mo (${c.termMonths} mo)` : '—', coral: true, bold: true },
     { label: 'Monthly Def.', value: c => c.paymentScheme === 'deferred_cash' ? `₱${c.monthlyDeferred.toLocaleString()}/mo (${c.termMonths} mo)` : '—', coral: true, bold: true },
     { label: 'Balance',      value: c => ['spot_dp','stretched_dp'].includes(c.paymentScheme) ? `₱${c.balanceForFinancing.toLocaleString()}` : '—' },
   ]},
@@ -120,25 +119,25 @@ function StepIndicator({ current, onNavigate, hasComparisons }: { current: numbe
         return (
           <div key={label} className="flex flex-col items-center flex-1">
             <div className="flex items-center w-full">
-              <div className={`flex-1 h-0.5 ${i === 0 ? 'opacity-0' : done || active ? 'bg-[#E8634A]' : 'bg-[#E5E5EA]'}`} />
+              <div className={`flex-1 h-0.5 ${i === 0 ? 'opacity-0' : done || active ? 'bg-[#C03D25]' : 'bg-[#E5E5EA]'}`} />
               <button
                 type="button"
                 disabled={!clickable}
                 onClick={() => clickable && onNavigate(i)}
                 className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 border-2 transition-all duration-200 ${
-                  done   ? 'bg-[#E8634A] border-[#E8634A] shadow-[0_2px_8px_rgba(232,99,74,0.35)] active:opacity-70' :
-                  active ? 'bg-white border-[#E8634A] shadow-[0_2px_8px_rgba(232,99,74,0.25)]' :
+                  done   ? 'bg-[#C03D25] border-[#C03D25] shadow-[0_2px_8px_rgba(192,61,37,0.35)] active:opacity-70' :
+                  active ? 'bg-white border-[#C03D25] shadow-[0_2px_8px_rgba(192,61,37,0.25)]' :
                            'bg-white border-[#E5E5EA]'
                 } ${clickable ? 'cursor-pointer' : 'cursor-default'}`}
               >
                 {done
                   ? <Check size={14} className="text-white" />
-                  : <span className={active ? 'text-[#E8634A]' : 'text-[#C7C7CC]'}>{icon}</span>
+                  : <span className={active ? 'text-[#C03D25]' : 'text-[#C7C7CC]'}>{icon}</span>
                 }
               </button>
-              <div className={`flex-1 h-0.5 ${i === STEPS.length - 1 ? 'opacity-0' : done ? 'bg-[#E8634A]' : 'bg-[#E5E5EA]'}`} />
+              <div className={`flex-1 h-0.5 ${i === STEPS.length - 1 ? 'opacity-0' : done ? 'bg-[#C03D25]' : 'bg-[#E5E5EA]'}`} />
             </div>
-            <span className={`text-[10px] mt-1.5 font-semibold text-center leading-tight ${active ? 'text-[#E8634A]' : done ? 'text-[#6C6C70]' : 'text-[#C7C7CC]'}`}>
+            <span className={`text-[10px] mt-1.5 font-semibold text-center leading-tight ${active ? 'text-[#C03D25]' : done ? 'text-[#6C6C70]' : 'text-[#C7C7CC]'}`}>
               {label}
             </span>
           </div>
@@ -173,10 +172,10 @@ function InlineSelect({ label, value, options, onChange, placeholder = 'Select',
         onClick={() => setOpen((p) => !p)}
         className="w-full flex items-center gap-3 py-3 px-1"
       >
-        {icon && <span className={`shrink-0 ${error ? 'text-red-400' : 'text-[#E8634A]'}`}>{icon}</span>}
+        {icon && <span className={`shrink-0 ${error ? 'text-red-400' : 'text-[#C03D25]'}`}>{icon}</span>}
         <span className="text-[#1C1C1E] text-sm font-medium flex-1 text-left flex items-center gap-0.5">
           {label}
-          {required && <span className="text-[#E8634A] text-xs leading-none">*</span>}
+          {required && <span className="text-[#C03D25] text-xs leading-none">*</span>}
         </span>
         <span className={`text-right text-sm truncate max-w-[140px] ${value ? 'text-[#1C1C1E]' : 'text-[#8E8E93]'}`}>
           {value || placeholder}
@@ -193,7 +192,7 @@ function InlineSelect({ label, value, options, onChange, placeholder = 'Select',
               onClick={() => { onChange(o); setOpen(false); }}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition-colors ${
                 o === value
-                  ? 'bg-[#E8634A]/10 text-[#E8634A] font-semibold'
+                  ? 'bg-[#C03D25]/10 text-[#C03D25] font-semibold'
                   : 'text-[#1C1C1E] hover:bg-gray-50 active:bg-gray-100'
               }`}
             >
@@ -231,12 +230,221 @@ export default function SampleComputationPage() {
   const [selectedUnit, setSelectedUnit] = useState<InventoryUnit | null>(null);
   const [paymentScheme, setPaymentScheme] = useState<PaymentScheme>('spot_cash');
   const [paymentTerm,  setPaymentTerm]  = useState<string>('12 months');
-  const [dpRate,       setDpRate]       = useState<string>('15%');
+  const [dpRate,           setDpRate]           = useState<string>('15%');
+  const [stretchedDpTerm, setStretchedDpTerm] = useState<string>('');
   const [comparisons,  setComparisons]  = useState<ComparisonItem[]>([]);
   const [duplicateAlert, setDuplicateAlert] = useState(false);
+  const [showAddSheet, setShowAddSheet] = useState(false);
   const [useHIC,       setUseHIC]       = useState(false);
   const [userRole,     setUserRole]     = useState('');
+  const [reservationFee, setReservationFee] = useState(0);
+  // undefined = not yet fetched, null = not configured (error), number = ok
+  const [vatThreshold, setVatThreshold] = useState<number | null | undefined>(undefined);
+  const [hicTarget,    setHicTarget]    = useState<number | null>(null);
   const compHeaderRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  const generateComparisonPDF = async () => {
+    const { jsPDF } = await import('jspdf');
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageW  = 210;
+    const pageH  = 297;
+    const mg     = 15;
+    const HDR    = 32;    // coral header height
+    const STRIP  = 11;    // seller info strip height
+    const BODY_T = HDR + STRIP + 5;  // body start y (= 48)
+    const DISC_Y  = pageH - 28;  // disclaimer block top
+    const coral: [number,number,number] = [192, 61, 37];
+    const dark:  [number,number,number] = [28, 28, 30];
+    const lt:    [number,number,number] = [142, 142, 147];
+    const grn:   [number,number,number] = [22, 101, 52];
+
+    const now     = new Date();
+    const dateStr = now.toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
+    const timeStr = now.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
+
+    // Read seller from session
+    let sellerName = '';
+    let sellerContact = '';
+    try {
+      const raw = typeof window !== 'undefined' ? localStorage.getItem('osa_session') : null;
+      if (raw) { const s = JSON.parse(raw); sellerName = s.full_name ?? ''; sellerContact = s.email ?? ''; }
+    } catch {}
+
+    // Load logo once
+    let logoB64 = '';
+    try {
+      const res  = await fetch('/document logo.png');
+      const blob = await res.blob();
+      logoB64 = await new Promise<string>(resolve => {
+        const r = new FileReader();
+        r.onloadend = () => resolve(r.result as string);
+        r.readAsDataURL(blob);
+      });
+    } catch {}
+
+    const drawHeader = () => {
+      // Coral header band
+      doc.setFillColor(...coral);
+      doc.rect(0, 0, pageW, HDR, 'F');
+      if (logoB64) doc.addImage(logoB64, 'PNG', mg, 5, 22, 22);
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(16);
+      doc.text('SAMPLE COMPUTATION', pageW - mg, 15, { align: 'right' });
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.text(`${dateStr}  ·  ${timeStr}`, pageW - mg, 24, { align: 'right' });
+
+      // Seller info strip
+      doc.setFillColor(242, 242, 247);
+      doc.rect(0, HDR, pageW, STRIP, 'F');
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...lt);
+      doc.text('PREPARED BY', mg, HDR + 4.5);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...dark);
+      doc.text(sellerName || '—', mg, HDR + 9.5);
+      if (sellerContact) {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...lt);
+        doc.text(sellerContact, pageW - mg, HDR + 9.5, { align: 'right' });
+      }
+    };
+
+    const drawFooter = () => {
+      const boxW = pageW - mg * 2;
+      // DISCLAIMER label
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(...coral);
+      doc.text('DISCLAIMER', mg, DISC_Y);
+      // Body text (wrapped)
+      const discText =
+        'This is a computer-generated document. Prices, discounts, terms, and availability are ' +
+        'subject to change without prior notice. This computation is for reference purposes only ' +
+        'and does not constitute a binding offer or contract.';
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...lt);
+      const lines = doc.splitTextToSize(discText, boxW);
+      doc.text(lines, mg, DISC_Y + 4.5);
+      // Coral divider line
+      doc.setDrawColor(...coral); doc.setLineWidth(0.4);
+      doc.line(mg, DISC_Y + 16, pageW - mg, DISC_Y + 16);
+      // Generated date
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...lt);
+      doc.text(`Generated: ${dateStr}  at  ${timeStr}`, mg, DISC_Y + 21);
+    };
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+    let y = BODY_T;
+    const RH = 6; // row height mm
+
+    const secLabel = (t: string) => {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(...lt);
+      doc.text(t.toUpperCase(), mg, y); y += 5.5;
+    };
+    const row = (label: string, value: string, bold = false, color: [number,number,number] = dark) => {
+      doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.setFontSize(9.5); doc.setTextColor(...color);
+      doc.text(label, mg, y);
+      doc.text(value, pageW - mg, y, { align: 'right' });
+      y += RH;
+    };
+    const hr = () => {
+      doc.setDrawColor(229, 229, 234); doc.setLineWidth(0.25);
+      doc.line(mg, y + 1, pageW - mg, y + 1); y += 6;
+    };
+    const subHr = () => {
+      doc.setDrawColor(229, 229, 234); doc.setLineWidth(0.25);
+      doc.line(mg, y - 2, pageW - mg, y - 2); y += 4;
+    };
+
+    // ── One page per comparison ───────────────────────────────────────────────
+    comparisons.forEach((c, idx) => {
+      if (idx > 0) { doc.addPage(); }
+      drawHeader();
+      drawFooter();
+      y = BODY_T;
+
+      // Unit details — two columns
+      secLabel(`Computation ${idx + 1}`);
+      const col2 = mg + (pageW - mg * 2) / 2;
+      const uInfo: [string, string][] = [
+        ['Project', c.project],   ['Tower', c.tower],
+        ['Floor',   c.floor],     ['Unit No.', c.unitNo],
+        ['Unit Type', c.unitType || '—'], ['Area', `${c.unitArea} sqm`],
+      ];
+      for (let i = 0; i < uInfo.length; i += 2) {
+        const [ll, lv] = uInfo[i]; const pair = uInfo[i + 1];
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...lt);
+        doc.text(ll, mg, y); if (pair) doc.text(pair[0], col2, y); y += 3.5;
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(...dark);
+        doc.text(lv, mg, y); if (pair) doc.text(pair[1], col2, y); y += RH;
+      }
+
+      // Payment Scheme row — scheme name (coral) on left, term/DP detail on right
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...lt);
+      doc.text('Payment Scheme', mg, y); y += 3.5;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(...coral);
+      doc.text(c.schemeName, mg, y);
+      let termDetail = '';
+      if (c.paymentScheme === 'deferred_cash') termDetail = `${c.termMonths} months`;
+      else if (c.paymentScheme === 'spot_dp')       termDetail = `DP ${c.dpRate}`;
+      else if (c.paymentScheme === 'stretched_dp')  termDetail = `DP ${c.dpRate}  ·  ${c.termMonths} months`;
+      if (termDetail) {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...lt);
+        doc.text(termDetail, pageW - mg, y, { align: 'right' });
+      }
+      y += RH;
+      hr();
+
+      // Price Computation
+      const p = (n: number) => 'PHP ' + n.toLocaleString();
+      secLabel('Price Computation');
+      row('List Price', p(c.listPrice));
+      if (c.promoAmount > 0)   row(`Less: Promo Discount (${Math.round(c.promoPct)}%)`, p(c.promoAmount), false, grn);
+      if (c.paytermAmount > 0) row(`Less: Payterm Discount (${Number(c.paytermPctDisplay).toFixed(1)}%)`, p(c.paytermAmount), false, grn);
+      if (c.hicDiscount > 0)   row('Less: HIC Discount', p(c.hicDiscount), false, [94, 92, 230]);
+      subHr();
+      row('Net List Price', p(c.netListPrice), true);
+      hr();
+
+      // Taxes & Charges
+      secLabel('Taxes & Charges');
+      row(c.vat === 0 ? 'VAT (Exempt)' : 'VAT (12%)', p(c.vat));
+      row('Other Charges (7%)', p(c.otherCharges));
+      subHr();
+      row('Total Contract Price', p(c.totalContractPrice), true, coral);
+      hr();
+
+      // Fees
+      secLabel('Fees');
+      row('Reservation Fee', p(c.reservationFee));
+      if (!['spot_dp', 'stretched_dp'].includes(c.paymentScheme))
+        row('Retention Fee', p(RETENTION_FEE));
+      hr();
+
+      // Payment Summary
+      secLabel('Payment Summary');
+      if (c.paymentScheme === 'spot_cash' || c.paymentScheme === 'deferred_cash') {
+        row(`Net ${c.schemeName}`, p(c.netAmount));
+        if (c.paymentScheme === 'deferred_cash')
+          row(`Monthly Deferred (${c.termMonths} mo)`, p(c.monthlyDeferred) + '/mo', true, coral);
+      } else if (c.paymentScheme === 'spot_dp') {
+        row(`DP (${c.dpRate})`, p(c.dpAmount));
+        row(`Net ${c.schemeName}`, p(c.netSpotDP));
+        row('Balance for Financing', p(c.balanceForFinancing));
+        hr();
+        secLabel('Indicative Financing');
+        row('Bank (6.5% p.a., 20 yrs)', p(c.bankMonthly) + '/mo');
+        row('HDMF (6.25% p.a., 25 yrs)', p(c.hdmfMonthly) + '/mo');
+      } else if (c.paymentScheme === 'stretched_dp') {
+        row(`DP (${c.dpRate})`, p(c.dpAmount));
+        row(`Net ${c.schemeName}`, p(c.netSpotDP));
+        row(`Monthly DP (${c.termMonths} mo)`, p(c.monthlyStretchedDP) + '/mo', true, coral);
+        row('Balance for Financing', p(c.balanceForFinancing));
+        hr();
+        secLabel('Indicative Financing');
+        row('Bank (6.5% p.a., 20 yrs)', p(c.bankMonthly) + '/mo');
+        row('HDMF (6.25% p.a., 25 yrs)', p(c.hdmfMonthly) + '/mo');
+      }
+    });
+
+    doc.save(`SampleComputation_${Date.now()}.pdf`);
+  };
 
   useLayoutEffect(() => {
     const els = compHeaderRefs.current.filter(Boolean) as HTMLDivElement[];
@@ -259,9 +467,12 @@ export default function SampleComputationPage() {
   // Payterm data from DB
   const [allPayterms, setAllPayterms] = useState<PaytermRecord[]>([]);
 
+  // Fetch paytems when project + tower are both selected (deferred to after user interaction,
+  // which avoids the transient DNS failure that happens if fetched on mount)
   useEffect(() => {
+    if (!project || !tower) { setAllPayterms([]); return; }
     fetchAllPayterms().then(setAllPayterms).catch(console.error);
-  }, []);
+  }, [project, tower]);
 
   useEffect(() => {
     try {
@@ -270,15 +481,28 @@ export default function SampleComputationPage() {
     } catch {}
   }, []);
 
+  // Fetch reservation fee, VAT threshold & HIC target when selected unit changes; auto-set HIC
+  useEffect(() => {
+    if (!selectedUnit) return;
+    const pt = selectedUnit.product_type ?? 'Residential Unit';
+    fetchReservationFee(pt).then(setReservationFee).catch(() => setReservationFee(0));
+    setVatThreshold(undefined);
+    fetchVatThreshold(pt).then(setVatThreshold).catch(() => setVatThreshold(null));
+    fetchHicTarget(pt).then(setHicTarget).catch(() => setHicTarget(null));
+    setUseHIC(selectedUnit.hic === true);
+  }, [selectedUnit]);
+
   // Auto-reset paymentTerm when project/tower changes
   useEffect(() => {
     if (!project || !tower || allPayterms.length === 0) return;
     const deferredRecords = allPayterms.filter(
       p => p.project === project && p.tower === tower && p.payterm_scheme === 'Deferred Cash'
     );
-    const opts = deferredRecords
-      .map(p => p.payment_term ?? (p.term ? `${p.term} months` : null))
-      .filter(Boolean) as string[];
+    const opts = [...new Set(
+      deferredRecords.map(p => p.term).filter(Boolean) as string[]
+    )]
+      .sort((a, b) => parseInt(a) - parseInt(b))
+      .map(t => `${t} months`);
     if (opts.length > 0 && !opts.includes(paymentTerm)) {
       setPaymentTerm(opts[0]);
     }
@@ -299,6 +523,20 @@ export default function SampleComputationPage() {
       setDpRate(opts[0]);
     }
   }, [allPayterms, project, tower, paymentScheme]);
+
+  // Auto-reset stretchedDpTerm when dpRate or project/tower changes
+  useEffect(() => {
+    if (!project || !tower || allPayterms.length === 0 || paymentScheme !== 'stretched_dp') return;
+    const records = allPayterms.filter(
+      p => p.project === project && p.tower === tower && p.payterm_scheme === 'Stretched DP' && p.dp_percent === dpRate
+    );
+    const opts = records
+      .map(p => p.payment_term ?? (p.term ? `${p.term} months` : null))
+      .filter(Boolean) as string[];
+    if (opts.length > 0 && !opts.includes(stretchedDpTerm)) {
+      setStretchedDpTerm(opts[0]);
+    }
+  }, [allPayterms, project, tower, paymentScheme, dpRate]);
 
   function handleProjectChange(v: string) {
     setProject(v); setTower('');
@@ -358,8 +596,8 @@ export default function SampleComputationPage() {
 
       {/* Header card */}
       <GlassCard strong className="p-5 flex items-center gap-4">
-        <div className="w-12 h-12 rounded-2xl bg-[rgba(232,99,74,0.12)] flex items-center justify-center shrink-0">
-          <Calculator size={22} className="text-[#E8634A]" />
+        <div className="w-12 h-12 rounded-2xl bg-[rgba(192,61,37,0.12)] flex items-center justify-center shrink-0">
+          <Calculator size={22} className="text-[#C03D25]" />
         </div>
         <div className="min-w-0">
           <p className="text-[#1C1C1E] font-semibold">{STEP_HEADERS[step].title}</p>
@@ -403,7 +641,7 @@ export default function SampleComputationPage() {
             <div className="flex items-center gap-1.5 mb-3 px-1">
               <span className="text-[#1C1C1E] text-sm font-medium flex items-center gap-0.5">
                 Unit Category
-                <span className="text-[#E8634A] text-xs leading-none">*</span>
+                <span className="text-[#C03D25] text-xs leading-none">*</span>
               </span>
             </div>
             <div className="flex gap-2">
@@ -420,11 +658,11 @@ export default function SampleComputationPage() {
                     }}
                     className={`flex-1 flex flex-col items-center gap-1.5 py-3 rounded-2xl border-2 text-xs font-semibold transition-all ${
                       active
-                        ? 'bg-[#E8634A]/10 border-[#E8634A] text-[#E8634A]'
-                        : 'bg-white border-[#E5E5EA] text-[#6C6C70] hover:border-[#E8634A]/40'
+                        ? 'bg-[#C03D25]/10 border-[#C03D25] text-[#C03D25]'
+                        : 'bg-white border-[#E5E5EA] text-[#6C6C70] hover:border-[#C03D25]/40'
                     }`}
                   >
-                    <span className={active ? 'text-[#E8634A]' : 'text-[#8E8E93]'}>{icon}</span>
+                    <span className={active ? 'text-[#C03D25]' : 'text-[#8E8E93]'}>{icon}</span>
                     {label}
                   </button>
                 );
@@ -513,8 +751,8 @@ export default function SampleComputationPage() {
               { label: 'Booked',      bg: 'bg-[#FEE2E2]', text: 'text-[#991B1B]', count: counts.booked },
               { label: 'Reserved',    bg: 'bg-[#FFEDD5]', text: 'text-[#9A3412]', count: counts.reserved },
               { label: 'Unavailable', bg: 'bg-[#E5E7EB]', text: 'text-[#6B7280]', count: counts.unavailable },
-              { label: 'N/A',         bg: 'bg-[#374151]', text: 'text-white',      count: naCount },
             ];
+            const totalUnits = counts.available + counts.booked + counts.reserved + counts.unavailable;
 
             const availableUnits = filtered
               .filter(u => u.status?.toLowerCase() === 'available')
@@ -523,16 +761,19 @@ export default function SampleComputationPage() {
             return (
               <GlassCard className="p-4 space-y-3">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[#E8634A]"><BarChart3 size={13} /></span>
-                    <p className="text-[#6C6C70] text-[11px] font-semibold uppercase tracking-wider">Availability Chart</p>
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[#C03D25]"><BarChart3 size={13} /></span>
+                      <p className="text-[#6C6C70] text-[11px] font-semibold uppercase tracking-wider">Availability Chart</p>
+                    </div>
+                    <p className="text-[#1C1C1E] text-[11px] font-medium mt-0.5 pl-[19px]">Total no of units: {totalUnits}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <button type="button" onClick={() => setViewMode('chart')}
-                      className={`p-2.5 rounded-xl border-2 transition-all ${viewMode === 'chart' ? 'bg-[#E8634A]/10 border-[#E8634A] text-[#E8634A]' : 'border-[#E5E5EA] text-[#8E8E93]'}`}
+                      className={`p-2.5 rounded-xl border-2 transition-all ${viewMode === 'chart' ? 'bg-[#C03D25]/10 border-[#C03D25] text-[#C03D25]' : 'border-[#E5E5EA] text-[#8E8E93]'}`}
                       title="Chart View"><BarChart3 size={18} /></button>
                     <button type="button" onClick={() => setViewMode('grid')}
-                      className={`p-2.5 rounded-xl border-2 transition-all ${viewMode === 'grid' ? 'bg-[#E8634A]/10 border-[#E8634A] text-[#E8634A]' : 'border-[#E5E5EA] text-[#8E8E93]'}`}
+                      className={`p-2.5 rounded-xl border-2 transition-all ${viewMode === 'grid' ? 'bg-[#C03D25]/10 border-[#C03D25] text-[#C03D25]' : 'border-[#E5E5EA] text-[#8E8E93]'}`}
                       title="Grid View"><Grid3X3 size={18} /></button>
                   </div>
                 </div>
@@ -604,7 +845,7 @@ export default function SampleComputationPage() {
                               ) : null;
                             })()}
                             <div className="flex items-center gap-1 min-w-0 pr-10">
-                              {catIcon && <span className="text-[#E8634A] shrink-0" style={{ fontSize: 12 }}>{catIcon}</span>}
+                              {catIcon && <span className="text-[#C03D25] shrink-0" style={{ fontSize: 12 }}>{catIcon}</span>}
                               <span className="text-sm font-bold text-[#1C1C1E] leading-tight truncate">{u.floor}{u.unit_no}</span>
                             </div>
                             <div className="space-y-0.5">
@@ -615,7 +856,7 @@ export default function SampleComputationPage() {
                             <div className="border-t border-black/[0.08]" />
                             <div className="flex items-center justify-between">
                               <span className="text-[#8E8E93] text-xs font-semibold uppercase tracking-wide">Price</span>
-                              <span className="text-[#E8634A] text-sm font-bold">₱{Number(u.total_list_price).toLocaleString()}</span>
+                              <span className="text-[#C03D25] text-sm font-bold">₱{Number(u.total_list_price).toLocaleString()}</span>
                             </div>
                           </div>
                         );
@@ -645,12 +886,12 @@ export default function SampleComputationPage() {
         const spotCashDiscount = spotCashRecord?.discount ?? 0;
 
         const deferredCashRecords = filteredPayterms.filter(p => p.payterm_scheme === 'Deferred Cash');
-        const deferredTermOptions = deferredCashRecords
-          .map(p => p.payment_term ?? (p.term ? `${p.term} months` : null))
-          .filter(Boolean) as string[];
-        const deferredRecord   = deferredCashRecords.find(
-          p => (p.payment_term ?? (p.term ? `${p.term} months` : '')) === paymentTerm
-        );
+        const deferredTermOptions = [...new Set(
+          deferredCashRecords.map(p => p.term).filter(Boolean) as string[]
+        )]
+          .sort((a, b) => parseInt(a) - parseInt(b))
+          .map(t => `${t} months`);
+        const deferredRecord   = deferredCashRecords.find(p => p.term === String(parseInt(paymentTerm)));
         const deferredDiscount = deferredRecord?.discount ?? 0;
 
         const spotDpRecords     = filteredPayterms.filter(p => p.payterm_scheme === 'Spot DP');
@@ -662,6 +903,11 @@ export default function SampleComputationPage() {
         const stretchedDpRateOptions = stretchedDpRecords.map(p => p.dp_percent).filter(Boolean) as string[];
         const stretchedDpRecord      = stretchedDpRecords.find(p => p.dp_percent === dpRate);
         const stretchedDpDiscount    = stretchedDpRecord?.discount ?? 0;
+        const stretchedDpTermOptions = stretchedDpRecords
+          .filter(p => p.dp_percent === dpRate)
+          .map(p => p.payment_term ?? (p.term ? `${p.term} months` : null))
+          .filter(Boolean) as string[];
+        const stretchedTermMonths = parseInt(stretchedDpTerm) || 54;
 
         const paytermRate = paymentScheme === 'deferred_cash' ? deferredDiscount / 100
           : paymentScheme === 'spot_dp'      ? spotDpDiscount / 100
@@ -673,20 +919,20 @@ export default function SampleComputationPage() {
           : spotCashDiscount;
         const paytermAmount      = Math.round(listPrice * paytermRate);
         const nlpBeforeHIC       = listPrice - promoAmount - paytermAmount;
-        const showHIC            = userRole === 'admin' && unitCategory === 'Residential';
-        const hicDiscount        = (useHIC && showHIC) ? Math.max(0, nlpBeforeHIC - HIC_TARGET) : 0;
+        const showHIC            = userRole === 'admin' && unitCategory === 'Residential' && selectedUnit.hic === true && hicTarget != null;
+        const hicDiscount        = (useHIC && showHIC && hicTarget != null) ? Math.max(0, nlpBeforeHIC - hicTarget) : 0;
         const netListPrice       = nlpBeforeHIC - hicDiscount;
-        const vat                = Math.round(netListPrice * VAT_RATE);
+        const vat                = (vatThreshold != null) ? computeVat(netListPrice, vatThreshold) : 0;
         const otherCharges       = Math.round(netListPrice * OTHER_CHARGES_RATE);
         const totalContractPrice = netListPrice + vat + otherCharges;
-        const netAmount          = totalContractPrice - RESERVATION_FEE - RETENTION_FEE;
+        const netAmount          = totalContractPrice - reservationFee - RETENTION_FEE;
         const monthlyDeferred    = paymentScheme === 'deferred_cash' ? Math.round(netAmount / termMonths) : 0;
 
         const dpRateDecimal       = parseFloat(dpRate) / 100;
         const dpAmount            = Math.round(totalContractPrice * dpRateDecimal);
-        const netSpotDP           = dpAmount - RESERVATION_FEE;
-        const balanceForFinancing = totalContractPrice - RESERVATION_FEE - netSpotDP;
-        const monthlyStretchedDP  = Math.round(netSpotDP / 54);
+        const netSpotDP           = dpAmount - reservationFee;
+        const balanceForFinancing = totalContractPrice - reservationFee - netSpotDP;
+        const monthlyStretchedDP  = Math.round(netSpotDP / stretchedTermMonths);
         const bankMonthly         = calcMonthlyAmort(balanceForFinancing, 0.065, 20);
         const hdmfMonthly         = calcMonthlyAmort(balanceForFinancing, 0.0625, 25);
 
@@ -702,19 +948,34 @@ export default function SampleComputationPage() {
             floor: selectedUnit.floor, unitNo: selectedUnit.unit_no,
             inventoryCode: selectedUnit.inventory_code ?? null,
             unitType: selectedUnit.unit_type || '', unitArea: selectedUnit.unit_area,
-            unitCategory, paymentScheme, schemeName, dpRate, paymentTerm, termMonths,
+            unitCategory, paymentScheme, schemeName, dpRate, paymentTerm,
+            termMonths: paymentScheme === 'stretched_dp' ? stretchedTermMonths : termMonths,
             listPrice, promoAmount, promoPct, employeeAmount: 0, paytermAmount, paytermPctDisplay,
             hicDiscount,
             netListPrice, vat, otherCharges, totalContractPrice,
             netAmount, monthlyDeferred, dpAmount, netSpotDP,
             balanceForFinancing, monthlyStretchedDP, bankMonthly, hdmfMonthly,
+            reservationFee,
           }]);
           goToStep(2);
         };
 
+        const vatUnconfigured = vatThreshold === null;
+        const vatLoading = vatThreshold === undefined;
+        const vatLabel = vatLoading ? 'VAT (loading…)' : vatUnconfigured ? 'VAT (not configured)' : vat === 0 ? 'VAT (Exempt)' : 'VAT (12%)';
+
         const pct = promoPct > 0 ? promoPct : null;
         return (
           <>
+            {/* VAT config error banner */}
+            {vatUnconfigured && (
+              <div className="flex items-start gap-3 px-4 py-3 rounded-2xl" style={{ background: 'rgba(255,59,48,0.08)', border: '1px solid rgba(255,59,48,0.2)' }}>
+                <AlertTriangle size={16} className="text-[#FF3B30] shrink-0 mt-0.5" />
+                <p className="text-xs text-[#FF3B30] leading-snug">
+                  <span className="font-bold">VAT not configured</span> for product type <span className="font-semibold">"{selectedUnit.product_type ?? 'Residential Unit'}"</span>. Please configure it in Admin &gt; VAT Settings. VAT has been set to ₱0 for this computation.
+                </p>
+              </div>
+            )}
             {/* Card 1: Unit Info */}
             <GlassCard className="px-4 py-1 relative overflow-hidden">
               {pct && (
@@ -725,7 +986,7 @@ export default function SampleComputationPage() {
                 </div>
               )}
               <div className="flex items-center gap-2 py-3 pr-12 border-b border-black/[0.06]">
-                {catIcon && <span className="text-[#E8634A] shrink-0">{catIcon}</span>}
+                {catIcon && <span className="text-[#C03D25] shrink-0">{catIcon}</span>}
                 <span className="text-base font-bold text-[#1C1C1E]">{selectedUnit.floor}{selectedUnit.unit_no}</span>
               </div>
               <div className="flex gap-4 py-3 border-b border-black/[0.06]">
@@ -765,17 +1026,17 @@ export default function SampleComputationPage() {
             {/* Card 2: Payment Calculator */}
             <GlassCard className="p-4 space-y-3">
               <div className="flex items-center gap-2">
-                <span className="text-[#E8634A] shrink-0"><Calculator size={16} /></span>
+                <span className="text-[#C03D25] shrink-0"><Calculator size={16} /></span>
                 <span className="text-sm font-semibold text-[#1C1C1E] flex-1">Payment Calculator</span>
                 <button
                   type="button"
                   onClick={doAddToComparison}
-                  className="flex items-center gap-1 text-[#E8634A] text-[11px] font-semibold border border-[#E8634A]/50 rounded-xl px-2.5 py-1.5 active:bg-[#E8634A]/10 shrink-0"
+                  className="flex items-center gap-1 text-[#C03D25] text-[11px] font-semibold border border-[#C03D25]/50 rounded-xl px-2.5 py-1.5 active:bg-[#C03D25]/10 shrink-0"
                 >
                   <Plus size={11} />
                   Add to Comparison
                   {comparisons.length > 0 && (
-                    <span className="bg-[#E8634A] text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center ml-0.5">
+                    <span className="bg-[#C03D25] text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center ml-0.5">
                       {comparisons.length}
                     </span>
                   )}
@@ -795,11 +1056,11 @@ export default function SampleComputationPage() {
                       onClick={() => setPaymentScheme(value)}
                       className={`flex flex-col items-center gap-1.5 py-3 px-1 rounded-2xl border-2 text-[10px] font-semibold transition-all text-center leading-tight ${
                         active
-                          ? 'bg-[#E8634A]/10 border-[#E8634A] text-[#E8634A]'
+                          ? 'bg-[#C03D25]/10 border-[#C03D25] text-[#C03D25]'
                           : 'bg-white border-[#E5E5EA] text-[#6C6C70]'
                       }`}
                     >
-                      <span className={active ? 'text-[#E8634A]' : 'text-[#8E8E93]'}>{icon}</span>
+                      <span className={active ? 'text-[#C03D25]' : 'text-[#8E8E93]'}>{icon}</span>
                       {label}
                     </button>
                   );
@@ -816,6 +1077,13 @@ export default function SampleComputationPage() {
                   <InlineSelect label="DP Rate" value={dpRate}
                     options={paymentScheme === 'spot_dp' ? spotDpRateOptions : stretchedDpRateOptions}
                     onChange={setDpRate} placeholder="Select DP rate" icon={<CreditCard size={16} />} />
+                </div>
+              )}
+              {paymentScheme === 'stretched_dp' && stretchedDpTermOptions.length > 0 && (
+                <div className="border border-black/[0.06] rounded-2xl bg-white">
+                  <InlineSelect label="DP Term" value={stretchedDpTerm}
+                    options={stretchedDpTermOptions}
+                    onChange={setStretchedDpTerm} placeholder="Select DP term" icon={<Clock size={16} />} />
                 </div>
               )}
 
@@ -839,7 +1107,7 @@ export default function SampleComputationPage() {
                     <p className={`text-sm font-semibold ${useHIC ? 'text-[#5E5CE6]' : 'text-[#1C1C1E]'}`}>
                       Home Improvement Contract
                     </p>
-                    <p className="text-[10px] text-[#8E8E93]">Adjusts Net List Price to ₱3,600,000</p>
+                    <p className="text-[10px] text-[#8E8E93]">Adjusts Net List Price to ₱{hicTarget != null ? hicTarget.toLocaleString() : '—'}</p>
                   </div>
                 </button>
               )}
@@ -847,8 +1115,8 @@ export default function SampleComputationPage() {
               {/* Breakdown */}
               <div className="bg-white rounded-2xl border border-black/[0.06] overflow-hidden">
                 <div className="flex items-center gap-3 p-4 border-b border-black/[0.06]">
-                  <div className="w-10 h-10 rounded-xl bg-[rgba(232,99,74,0.12)] flex items-center justify-center shrink-0">
-                    <Calculator size={18} className="text-[#E8634A]" />
+                  <div className="w-10 h-10 rounded-xl bg-[rgba(192,61,37,0.12)] flex items-center justify-center shrink-0">
+                    <Calculator size={18} className="text-[#C03D25]" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-[#1C1C1E]">{schemeName}</p>
@@ -878,7 +1146,7 @@ export default function SampleComputationPage() {
                   )}
                   {hicDiscount > 0 && (
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-[#5E5CE6]">Less: HIC Discount</span>
+                      <span className="text-sm text-[#5E5CE6]">Less: HIC Discount ({nlpBeforeHIC > 0 ? (hicDiscount / nlpBeforeHIC * 100).toFixed(1) : 0}%)</span>
                       <span className="text-sm font-medium text-[#5E5CE6]">(₱{hicDiscount.toLocaleString()})</span>
                     </div>
                   )}
@@ -892,7 +1160,7 @@ export default function SampleComputationPage() {
                 <div className="px-4 pt-3 pb-4 space-y-2.5 border-b border-black/[0.06]">
                   <p className="text-[#8E8E93] text-[10px] font-semibold uppercase tracking-wider">Taxes & Charges</p>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-[#1C1C1E]">VAT (12%)</span>
+                    <span className="text-sm text-[#1C1C1E]">{vatLabel}</span>
                     <span className="text-sm font-medium text-[#1C1C1E]">₱{vat.toLocaleString()}</span>
                   </div>
                   <div className="flex items-center justify-between">
@@ -900,8 +1168,8 @@ export default function SampleComputationPage() {
                     <span className="text-sm font-medium text-[#1C1C1E]">₱{otherCharges.toLocaleString()}</span>
                   </div>
                   <div className="flex items-center justify-between pt-2 border-t border-black/[0.06]">
-                    <span className="text-sm font-bold text-[#E8634A]">Total Contract Price</span>
-                    <span className="text-sm font-bold text-[#E8634A]">₱{totalContractPrice.toLocaleString()}</span>
+                    <span className="text-sm font-bold text-[#C03D25]">Total Contract Price</span>
+                    <span className="text-sm font-bold text-[#C03D25]">₱{totalContractPrice.toLocaleString()}</span>
                   </div>
                 </div>
 
@@ -910,7 +1178,7 @@ export default function SampleComputationPage() {
                   <p className="text-[#8E8E93] text-[10px] font-semibold uppercase tracking-wider">Fees</p>
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-[#1C1C1E]">Reservation Fee</span>
-                    <span className="text-sm font-medium text-[#1C1C1E]">₱{RESERVATION_FEE.toLocaleString()}</span>
+                    <span className="text-sm font-medium text-[#1C1C1E]">₱{reservationFee.toLocaleString()}</span>
                   </div>
                   {paymentScheme !== 'spot_dp' && paymentScheme !== 'stretched_dp' && (
                     <div className="flex items-center justify-between">
@@ -934,8 +1202,8 @@ export default function SampleComputationPage() {
                         <span className="text-sm font-semibold text-[#1C1C1E]">₱{netSpotDP.toLocaleString()}</span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-sm font-bold text-[#1C1C1E]">Monthly Downpayment (54 mo)</span>
-                        <span className="text-sm font-bold text-[#E8634A]">₱{monthlyStretchedDP.toLocaleString()}</span>
+                        <span className="text-sm font-bold text-[#1C1C1E]">Monthly Downpayment ({stretchedTermMonths} mo)</span>
+                        <span className="text-sm font-bold text-[#C03D25]">₱{monthlyStretchedDP.toLocaleString()}</span>
                       </div>
                       <div className="flex items-center justify-between pt-1 border-t border-black/[0.06]">
                         <span className="text-sm text-[#1C1C1E]">Balance for Financing</span>
@@ -995,11 +1263,12 @@ export default function SampleComputationPage() {
                     {paymentScheme === 'deferred_cash' && (
                       <div className="flex items-center justify-between pt-1">
                         <span className="text-sm font-bold text-[#1C1C1E]">Monthly Deferred ({termMonths} mo)</span>
-                        <span className="text-sm font-bold text-[#E8634A]">₱{monthlyDeferred.toLocaleString()}</span>
+                        <span className="text-sm font-bold text-[#C03D25]">₱{monthlyDeferred.toLocaleString()}</span>
                       </div>
                     )}
                   </div>
                 )}
+
               </div>
             </GlassCard>
 
@@ -1008,7 +1277,7 @@ export default function SampleComputationPage() {
               <button
                 type="button"
                 onClick={() => goToStep(2)}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-[#E8634A] text-[#E8634A] text-sm font-semibold active:bg-[#E8634A]/10"
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-[#C03D25] text-[#C03D25] text-sm font-semibold active:bg-[#C03D25]/10"
               >
                 <GitCompare size={16} />
                 View Comparison ({comparisons.length})
@@ -1026,14 +1295,14 @@ export default function SampleComputationPage() {
               <GitCompare size={32} className="text-[#C7C7CC] mx-auto" />
               <p className="text-[#6C6C70] text-sm">No comparisons yet.</p>
               <p className="text-[#8E8E93] text-xs">Go back and tap "+ Add to Comparison".</p>
-              <button onClick={() => goToStep(1)} className="text-[#E8634A] text-sm font-semibold">← Back to Computation</button>
+              <button onClick={() => goToStep(1)} className="text-[#C03D25] text-sm font-semibold">← Back to Computation</button>
             </GlassCard>
           ) : (
             <div className="overflow-x-auto pb-2" style={{ WebkitOverflowScrolling: 'touch' }}>
               <div className="flex gap-2" style={{ minWidth: `${comparisons.length * 172 + (comparisons.length - 1) * 8}px` }}>
                 {comparisons.map((c, ci) => (
                   <div key={c.id} className="shrink-0 w-[172px] bg-white rounded-2xl border border-black/[0.06] shadow-md flex flex-col overflow-hidden" style={{ maxHeight: '72vh' }}>
-                    <div ref={el => { compHeaderRefs.current[ci] = el; }} className="relative flex-shrink-0 px-4 pt-4 pb-3 bg-[rgba(232,99,74,0.06)] border-b border-black/[0.08]">
+                    <div ref={el => { compHeaderRefs.current[ci] = el; }} className="relative flex-shrink-0 px-4 pt-4 pb-3 bg-[rgba(192,61,37,0.06)] border-b border-black/[0.08]">
                       <button
                         type="button"
                         onClick={() => setComparisons(prev => prev.filter(x => x.id !== c.id))}
@@ -1042,13 +1311,13 @@ export default function SampleComputationPage() {
                         <X size={12} />
                       </button>
                       <div className="flex items-center gap-1.5 pr-7">
-                        <span className="text-[#E8634A] shrink-0">
+                        <span className="text-[#C03D25] shrink-0">
                           {UNIT_CATEGORIES.find(cat => cat.value === c.unitCategory)?.icon}
                         </span>
                         <p className="text-sm font-bold text-[#1C1C1E] leading-tight">{c.project}</p>
                       </div>
                       <p className="text-[11px] text-[#8E8E93] mt-1">{c.unitType || '—'}</p>
-                      <p className="text-[12px] font-bold text-[#E8634A] mt-0.5">{c.schemeName}</p>
+                      <p className="text-[12px] font-bold text-[#C03D25] mt-0.5">{c.schemeName}</p>
                       <p className={`text-[11px] font-semibold mt-0.5 ${c.promoPct > 0 ? 'text-[#166534]' : 'invisible'}`}>
                         {Math.round(c.promoPct)}% discount
                       </p>
@@ -1067,7 +1336,7 @@ export default function SampleComputationPage() {
                               return (
                                 <div key={row.label} className="flex items-center justify-between px-4 py-2.5 border-b border-black/[0.04]">
                                   <span className="text-[11px] text-[#8E8E93] leading-tight mr-2 shrink-0">{row.label}</span>
-                                  <span className={`text-[11px] leading-tight text-right ${row.bold ? 'font-bold' : 'font-medium'} ${row.coral ? 'text-[#E8634A]' : row.green ? 'text-[#166534]' : 'text-[#1C1C1E]'}`}>
+                                  <span className={`text-[11px] leading-tight text-right ${row.bold ? 'font-bold' : 'font-medium'} ${row.coral ? 'text-[#C03D25]' : row.green ? 'text-[#166534]' : 'text-[#1C1C1E]'}`}>
                                     {val}
                                   </span>
                                 </div>
@@ -1083,13 +1352,216 @@ export default function SampleComputationPage() {
             </div>
           )}
 
+          {comparisons.length > 0 && (
+            <button
+              type="button"
+              onClick={generateComparisonPDF}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-[#C03D25] text-[#C03D25] text-sm font-semibold active:bg-[#C03D25]/10 transition-colors"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
+              </svg>
+              Export PDF
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => router.push('/home')}
-            className="w-full py-4 rounded-2xl bg-[#E8634A] text-white text-sm font-bold shadow-[0_4px_16px_rgba(232,99,74,0.35)] active:opacity-80 transition-opacity"
+            className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity"
           >
             Done
           </button>
+
+          {/* ── Futuristic Floating Add Button ── */}
+          <>
+            {/* Keyframe styles */}
+            <style>{`
+              @keyframes orb-pulse {
+                0%   { box-shadow: 0 4px 24px rgba(192,61,37,0.55), 0 0 0 0 rgba(192,61,37,0.45); }
+                60%  { box-shadow: 0 4px 24px rgba(192,61,37,0.55), 0 0 0 14px rgba(192,61,37,0); }
+                100% { box-shadow: 0 4px 24px rgba(192,61,37,0.55), 0 0 0 0  rgba(192,61,37,0); }
+              }
+              @keyframes sheet-up {
+                from { transform: translateY(100%); }
+                to   { transform: translateY(0); }
+              }
+              @keyframes card-in {
+                from { opacity: 0; transform: translateY(10px); }
+                to   { opacity: 1; transform: translateY(0); }
+              }
+              @keyframes shimmer {
+                0%   { transform: translateX(-100%) skewX(-15deg); }
+                100% { transform: translateX(250%) skewX(-15deg); }
+              }
+            `}</style>
+
+            {/* Backdrop */}
+            {showAddSheet && (
+              <div
+                onClick={() => setShowAddSheet(false)}
+                style={{
+                  position: 'fixed', inset: 0, zIndex: 48,
+                  background: 'rgba(0,0,0,0.65)',
+                  backdropFilter: 'blur(6px)',
+                  WebkitBackdropFilter: 'blur(6px)',
+                }}
+              />
+            )}
+
+            {/* Action Sheet */}
+            {showAddSheet && (
+              <div
+                style={{
+                  position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50,
+                  borderRadius: '28px 28px 0 0',
+                  padding: '0 20px 40px',
+                  background: '#F2F2F7',
+                  borderTop: '1.5px solid #C03D25',
+                  boxShadow: '0 -8px 48px rgba(192,61,37,0.2), inset 0 1px 0 rgba(192,61,37,0.5)',
+                  animation: 'sheet-up 0.38s cubic-bezier(0.32,0.72,0,1) forwards',
+                }}
+              >
+                {/* Handle */}
+                <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 12, paddingBottom: 20 }}>
+                  <div style={{ width: 40, height: 4, borderRadius: 99, background: '#C03D25' }} />
+                </div>
+
+                {/* Label */}
+                <p style={{
+                  textAlign: 'center', fontSize: 10, fontWeight: 700,
+                  letterSpacing: '0.18em', textTransform: 'uppercase',
+                  color: '#C03D25', marginBottom: 20,
+                }}>
+                  Choose Action
+                </p>
+
+                {/* Card: New Unit */}
+                <button
+                  type="button"
+                  onClick={() => { setShowAddSheet(false); goToStep(0); }}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center', gap: 16,
+                    padding: '14px 16px', borderRadius: 20, marginBottom: 8,
+                    background: '#FFFFFF',
+                    border: '1px solid rgba(192,61,37,0.25)',
+                    position: 'relative', overflow: 'hidden',
+                    animation: 'card-in 0.32s ease 0.08s both',
+                  }}
+                >
+                  {/* shimmer sweep */}
+                  <div style={{
+                    position: 'absolute', top: 0, left: 0, width: '40%', height: '100%',
+                    background: 'linear-gradient(90deg, transparent, rgba(192,61,37,0.1), transparent)',
+                    animation: 'shimmer 1.1s ease 0.25s both',
+                    pointerEvents: 'none',
+                  }} />
+                  <div style={{
+                    width: 46, height: 46, borderRadius: 14, flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: 'rgba(192,61,37,0.2)',
+                    boxShadow: '0 0 18px rgba(192,61,37,0.4)',
+                    border: '1px solid rgba(192,61,37,0.4)',
+                  }}>
+                    <Building2 size={20} color="#C03D25" />
+                  </div>
+                  <div style={{ flex: 1, textAlign: 'left' }}>
+                    <p style={{ color: '#1C1C1E', fontWeight: 700, fontSize: 14, marginBottom: 3 }}>New Unit</p>
+                    <p style={{ color: '#8E8E93', fontSize: 11 }}>Pick a different unit from inventory</p>
+                  </div>
+                  <ChevronDown size={15} color="#C03D25" style={{ transform: 'rotate(-90deg)', flexShrink: 0 }} />
+                </button>
+
+                {/* Divider */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                  <div style={{ flex: 1, height: 1, background: '#E5E5EA' }} />
+                  <div style={{ width: 6, height: 6, borderRadius: 99, background: '#C03D25', boxShadow: '0 0 8px rgba(192,61,37,0.9)' }} />
+                  <div style={{ flex: 1, height: 1, background: '#E5E5EA' }} />
+                </div>
+
+                {/* Card: New Payterm */}
+                <button
+                  type="button"
+                  onClick={() => { setShowAddSheet(false); goToStep(1); }}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center', gap: 16,
+                    padding: '14px 16px', borderRadius: 20,
+                    background: '#FFFFFF',
+                    border: '1px solid rgba(192,61,37,0.25)',
+                    position: 'relative', overflow: 'hidden',
+                    animation: 'card-in 0.32s ease 0.18s both',
+                  }}
+                >
+                  {/* shimmer sweep */}
+                  <div style={{
+                    position: 'absolute', top: 0, left: 0, width: '40%', height: '100%',
+                    background: 'linear-gradient(90deg, transparent, rgba(192,61,37,0.1), transparent)',
+                    animation: 'shimmer 1.1s ease 0.38s both',
+                    pointerEvents: 'none',
+                  }} />
+                  <div style={{
+                    width: 46, height: 46, borderRadius: 14, flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: 'rgba(192,61,37,0.2)',
+                    boxShadow: '0 0 18px rgba(192,61,37,0.4)',
+                    border: '1px solid rgba(192,61,37,0.4)',
+                  }}>
+                    <Calculator size={20} color="#C03D25" />
+                  </div>
+                  <div style={{ flex: 1, textAlign: 'left' }}>
+                    <p style={{ color: '#1C1C1E', fontWeight: 700, fontSize: 14, marginBottom: 3 }}>New Payterm</p>
+                    <p style={{ color: '#8E8E93', fontSize: 11 }}>Change scheme or term for current unit</p>
+                  </div>
+                  <ChevronDown size={15} color="#C03D25" style={{ transform: 'rotate(-90deg)', flexShrink: 0 }} />
+                </button>
+
+                {/* Cancel */}
+                <button
+                  type="button"
+                  onClick={() => setShowAddSheet(false)}
+                  style={{
+                    width: '100%', paddingTop: 20, paddingBottom: 4,
+                    fontSize: 13, fontWeight: 500, color: '#8E8E93',
+                    textAlign: 'center',
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+
+            {/* Floating Orb Button */}
+            <button
+              type="button"
+              onClick={() => setShowAddSheet(p => !p)}
+              style={{
+                position: 'fixed',
+                bottom: 'calc(1.75rem + env(safe-area-inset-bottom, 0px))',
+                right: '1.25rem',
+                zIndex: 49,
+                width: 56, height: 56,
+                borderRadius: 99,
+                background: 'radial-gradient(circle at 35% 35%, #E04A2A, #C03D25)',
+                boxShadow: showAddSheet
+                  ? '0 4px 24px rgba(192,61,37,0.4)'
+                  : undefined,
+                animation: showAddSheet ? undefined : 'orb-pulse 2.2s ease-in-out infinite',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                transition: 'transform 0.18s ease',
+              }}
+              onPointerDown={e => (e.currentTarget.style.transform = 'scale(0.9)')}
+              onPointerUp={e => (e.currentTarget.style.transform = 'scale(1)')}
+              onPointerLeave={e => (e.currentTarget.style.transform = 'scale(1)')}
+            >
+              <span style={{
+                display: 'flex',
+                transform: showAddSheet ? 'rotate(45deg)' : 'rotate(0deg)',
+                transition: 'transform 0.28s cubic-bezier(0.34,1.56,0.64,1)',
+              }}>
+                <Plus size={24} color="#fff" />
+              </span>
+            </button>
+          </>
         </>
       )}
 
