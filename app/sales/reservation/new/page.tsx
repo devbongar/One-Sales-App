@@ -858,7 +858,12 @@ export default function NewReservationPage() {
                 </div>
 
                 {/* Megawide */}
-                <div className="flex items-center gap-3 py-3 px-1">
+                <button
+                  type="button"
+                  disabled={!!selectedClientRecord}
+                  onClick={() => setIsMegawide(p => !p)}
+                  className="w-full flex items-center gap-3 py-3 px-1 text-left active:opacity-70"
+                >
                   <span className="text-[#C03D25] shrink-0"><Briefcase size={16} /></span>
                   <span className="flex-1 text-[#1C1C1E] text-sm font-medium">Megawide Employee</span>
                   <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 ${
@@ -866,7 +871,7 @@ export default function NewReservationPage() {
                   }`}>
                     {isMegawide && <Check size={11} className="text-white" />}
                   </div>
-                </div>
+                </button>
               </>
             )}
           </GlassCard>
