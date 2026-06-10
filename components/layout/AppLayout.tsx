@@ -89,7 +89,10 @@ export default function AppLayout({ children, showHeader = true, title, transpar
         </header>
       )}
 
-      <main className={`flex-1 ${transparent ? '' : 'overflow-y-auto'} ${showHeader ? (transparent ? 'pt-0' : 'pt-[88px]') : ''}`}>
+      <main
+        className={`flex-1 ${transparent ? '' : 'overflow-y-auto'}`}
+        style={showHeader && !transparent ? { paddingTop: 'calc(env(safe-area-inset-top, 0px) + 64px)' } : undefined}
+      >
         {children}
       </main>
     </div>
