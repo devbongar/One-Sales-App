@@ -78,7 +78,7 @@ export default function BookingPage() {
     supabase
       .from('reservations')
       .select('seller_name, project')
-      .eq('status', 'Reserved-paid')
+      .in('status', ['Reserved-paid', 'Approved'])
       .then(({ data }) => {
         if (!data) return;
         setSellerOptions([...new Set(data.map(r => r.seller_name).filter(Boolean))] as string[]);
@@ -92,7 +92,7 @@ export default function BookingPage() {
     let query = supabase
       .from('reservations')
       .select('reservation_id, client_name, project, inventory_code, unit_type, status, seller_name, payment_proof_url')
-      .eq('status', 'Reserved-paid')
+      .in('status', ['Reserved-paid', 'Approved'])
       .order('created_at', { ascending: false });
 
     if (sellerFilter)  query = query.eq('seller_name', sellerFilter);
@@ -210,9 +210,9 @@ export default function BookingPage() {
 
                     {/* Main content */}
                     <div className="flex-1 min-w-0">
-                      {/* Client name + booking status */}
+                      {/* Reservation ID + booking status */}
                       <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-semibold text-[#1C1C1E] truncate">{r.client_name}</p>
+                        <p className="text-sm font-bold text-[#1C1C1E] truncate">{r.reservation_id}</p>
                         <span
                           className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0"
                           style={badgeStyle}
@@ -220,6 +220,7 @@ export default function BookingPage() {
                           {label}
                         </span>
                       </div>
+                      <p className="text-xs text-[#8E8E93] mt-0.5 truncate">{r.client_name}</p>
 
                       {/* Project + unit */}
                       <div className="flex items-center gap-1.5 mt-0.5">
@@ -233,18 +234,13 @@ export default function BookingPage() {
                         )}
                       </div>
 
-                      {/* Seller + reservation ID */}
-                      <div className="flex items-center justify-between mt-0.5">
-                        {r.seller_name ? (
-                          <div className="flex items-center gap-1">
-                            <User size={10} className="text-[#C7C7CC] shrink-0" />
-                            <span className="text-[11px] text-[#8E8E93] truncate">{r.seller_name}</span>
-                          </div>
-                        ) : <span />}
-                        <span className="text-[10px] font-semibold text-[#C03D25] tracking-wider shrink-0">
-                          #{r.reservation_id}
-                        </span>
-                      </div>
+                      {/* Seller */}
+                      {r.seller_name && (
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <User size={10} className="text-[#C7C7CC] shrink-0" />
+                          <span className="text-[11px] text-[#8E8E93] truncate">{r.seller_name}</span>
+                        </div>
+                      )}
                     </div>
 
                     <ChevronRight size={14} className="text-[#C7C7CC] shrink-0" />
@@ -329,19 +325,14 @@ export default function BookingPage() {
             {projectOptions.length > 0 && (
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Project</p>
-                <div className="flex gap-2 flex-wrap">
-                  {(['', ...projectOptions]).map(p => (
-                    <button key={p} type="button" onClick={() => setProjectFilter(p)}
-                      className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 ${
-                        projectFilter === p
-                          ? 'bg-[#C03D25] border-[#C03D25] text-white'
-                          : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
-                      }`}>
-                      {projectFilter === p && p && <Check size={11} />}
-                      {p || 'All'}
-                    </button>
-                  ))}
-                </div>
+                <select
+                  value={projectFilter}
+                  onChange={e => setProjectFilter(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/40 appearance-none"
+                >
+                  <option value="">All Projects</option>
+                  {projectOptions.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
               </div>
             )}
 
@@ -349,19 +340,14 @@ export default function BookingPage() {
             {sellerOptions.length > 0 && (
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Seller</p>
-                <div className="flex gap-2 flex-wrap">
-                  {(['', ...sellerOptions]).map(s => (
-                    <button key={s} type="button" onClick={() => setSellerFilter(s)}
-                      className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 ${
-                        sellerFilter === s
-                          ? 'bg-[#C03D25] border-[#C03D25] text-white'
-                          : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
-                      }`}>
-                      {sellerFilter === s && s && <Check size={11} />}
-                      {s || 'All'}
-                    </button>
-                  ))}
-                </div>
+                <select
+                  value={sellerFilter}
+                  onChange={e => setSellerFilter(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/40 appearance-none"
+                >
+                  <option value="">All Sellers</option>
+                  {sellerOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
               </div>
             )}
 

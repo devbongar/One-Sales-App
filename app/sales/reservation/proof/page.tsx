@@ -476,7 +476,9 @@ export default function ProofOfPaymentPage() {
               <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
                 alreadyPaid ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
               }`}>
-                {reservation.status}
+                {reservation.status === 'Reserved-paid'    ? 'Paid'
+                 : reservation.status === 'Reserved-unpaid' ? 'Unpaid'
+                 : reservation.status}
               </span>
             )
           )}
@@ -502,6 +504,12 @@ export default function ProofOfPaymentPage() {
                 <span className="text-xs text-[#6C6C70]">{reservation.unit_type}</span>
               </div>
             </div>
+            {reservation.seller_name && (
+              <div className="flex items-center gap-2">
+                <User size={11} className="text-[#C7C7CC] shrink-0" />
+                <span className="text-xs text-[#6C6C70]">{reservation.seller_name}</span>
+              </div>
+            )}
           </div>
         )}
 

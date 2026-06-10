@@ -232,11 +232,12 @@ export default function BuyersPaymentPage() {
                     {/* Info */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-semibold text-[#1C1C1E] truncate">{b.client_name}</p>
+                        <p className="text-sm font-bold text-[#1C1C1E] truncate">{b.reservation_id}</p>
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0" style={style}>
                           {label}
                         </span>
                       </div>
+                      <p className="text-xs text-[#8E8E93] mt-0.5 truncate">{b.client_name}</p>
                       <div className="flex items-center gap-1.5 mt-0.5">
                         <Building2 size={10} className="text-[#C7C7CC] shrink-0" />
                         <span className="text-xs text-[#6C6C70] truncate">{b.project}</span>
@@ -251,9 +252,6 @@ export default function BuyersPaymentPage() {
                         </p>
                         <p className="text-xs font-bold text-[#1C1C1E] shrink-0">{fmt(b.total_contract_price)}</p>
                       </div>
-                      <span className="text-[10px] font-semibold text-[#C03D25] tracking-wider">
-                        #{b.reservation_id}
-                      </span>
                     </div>
 
                     <ChevronRight size={14} className="text-[#C7C7CC] shrink-0" />
@@ -287,7 +285,7 @@ export default function BuyersPaymentPage() {
             </button>
           </div>
 
-          <div className="px-5 space-y-5 pb-4">
+          <div className="px-5 space-y-5 pb-4 max-h-[60vh] overflow-y-auto">
             {/* Payment Status */}
             <div className="space-y-2">
               <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Payment Status</p>
@@ -314,23 +312,14 @@ export default function BuyersPaymentPage() {
             {projectOptions.length > 0 && (
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Project</p>
-                <div className="flex gap-2 flex-wrap">
-                  {(['', ...projectOptions]).map(p => (
-                    <button
-                      key={p}
-                      type="button"
-                      onClick={() => setProjectFilter(p)}
-                      className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 ${
-                        projectFilter === p
-                          ? 'bg-[#C03D25] border-[#C03D25] text-white'
-                          : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
-                      }`}
-                    >
-                      {projectFilter === p && p && <Check size={11} />}
-                      {p || 'All'}
-                    </button>
-                  ))}
-                </div>
+                <select
+                  value={projectFilter}
+                  onChange={e => setProjectFilter(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/40 appearance-none"
+                >
+                  <option value="">All Projects</option>
+                  {projectOptions.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
               </div>
             )}
 
@@ -338,23 +327,14 @@ export default function BuyersPaymentPage() {
             {sellerOptions.length > 0 && (
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Seller</p>
-                <div className="flex gap-2 flex-wrap">
-                  {(['', ...sellerOptions]).map(s => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => setSellerFilter(s)}
-                      className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 ${
-                        sellerFilter === s
-                          ? 'bg-[#C03D25] border-[#C03D25] text-white'
-                          : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
-                      }`}
-                    >
-                      {sellerFilter === s && s && <Check size={11} />}
-                      {s || 'All'}
-                    </button>
-                  ))}
-                </div>
+                <select
+                  value={sellerFilter}
+                  onChange={e => setSellerFilter(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/40 appearance-none"
+                >
+                  <option value="">All Sellers</option>
+                  {sellerOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
               </div>
             )}
           </div>

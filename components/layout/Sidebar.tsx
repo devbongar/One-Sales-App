@@ -37,7 +37,7 @@ const NAV: NavGroup[] = [
   {
     title: 'Finance',
     items: [
-      { label: 'Commission Payout',  href: '/finance/commission-payout',   icon: 'Wallet',   comingSoon: true },
+      { label: 'Commission Payout',  href: '/finance/commission-payout',   icon: 'Wallet' },
       { label: "Buyer's Payment",    href: '/finance/buyers-payment',      icon: 'Banknote' },
       { label: 'Collection Posting', href: '/finance/collection-posting',  icon: 'Database' },
     ],

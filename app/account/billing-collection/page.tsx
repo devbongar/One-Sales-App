@@ -132,8 +132,8 @@ function LinesOverlay({
           <ChevronLeft size={20} />
         </button>
         <div className="text-center min-w-0 px-3">
-          <p className="text-[#1C1C1E] font-bold text-sm truncate">{summary.client_name}</p>
-          <p className="text-[#8E8E93] text-xs">{summary.inventory_code} · {schemeLabel(summary.payment_scheme)}</p>
+          <p className="text-[#1C1C1E] font-bold text-sm truncate">{summary.reservation_id}</p>
+          <p className="text-[#8E8E93] text-xs truncate">{summary.client_name} · {summary.inventory_code}</p>
         </div>
         <div className="w-[60px]" />
       </div>
@@ -536,16 +536,15 @@ export default function BillingCollectionPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-semibold text-[#1C1C1E] truncate">{s.client_name}</p>
+                        <p className="text-sm font-bold text-[#1C1C1E] truncate">{s.reservation_id}</p>
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0" style={STATUS_STYLE[s.status]}>
                           {s.status}
                         </span>
                       </div>
                       <div className="flex items-center gap-1.5 mt-0.5">
-                        <Building2 size={10} className="text-[#C7C7CC] shrink-0" />
-                        <span className="text-xs text-[#6C6C70] truncate">{s.inventory_code}</span>
+                        <span className="text-xs text-[#6C6C70] truncate">{s.client_name}</span>
                         <span className="text-[#D1D1D6]">·</span>
-                        <span className="text-xs text-[#6C6C70]">{schemeLabel(s.payment_scheme)}</span>
+                        <span className="text-xs text-[#6C6C70] truncate">{s.inventory_code}</span>
                       </div>
                       <div className="flex items-center justify-between mt-0.5">
                         <p className="text-[10px] text-[#8E8E93]">

@@ -125,25 +125,28 @@ export default function CommissionScheduleDetailPage() {
         )}
         {!loading && !error && tranches.length > 0 && (
           <>
-            <div className="grid grid-cols-4 gap-1 px-4 py-2.5 bg-[#F2F2F7] border-b border-[rgba(0,0,0,0.06)]">
-              <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wide">Tranche</p>
-              <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wide">Status</p>
-              <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wide text-right">Rel. Rate</p>
-              <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wide text-right">Gross Comm.</p>
+            {/* Header */}
+            <div className="grid grid-cols-[70px_65px_65px_1fr] gap-2 pl-10 pr-10 py-2.5 bg-[#F2F2F7] border-b border-[rgba(0,0,0,0.06)]">
+              <p className="text-[9px] font-bold text-[#8E8E93] uppercase tracking-wide">Tr.</p>
+              <p className="text-[9px] font-bold text-[#8E8E93] uppercase tracking-wide">% Coll</p>
+              <p className="text-[9px] font-bold text-[#8E8E93] uppercase tracking-wide text-right">Rel%</p>
+              <p className="text-[9px] font-bold text-[#8E8E93] uppercase tracking-wide text-right">Gross Comm</p>
             </div>
             {tranches.map((t, i) => {
               const gross = nlp * (rate / 100) * (t.commission_release_rate / 100);
               return (
                 <div
                   key={`${t.tranche}-${i}`}
-                  className="grid grid-cols-4 gap-1 px-4 py-3 border-b border-[rgba(0,0,0,0.04)] last:border-0"
+                  className="grid grid-cols-[70px_65px_65px_1fr] gap-2 pl-10 pr-10 py-2 border-b border-[rgba(0,0,0,0.04)] last:border-0 items-center"
+                  style={{ background: i % 2 === 1 ? '#FAFAFA' : 'white' }}
                 >
-                  <p className="text-sm font-bold text-[#1C1C1E]">{t.tranche}</p>
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 self-center w-fit">
-                    Pending
-                  </span>
-                  <p className="text-sm text-[#6C6C70] text-right">{t.commission_release_rate}%</p>
-                  <p className="text-sm font-semibold text-[#1C1C1E] text-right">{fmt(gross)}</p>
+                  {/* Tranche badge */}
+                  <div className="w-6 h-6 rounded-full bg-[#F2F2F7] flex items-center justify-center shrink-0">
+                    <span className="text-[10px] font-bold text-[#1C1C1E]">{t.tranche}</span>
+                  </div>
+                  <p className="text-[13px] text-[#6C6C70]">{t.percentage_collection}%</p>
+                  <p className="text-[13px] text-[#6C6C70] text-right">{t.commission_release_rate}%</p>
+                  <p className="text-[13px] font-bold text-[#C03D25] text-right">{fmt(gross)}</p>
                 </div>
               );
             })}
@@ -153,10 +156,13 @@ export default function CommissionScheduleDetailPage() {
 
       {/* Footer total */}
       {!loading && !error && tranches.length > 0 && (
-        <GlassCard strong className="px-5 py-4 flex items-center justify-between">
+        <div
+          className="flex items-center justify-between px-4 py-3.5 rounded-2xl"
+          style={{ background: 'rgba(192,61,37,0.07)', border: '1px solid rgba(192,61,37,0.15)' }}
+        >
           <p className="text-sm font-bold text-[#1C1C1E]">Total Gross Commission</p>
           <p className="text-base font-bold text-[#C03D25]">{fmt(totalGross)}</p>
-        </GlassCard>
+        </div>
       )}
 
     </PageShell>

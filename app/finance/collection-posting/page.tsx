@@ -1423,11 +1423,9 @@ export default function CollectionPostingPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-semibold text-[#1C1C1E] truncate">{s.client_name}</p>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0" style={STATUS_STYLE[s.status]}>
-                          {s.status}
-                        </span>
+                        <p className="text-sm font-bold text-[#1C1C1E] truncate">{s.reservation_id}</p>
                       </div>
+                      <p className="text-xs text-[#8E8E93] mt-0.5 truncate">{s.client_name}</p>
                       <div className="flex items-center gap-1.5 mt-0.5">
                         <Building2 size={10} className="text-[#C7C7CC] shrink-0" />
                         <span className="text-xs text-[#6C6C70] truncate">{s.inventory_code}</span>

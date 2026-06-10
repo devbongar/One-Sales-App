@@ -1118,12 +1118,12 @@ export default function NewReservationPage() {
                                   <td
                                     key={unitNo}
                                     onClick={() => {
-                                      if (hasUnit) {
+                                      if (hasUnit && status?.toLowerCase() === 'available') {
                                         const unit = filtered.find(u => u.floor === fl && u.unit_no === unitNo);
                                         if (unit) { setSelectedUnit(unit); goToStep(2); }
                                       }
                                     }}
-                                    className={`px-1 py-2.5 border-b border-r border-white/60 text-center whitespace-nowrap min-w-[64px] font-medium ${hasUnit ? statusColor(status) + ' cursor-pointer active:opacity-60' : 'bg-[#374151]'}`}
+                                    className={`px-1 py-2.5 border-b border-r border-white/60 text-center whitespace-nowrap min-w-[64px] font-medium ${hasUnit ? statusColor(status) + (status?.toLowerCase() === 'available' ? ' cursor-pointer active:opacity-60' : ' cursor-not-allowed') : 'bg-[#374151]'}`}
                                   >
                                     {hasUnit ? unitNo : ''}
                                   </td>

@@ -11,6 +11,56 @@ export interface SalespersonRecord {
   sales_division_head: string | null;
 }
 
+export interface SellerTaxInfo {
+  vat_registration_type: string | null;
+  ewt_rate_raw:          string | null;
+  vat_rate:              number; // 0.12 if VAT, else 0
+  ewt_rate:              number; // decimal, e.g. 0.10
+}
+
+function parseRate(raw: string | null | undefined): number {
+  if (!raw) return 0;
+  const n = parseFloat(String(raw).replace('%', '').trim());
+  if (isNaN(n)) return 0;
+  return n > 1 ? n / 100 : n;
+}
+
+export async function fetchSellerTaxInfo(sellerName: string): Promise<SellerTaxInfo> {
+  // Try in-house Salesperson table first
+  const { data: sp } = await supabase
+    .from('Salesperson')
+    .select('"VAT Registration Type", "EWT/WT Rate"')
+    .eq('Seller Name', sellerName)
+    .maybeSingle();
+
+  if (sp) {
+    const vatType = (sp as any)['VAT Registration Type'] as string | null;
+    const ewtRaw  = (sp as any)['EWT/WT Rate']           as string | null;
+    return {
+      vat_registration_type: vatType,
+      ewt_rate_raw:          ewtRaw,
+      vat_rate:              vatType?.toUpperCase() === 'VAT' ? 0.12 : 0,
+      ewt_rate:              parseRate(ewtRaw),
+    };
+  }
+
+  // Fall back to Brokers table
+  const { data: br } = await supabase
+    .from('Brokers')
+    .select('"VAT Registration Type", "EWT / CWT"')
+    .eq('Full Name', sellerName)
+    .maybeSingle();
+
+  const vatType = (br as any)?.['VAT Registration Type'] as string | null ?? null;
+  const ewtRaw  = (br as any)?.['EWT / CWT']             as string | null ?? null;
+  return {
+    vat_registration_type: vatType,
+    ewt_rate_raw:          ewtRaw,
+    vat_rate:              vatType?.toUpperCase() === 'VAT' ? 0.12 : 0,
+    ewt_rate:              parseRate(ewtRaw),
+  };
+}
+
 export async function fetchAllSalespersons(): Promise<SalespersonRecord[]> {
   const { data, error } = await supabase.rpc('get_all_salespersons');
   console.log('[fetchAllSalespersons] data:', data, 'error:', error);

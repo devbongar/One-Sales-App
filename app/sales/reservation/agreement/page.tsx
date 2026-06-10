@@ -369,7 +369,7 @@ export default function ReservationAgreementPage() {
               </div>
               <p className="text-base font-bold text-[#1C1C1E] text-center">Confirm Payment</p>
               <p className="text-sm text-[#8E8E93] mt-1 text-center leading-relaxed">
-                Are you sure you want to proceed with the payment of the Reservation Fee of ₱10,000?
+                Are you sure you want to proceed with the payment of the Reservation Fee of ₱{(data?.reservationFee ?? 0).toLocaleString()}?
               </p>
             </div>
             <div className="px-6 py-3 border-b border-black/[0.06]">
