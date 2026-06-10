@@ -8,13 +8,19 @@ import {
   getBookingProgress, saveBookingFlags, savePrivacyConsent, BookingProgress,
 } from '@/lib/booking-progress';
 import {
-  Hash, Building2, Tag, User, ChevronRight,
+  Building2, Tag, User, ChevronRight,
   Lock, Check, FileText, Loader2, UserCheck, ShieldCheck, ShieldAlert, Heart,
   CheckCircle2, XCircle, Send, Clock,
 } from 'lucide-react';
 import { submitForReview } from '@/lib/review';
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
+
+function getInitials(name: string) {
+  const parts = name.trim().split(' ').filter(Boolean);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
 
 function ReadOnlyRow({ icon, label, value }: { icon: React.ReactNode; label: string; value?: string | null }) {
   return (
@@ -62,7 +68,7 @@ function StageCard({ number, title, complete, locked, badge, children }: {
   return (
     <GlassCard className={`overflow-hidden ${locked ? 'opacity-50' : ''}`}>
       <div className={`px-4 py-3 flex items-center justify-between border-b border-black/[0.06] ${
-        complete ? 'bg-green-50' : 'bg-[#F2F2F7]/60'
+        complete ? 'bg-green-500/[0.07]' : 'bg-[#F2F2F7]/60'
       }`}>
         <div className="flex items-center gap-3">
           <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
@@ -226,6 +232,12 @@ export default function BookingDetailPage() {
       && (!hasAttyInFact        || progress.atty_saved)
     : false;
 
+  const rs          = progress?.booking_review_status ?? null;
+  const dirApproved = rs === 'director-approved' || rs === 'finance-verified';
+  const finVerified = rs === 'finance-verified';
+  const docsReady   = progress?.documents_saved ?? false;
+  const currentStage = !stage1Complete ? 1 : !docsReady ? 2 : !dirApproved ? 3 : 4;
+
   function goToBuyerInfo() { router.push('/sales/booking/buyer-info'); }
   function goToSpouse()    { router.push('/sales/booking/spouse'); }
   function goToCoOwner() {
@@ -241,12 +253,54 @@ export default function BookingDetailPage() {
     <PageShell title="Booking" backButton onBack={() => router.push('/sales/booking')}>
       <div className="space-y-4 pb-6">
 
-        {/* Reservation info */}
-        <GlassCard className="px-4 py-1">
-          <ReadOnlyRow icon={<Hash size={16} />}      label="Reservation ID" value={reservation?.reservation_id} />
-          <ReadOnlyRow icon={<Building2 size={16} />} label="Project"        value={reservation?.project} />
-          <ReadOnlyRow icon={<Tag size={16} />}       label="Inventory Code" value={reservation?.inventory_code} />
-          <ReadOnlyRow icon={<User size={16} />}      label="Client"         value={reservation?.client_name} />
+        {/* Reservation hero card */}
+        <GlassCard className="overflow-hidden">
+          <div className="px-4 py-4 flex items-center gap-4 relative">
+            {finVerified && (
+              <div className="absolute top-1 right-2 pointer-events-none select-none" style={{ transform: 'rotate(-8deg)' }}>
+                <svg width="72" height="72" viewBox="0 0 72 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  {/* Ring */}
+                  <circle cx="36" cy="7" r="5" stroke="#e03322" strokeWidth="2.5" fill="none" />
+                  {/* Cord left */}
+                  <line x1="32" y1="11" x2="16" y2="26" stroke="#e03322" strokeWidth="2" strokeLinecap="round" />
+                  {/* Cord right */}
+                  <line x1="40" y1="11" x2="56" y2="26" stroke="#e03322" strokeWidth="2" strokeLinecap="round" />
+                  {/* Attachment dots */}
+                  <circle cx="16" cy="27" r="3" fill="white" />
+                  <circle cx="56" cy="27" r="3" fill="white" />
+                  {/* Sign body */}
+                  <rect x="4" y="22" width="64" height="50" rx="7" fill="#e03322" />
+                  {/* BOOKED text */}
+                  <text x="36" y="53" textAnchor="middle" fill="white" fontFamily="Arial Black, Arial, sans-serif" fontWeight="900" fontSize="13" letterSpacing="1.5">BOOKED</text>
+                </svg>
+              </div>
+            )}
+            <div
+              className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0"
+              style={{ background: 'linear-gradient(135deg, #E05A3A 0%, #A83020 100%)' }}
+            >
+              <span className="text-lg font-bold text-white">
+                {getInitials(reservation?.client_name ?? '?')}
+              </span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wider">Reservation ID</p>
+              <p className="text-lg font-bold text-[#1C1C1E] truncate">{reservation?.reservation_id ?? '—'}</p>
+              <p className="text-sm text-[#6C6C70] truncate">{reservation?.client_name ?? '—'}</p>
+            </div>
+          </div>
+          <div className="border-t border-black/[0.06] px-4 py-2.5 flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <Building2 size={12} className="text-[#C7C7CC]" />
+              <span className="text-xs text-[#6C6C70]">{reservation?.project ?? '—'}</span>
+            </div>
+            {reservation?.inventory_code && (
+              <div className="flex items-center gap-1.5">
+                <Tag size={12} className="text-[#C7C7CC]" />
+                <span className="text-xs font-medium text-[#6C6C70]">{reservation.inventory_code}</span>
+              </div>
+            )}
+          </div>
         </GlassCard>
 
         {loading ? (
@@ -331,6 +385,35 @@ export default function BookingDetailPage() {
         ) : (
           /* ── Stages (consent already given) ── */
           <>
+            {/* Progress stepper */}
+            <GlassCard className="px-4 py-4">
+              <div className="relative flex items-start justify-between">
+                <div className="absolute left-4 right-4 top-4 h-0.5 bg-[#E5E5EA]" />
+                {[
+                  { label: 'Buyer Info', done: stage1Complete },
+                  { label: 'Documents',  done: docsReady },
+                  { label: 'Director',   done: dirApproved },
+                  { label: 'Finance',    done: finVerified },
+                ].map((s, i) => {
+                  const isActive = currentStage === i + 1;
+                  return (
+                    <div key={i} className="flex flex-col items-center gap-1.5 relative z-10 flex-1">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                        s.done ? 'bg-green-500' : isActive ? 'bg-[#C03D25]' : 'bg-[#E5E5EA]'
+                      }`}>
+                        {s.done
+                          ? <Check size={14} className="text-white" />
+                          : <span className={`text-xs font-bold ${isActive ? 'text-white' : 'text-[#8E8E93]'}`}>{i + 1}</span>}
+                      </div>
+                      <span className={`text-[9px] font-semibold text-center leading-tight ${
+                        s.done ? 'text-green-600' : isActive ? 'text-[#C03D25]' : 'text-[#8E8E93]'
+                      }`}>{s.label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </GlassCard>
+
             {/* Stage 1 — Buyer's Information */}
             <StageCard number={1} title="Buyer's Information" complete={stage1Complete}>
               <ToggleRow
@@ -395,11 +478,6 @@ export default function BookingDetailPage() {
 
             {/* ── Review Pipeline (visible once docs are saved) ── */}
             {(() => {
-              const rs = progress?.booking_review_status ?? null;
-              const dirApproved  = rs === 'director-approved' || rs === 'finance-verified';
-              const finVerified  = rs === 'finance-verified';
-              const docsReady    = progress?.documents_saved ?? false;
-
               return (
                 <>
                   {/* Stage 3 — Director Review */}
@@ -503,13 +581,13 @@ export default function BookingDetailPage() {
 
                   {/* Booking complete banner */}
                   {finVerified && (
-                    <GlassCard className="px-4 py-4 flex items-center gap-3 bg-green-50">
+                    <GlassCard className="px-4 py-4 flex items-center gap-3 bg-green-500/[0.07] border border-green-500/20">
                       <div className="w-10 h-10 rounded-2xl bg-green-500 flex items-center justify-center shrink-0">
                         <Check size={18} className="text-white" />
                       </div>
                       <div>
-                        <p className="text-sm font-bold text-green-800">Booking Complete</p>
-                        <p className="text-xs text-green-600 mt-0.5">All stages verified successfully</p>
+                        <p className="text-sm font-bold text-[#1C1C1E]">Booking Complete</p>
+                        <p className="text-xs text-green-700 mt-0.5">All stages verified successfully</p>
                       </div>
                     </GlassCard>
                   )}
