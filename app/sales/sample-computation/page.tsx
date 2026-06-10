@@ -8,11 +8,13 @@ import { fetchProjects, fetchTowers, fetchFloorsByCategory, fetchUnitTypes, fetc
 import { fetchAllPayterms, PaytermRecord } from '@/lib/paytems';
 import { fetchReservationFee, fetchVatThreshold, computeVat, fetchHicTarget } from '@/lib/admin';
 import {
-  Check, ChevronDown, Calculator,
+  Check, ChevronDown, ChevronLeft, Calculator,
   Building2, Layers, Home, Car, Bike, LayoutGrid,
   BarChart3, Grid3X3,
   Banknote, Clock, CreditCard, CalendarRange, Plus, Ruler, X, GitCompare, AlertTriangle,
+  User, Mail, Phone, Search,
 } from 'lucide-react';
+import { COUNTRY_CODES } from '@/lib/client-form-options';
 
 // ─── Payment Schemes ──────────────────────────────────────────────────────────
 const PAYMENT_SCHEMES = [
@@ -104,6 +106,7 @@ const COMP_SECTIONS: { title: string; rows: CompRow[] }[] = [
 
 // ─── Step indicator ───────────────────────────────────────────────────────────
 const STEPS = [
+  { label: 'Client Info', icon: <User       size={14} /> },
   { label: 'Inventory',   icon: <Building2  size={14} /> },
   { label: 'Computation', icon: <Calculator size={14} /> },
   { label: 'Comparison',  icon: <GitCompare size={14} /> },
@@ -207,8 +210,35 @@ function InlineSelect({ label, value, options, onChange, placeholder = 'Select',
   );
 }
 
+function InputRow({ label, value, onChange, placeholder, required, error, icon, type = 'text' }: {
+  label: string; value: string; onChange: (v: string) => void;
+  placeholder?: string; required?: boolean; error?: string;
+  icon?: React.ReactNode; type?: string;
+}) {
+  return (
+    <div className={`border-b border-black/[0.06] last:border-0 ${error ? 'bg-red-50/50' : ''}`}>
+      <div className="flex items-center gap-3 py-3 px-1">
+        {icon && <span className={`shrink-0 ${error ? 'text-red-400' : 'text-[#C03D25]'}`}>{icon}</span>}
+        <span className="text-[#1C1C1E] text-sm font-medium flex-1 flex items-center gap-0.5">
+          {label}
+          {required && <span className="text-[#C03D25] text-xs leading-none ml-0.5">*</span>}
+        </span>
+        <input
+          type={type}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder={placeholder ?? `Enter ${label.toLowerCase()}`}
+          className="text-sm text-[#1C1C1E] text-right outline-none bg-transparent placeholder:text-[#C7C7CC] max-w-[180px]"
+        />
+      </div>
+      {error && <p className="text-red-400 text-[11px] px-1 pb-2 -mt-1">{error}</p>}
+    </div>
+  );
+}
+
 // ─── Per-step header config ───────────────────────────────────────────────────
 const STEP_HEADERS = [
+  { title: 'Client Information',      subtitle: 'Enter the client\'s personal details before proceeding' },
   { title: 'Select Your Preferences', subtitle: 'Choose a Project, Tower, and Unit Category to load the inventory data' },
   { title: 'Computation',             subtitle: 'Review the price breakdown' },
   { title: 'Comparison',              subtitle: 'Compare different payment schemes' },
@@ -238,9 +268,28 @@ export default function SampleComputationPage() {
   const [useHIC,       setUseHIC]       = useState(false);
   const [userRole,     setUserRole]     = useState('');
   const [reservationFee, setReservationFee] = useState(0);
+
+  // Client info fields
+  const [clientLastName,   setClientLastName]   = useState('');
+  const [clientFirstName,  setClientFirstName]  = useState('');
+  const [clientMiddleName, setClientMiddleName] = useState('');
+  const [clientSuffix,     setClientSuffix]     = useState('');
+  const [clientMobile,          setClientMobile]          = useState('');
+  const [clientEmail,           setClientEmail]           = useState('');
+  const [clientCountryCode,     setClientCountryCode]     = useState('+63');
+  const [clientCountryPickerOpen, setClientCountryPickerOpen] = useState(false);
+  const [clientCountrySearch,   setClientCountrySearch]   = useState('');
+
   // undefined = not yet fetched, null = not configured (error), number = ok
   const [vatThreshold, setVatThreshold] = useState<number | null | undefined>(undefined);
   const [hicTarget,    setHicTarget]    = useState<number | null>(null);
+  const selectedMobileCountry   = COUNTRY_CODES.find(c => c.dial === clientCountryCode) ?? COUNTRY_CODES[0];
+  const filteredMobileCountries = clientCountrySearch
+    ? COUNTRY_CODES.filter(c =>
+        c.name.toLowerCase().includes(clientCountrySearch.toLowerCase()) ||
+        c.dial.includes(clientCountrySearch))
+    : COUNTRY_CODES;
+
   const compHeaderRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   const generateComparisonPDF = async () => {
@@ -249,9 +298,10 @@ export default function SampleComputationPage() {
     const pageW  = 210;
     const pageH  = 297;
     const mg     = 15;
-    const HDR    = 32;    // coral header height
-    const STRIP  = 11;    // seller info strip height
-    const BODY_T = HDR + STRIP + 5;  // body start y (= 48)
+    const HDR          = 32;    // coral header height
+    const STRIP        = 13;    // seller info strip height
+    const CLIENT_STRIP = 13;    // client info strip height
+    const BODY_T       = HDR + STRIP + CLIENT_STRIP + 7;  // body start y (= 65)
     const DISC_Y  = pageH - 28;  // disclaimer block top
     const coral: [number,number,number] = [192, 61, 37];
     const dark:  [number,number,number] = [28, 28, 30];
@@ -295,17 +345,44 @@ export default function SampleComputationPage() {
       doc.setFontSize(8);
       doc.text(`${dateStr}  ·  ${timeStr}`, pageW - mg, 24, { align: 'right' });
 
-      // Seller info strip
-      doc.setFillColor(242, 242, 247);
-      doc.rect(0, HDR, pageW, STRIP, 'F');
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...lt);
-      doc.text('PREPARED BY', mg, HDR + 4.5);
+      // Seller row (no background)
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(...lt);
+      doc.text('SELLER', mg, HDR + 5);
+      if (sellerContact) doc.text('EMAIL ADDRESS', pageW - mg, HDR + 5, { align: 'right' });
       doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...dark);
-      doc.text(sellerName || '—', mg, HDR + 9.5);
+      doc.text(sellerName || '—', mg, HDR + 10.5);
       if (sellerContact) {
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...lt);
-        doc.text(sellerContact, pageW - mg, HDR + 9.5, { align: 'right' });
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...dark);
+        doc.text(sellerContact, pageW - mg, HDR + 10.5, { align: 'right' });
       }
+
+      // Client row (no background, single row — 3 columns)
+      const clientFullName = [clientFirstName, clientMiddleName, clientLastName].filter(Boolean).join(' ') +
+        (clientSuffix ? `, ${clientSuffix}` : '');
+      const clientMobileStr = clientMobile ? `${clientCountryCode} ${clientMobile}` : '';
+      const cs = HDR + STRIP;
+      const colMobile = mg + 100;  // mobile column x
+      // Labels row
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(...lt);
+      doc.text('CLIENT', mg, cs + 5);
+      if (clientMobileStr) doc.text('MOBILE NO.', colMobile, cs + 5);
+      if (clientEmail)     doc.text('EMAIL ADDRESS', pageW - mg, cs + 5, { align: 'right' });
+      // Values row
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...dark);
+      doc.text(clientFullName || '—', mg, cs + 10.5);
+      if (clientMobileStr) {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...dark);
+        doc.text(clientMobileStr, colMobile, cs + 10.5);
+      }
+      if (clientEmail) {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...dark);
+        doc.text(clientEmail, pageW - mg, cs + 10.5, { align: 'right' });
+      }
+
+      // Dividing line
+      const lineY = HDR + STRIP + CLIENT_STRIP + 1;
+      doc.setDrawColor(210, 210, 220); doc.setLineWidth(0.4);
+      doc.line(mg, lineY, pageW - mg, lineY);
     };
 
     const drawFooter = () => {
@@ -518,7 +595,7 @@ export default function SampleComputationPage() {
     const records = allPayterms.filter(
       p => p.project === project && p.tower === tower && p.payterm_scheme === schemeLabel
     );
-    const opts = records.map(p => p.dp_percent).filter(Boolean) as string[];
+    const opts = [...new Set(records.map(p => p.dp_percent).filter(Boolean) as string[])];
     if (opts.length > 0 && !opts.includes(dpRate)) {
       setDpRate(opts[0]);
     }
@@ -583,7 +660,9 @@ export default function SampleComputationPage() {
   }, [project, tower, unitCategory]);
 
   const filteredPayterms = (project && tower)
-    ? allPayterms.filter(p => p.project === project && p.tower === tower)
+    ? allPayterms.filter(p =>
+        p.project?.trim().toLowerCase() === project.trim().toLowerCase() &&
+        p.tower?.trim().toLowerCase() === tower.trim().toLowerCase())
     : [];
 
   function goToStep(n: number) {
@@ -608,8 +687,108 @@ export default function SampleComputationPage() {
       {/* Step indicator */}
       <StepIndicator current={step} onNavigate={goToStep} hasComparisons={comparisons.length > 0} />
 
-      {/* ── Step 1: Inventory ── */}
+      {/* ── Step 1: Client Info ── */}
       {step === 0 && (
+        <>
+          <GlassCard className="px-4 py-1">
+            <InputRow
+              label="Last Name"
+              value={clientLastName}
+              onChange={v => { setClientLastName(v); setErrors(p => ({ ...p, clientLastName: '' })); }}
+              icon={<User size={16} />}
+              required
+              error={errors.clientLastName}
+            />
+            <InputRow
+              label="First Name"
+              value={clientFirstName}
+              onChange={v => { setClientFirstName(v); setErrors(p => ({ ...p, clientFirstName: '' })); }}
+              icon={<User size={16} />}
+              required
+              error={errors.clientFirstName}
+            />
+            <InputRow
+              label="Middle Name"
+              value={clientMiddleName}
+              onChange={setClientMiddleName}
+              icon={<User size={16} />}
+            />
+            <InputRow
+              label="Suffix"
+              value={clientSuffix}
+              onChange={setClientSuffix}
+              icon={<User size={16} />}
+              placeholder="Jr., Sr., II, III…"
+            />
+          </GlassCard>
+
+          <GlassCard className="px-4 py-1">
+            {/* Mobile Number with country code */}
+            <div className={`border-b border-black/[0.06] ${errors.clientMobile ? 'bg-red-50/50' : ''}`}>
+              <div className="flex items-center gap-3 py-3 px-1">
+                <span className={`shrink-0 ${errors.clientMobile ? 'text-red-400' : 'text-[#C03D25]'}`}>
+                  <Phone size={16} />
+                </span>
+                <span className="text-[#1C1C1E] text-sm font-medium flex items-center gap-0.5">
+                  Mobile Number
+                  <span className="text-[#C03D25] text-xs leading-none ml-0.5">*</span>
+                </span>
+                <div className="flex items-center gap-1.5 ml-auto">
+                  <button
+                    type="button"
+                    onClick={() => { setClientCountrySearch(''); setClientCountryPickerOpen(true); }}
+                    className="flex items-center gap-1 px-2 py-1.5 rounded-xl border border-black/[0.08] bg-[#F2F2F7] shrink-0"
+                  >
+                    <span className="text-base leading-none">{selectedMobileCountry.flag}</span>
+                    <span className="text-xs font-medium text-[#1C1C1E]">{selectedMobileCountry.dial}</span>
+                    <ChevronDown size={11} className="text-[#C7C7CC]" />
+                  </button>
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    value={clientMobile}
+                    onChange={e => {
+                      const digits = e.target.value.replace(/\D/g, '');
+                      const max = clientCountryCode === '+63' ? 10 : 15;
+                      setClientMobile(digits.slice(0, max));
+                      setErrors(p => ({ ...p, clientMobile: '' }));
+                    }}
+                    placeholder={clientCountryCode === '+63' ? '9171234567' : ''}
+                    className="text-sm text-[#1C1C1E] outline-none bg-transparent placeholder:text-[#C7C7CC] text-right w-28"
+                  />
+                </div>
+              </div>
+              {errors.clientMobile && <p className="text-red-400 text-[11px] px-1 pb-2 -mt-1">{errors.clientMobile}</p>}
+            </div>
+            <InputRow
+              label="Email Address"
+              value={clientEmail}
+              onChange={setClientEmail}
+              icon={<Mail size={16} />}
+              type="email"
+              placeholder="email@example.com"
+            />
+          </GlassCard>
+
+          <button
+            type="button"
+            onClick={() => {
+              const errs: Record<string, string> = {};
+              if (!clientLastName.trim())  errs.clientLastName  = 'Last name is required';
+              if (!clientFirstName.trim()) errs.clientFirstName = 'First name is required';
+              if (!clientMobile.trim())    errs.clientMobile    = 'Mobile number is required';
+              if (Object.keys(errs).length > 0) { setErrors(p => ({ ...p, ...errs })); return; }
+              goToStep(1);
+            }}
+            className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity"
+          >
+            Continue
+          </button>
+        </>
+      )}
+
+      {/* ── Step 2: Inventory ── */}
+      {step === 1 && (
         <>
           <GlassCard className="px-4 py-1">
             <InlineSelect
@@ -802,12 +981,12 @@ export default function SampleComputationPage() {
                                   <td
                                     key={unitNo}
                                     onClick={() => {
-                                      if (hasUnit) {
+                                      if (hasUnit && status?.toLowerCase() === 'available') {
                                         const unit = filtered.find(u => u.floor === fl && u.unit_no === unitNo);
-                                        if (unit) { setSelectedUnit(unit); goToStep(1); }
+                                        if (unit) { setSelectedUnit(unit); goToStep(2); }
                                       }
                                     }}
-                                    className={`px-1 py-2.5 border-b border-r border-white/60 text-center whitespace-nowrap min-w-[64px] font-medium ${hasUnit ? statusColor(status) + ' cursor-pointer active:opacity-60' : 'bg-[#374151]'}`}
+                                    className={`px-1 py-2.5 border-b border-r border-white/60 text-center whitespace-nowrap min-w-[64px] font-medium ${hasUnit ? statusColor(status) + (status?.toLowerCase() === 'available' ? ' cursor-pointer active:opacity-60' : ' cursor-not-allowed') : 'bg-[#374151]'}`}
                                   >
                                     {hasUnit ? unitNo : ''}
                                   </td>
@@ -831,7 +1010,7 @@ export default function SampleComputationPage() {
                       {availableUnits.map((u) => {
                         const catIcon = UNIT_CATEGORIES.find(c => c.value === unitCategory)?.icon;
                         return (
-                          <div key={`${u.floor}-${u.unit_no}`} onClick={() => { setSelectedUnit(u); goToStep(1); }}
+                          <div key={`${u.floor}-${u.unit_no}`} onClick={() => { setSelectedUnit(u); goToStep(2); }}
                             className="bg-[#F2F2F7] rounded-2xl p-4 flex flex-col gap-2.5 shadow-md shadow-black/10 relative overflow-hidden cursor-pointer active:opacity-70">
                             {u.promo_discount && (() => {
                               const n = parseFloat(u.promo_discount);
@@ -870,8 +1049,8 @@ export default function SampleComputationPage() {
         </>
       )}
 
-      {/* ── Step 2: Computation ── */}
-      {step === 1 && selectedUnit && (() => {
+      {/* ── Step 3: Computation ── */}
+      {step === 2 && selectedUnit && (() => {
         const catIcon    = UNIT_CATEGORIES.find(c => c.value === unitCategory)?.icon;
         const schemeName = PAYMENT_SCHEMES.find(s => s.value === paymentScheme)?.label ?? '';
 
@@ -895,12 +1074,12 @@ export default function SampleComputationPage() {
         const deferredDiscount = deferredRecord?.discount ?? 0;
 
         const spotDpRecords     = filteredPayterms.filter(p => p.payterm_scheme === 'Spot DP');
-        const spotDpRateOptions = spotDpRecords.map(p => p.dp_percent).filter(Boolean) as string[];
+        const spotDpRateOptions = [...new Set(spotDpRecords.map(p => p.dp_percent).filter(Boolean) as string[])];
         const spotDpRecord      = spotDpRecords.find(p => p.dp_percent === dpRate);
         const spotDpDiscount    = spotDpRecord?.discount ?? 0;
 
         const stretchedDpRecords     = filteredPayterms.filter(p => p.payterm_scheme === 'Stretched DP');
-        const stretchedDpRateOptions = stretchedDpRecords.map(p => p.dp_percent).filter(Boolean) as string[];
+        const stretchedDpRateOptions = [...new Set(stretchedDpRecords.map(p => p.dp_percent).filter(Boolean) as string[])];
         const stretchedDpRecord      = stretchedDpRecords.find(p => p.dp_percent === dpRate);
         const stretchedDpDiscount    = stretchedDpRecord?.discount ?? 0;
         const stretchedDpTermOptions = stretchedDpRecords
@@ -957,7 +1136,7 @@ export default function SampleComputationPage() {
             balanceForFinancing, monthlyStretchedDP, bankMonthly, hdmfMonthly,
             reservationFee,
           }]);
-          goToStep(2);
+          goToStep(3);
         };
 
         const vatUnconfigured = vatThreshold === null;
@@ -1276,7 +1455,7 @@ export default function SampleComputationPage() {
             {comparisons.length > 0 && (
               <button
                 type="button"
-                onClick={() => goToStep(2)}
+                onClick={() => goToStep(3)}
                 className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-[#C03D25] text-[#C03D25] text-sm font-semibold active:bg-[#C03D25]/10"
               >
                 <GitCompare size={16} />
@@ -1287,15 +1466,15 @@ export default function SampleComputationPage() {
         );
       })()}
 
-      {/* ── Step 3: Comparison ── */}
-      {step === 2 && (
+      {/* ── Step 4: Comparison ── */}
+      {step === 3 && (
         <>
           {comparisons.length === 0 ? (
             <GlassCard className="p-8 text-center space-y-3">
               <GitCompare size={32} className="text-[#C7C7CC] mx-auto" />
               <p className="text-[#6C6C70] text-sm">No comparisons yet.</p>
               <p className="text-[#8E8E93] text-xs">Go back and tap "+ Add to Comparison".</p>
-              <button onClick={() => goToStep(1)} className="text-[#C03D25] text-sm font-semibold">← Back to Computation</button>
+              <button onClick={() => goToStep(2)} className="text-[#C03D25] text-sm font-semibold">← Back to Computation</button>
             </GlassCard>
           ) : (
             <div className="overflow-x-auto pb-2" style={{ WebkitOverflowScrolling: 'touch' }}>
@@ -1439,7 +1618,7 @@ export default function SampleComputationPage() {
                 {/* Card: New Unit */}
                 <button
                   type="button"
-                  onClick={() => { setShowAddSheet(false); goToStep(0); }}
+                  onClick={() => { setShowAddSheet(false); goToStep(1); }}
                   style={{
                     width: '100%', display: 'flex', alignItems: 'center', gap: 16,
                     padding: '14px 16px', borderRadius: 20, marginBottom: 8,
@@ -1482,7 +1661,7 @@ export default function SampleComputationPage() {
                 {/* Card: New Payterm */}
                 <button
                   type="button"
-                  onClick={() => { setShowAddSheet(false); goToStep(1); }}
+                  onClick={() => { setShowAddSheet(false); goToStep(2); }}
                   style={{
                     width: '100%', display: 'flex', alignItems: 'center', gap: 16,
                     padding: '14px 16px', borderRadius: 20,
@@ -1563,6 +1742,66 @@ export default function SampleComputationPage() {
             </button>
           </>
         </>
+      )}
+
+      {/* Country Picker for Mobile Number */}
+      {clientCountryPickerOpen && (
+        <div
+          className="fixed inset-0 z-[60] bg-[#F2F2F7]"
+          style={{ animation: 'overlaySlideUp 0.32s cubic-bezier(0.22,1,0.36,1) both' }}
+        >
+          <style>{`@keyframes overlaySlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
+          <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 pt-12 pb-3 z-10">
+            <button
+              type="button"
+              onClick={() => setClientCountryPickerOpen(false)}
+              className="w-9 h-9 rounded-full flex items-center justify-center bg-black/10 border border-black/10"
+            >
+              <ChevronLeft size={18} className="text-[#1C1C1E]" />
+            </button>
+            <p className="text-[#1C1C1E] font-semibold text-sm">Select Country</p>
+            <div className="w-9" />
+          </div>
+          <div className="absolute inset-0 overflow-y-auto">
+            <div className="px-4 pt-[88px] pb-12 space-y-3">
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/70">
+                <Search size={14} className="text-[#8E8E93] shrink-0" />
+                <input
+                  autoFocus
+                  type="text"
+                  value={clientCountrySearch}
+                  onChange={e => setClientCountrySearch(e.target.value)}
+                  placeholder="Search country or dial code…"
+                  className="flex-1 bg-transparent text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC]"
+                />
+                {clientCountrySearch && (
+                  <button type="button" onClick={() => setClientCountrySearch('')}>
+                    <X size={12} className="text-[#8E8E93]" />
+                  </button>
+                )}
+              </div>
+              <div className="rounded-2xl overflow-hidden bg-white/88 backdrop-blur-xl border border-black/[0.06]">
+                {filteredMobileCountries.map(c => (
+                  <button
+                    key={`${c.name}-${c.dial}`}
+                    type="button"
+                    onClick={() => { setClientCountryCode(c.dial); setClientCountryPickerOpen(false); setClientCountrySearch(''); setClientMobile(''); }}
+                    className={`w-full flex items-center gap-3 px-4 py-3.5 border-b border-black/[0.05] last:border-0 text-left active:bg-black/[0.04] ${
+                      clientCountryCode === c.dial && selectedMobileCountry.name === c.name ? 'bg-black/[0.04]' : ''
+                    }`}
+                  >
+                    <span className="text-xl shrink-0">{c.flag}</span>
+                    <span className="flex-1 text-sm text-[#1C1C1E]">{c.name}</span>
+                    <span className="text-sm font-semibold text-[#8E8E93]">{c.dial}</span>
+                    {clientCountryCode === c.dial && selectedMobileCountry.name === c.name && (
+                      <Check size={14} className="text-[#C03D25] shrink-0" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
     </PageShell>
