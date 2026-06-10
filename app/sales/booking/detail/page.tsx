@@ -7,12 +7,12 @@ import GlassCard from '@/components/ui/GlassCard';
 import {
   getBookingProgress, saveBookingFlags, savePrivacyConsent, BookingProgress,
 } from '@/lib/booking-progress';
+import { supabase } from '@/lib/supabase';
 import {
   Building2, Tag, User, ChevronRight,
   Lock, Check, FileText, Loader2, UserCheck, ShieldCheck, ShieldAlert, Heart,
   CheckCircle2, XCircle, Send, Clock,
 } from 'lucide-react';
-import { submitForReview } from '@/lib/review';
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -149,6 +149,7 @@ export default function BookingDetailPage() {
   const [hasCoOwnership,  setHasCoOwnership]  = useState(false);
   const [hasAttyInFact,   setHasAttyInFact]   = useState(false);
   const [savingFlags,     setSavingFlags]     = useState(false);
+  const [dpProofUploaded, setDpProofUploaded] = useState(false);
 
   // Privacy consent
   const [privacyConsent,  setPrivacyConsent]  = useState(false);
@@ -156,8 +157,6 @@ export default function BookingDetailPage() {
   const [agreed,          setAgreed]          = useState(false);
   const [agreedEsig,      setAgreedEsig]      = useState(false);
   const [savingConsent,   setSavingConsent]   = useState(false);
-  const [submitting,      setSubmitting]      = useState(false);
-
   useEffect(() => {
     const raw = sessionStorage.getItem('selectedReservation');
     if (!raw) { router.replace('/sales/booking'); return; }
@@ -174,6 +173,18 @@ export default function BookingDetailPage() {
         })
         .catch(err => { console.error('[detail] progress error:', err); setProgress(null); })
         .finally(() => setLoading(false));
+      // Check if 1st DP proof has been uploaded
+      supabase
+        .from('reservations')
+        .select('proof_of_1st_dp_urls')
+        .eq('reservation_id', r.reservation_id)
+        .single()
+        .then(({ data }) => {
+          try {
+            const urls = JSON.parse(data?.proof_of_1st_dp_urls ?? '[]');
+            setDpProofUploaded(Array.isArray(urls) && urls.length > 0);
+          } catch { setDpProofUploaded(false); }
+        }, () => {});
     } else {
       setLoading(false);
     }
@@ -189,19 +200,6 @@ export default function BookingDetailPage() {
       console.error(err);
     } finally {
       setSavingConsent(false);
-    }
-  }
-
-  async function handleSubmitForReview() {
-    setSubmitting(true);
-    try {
-      await submitForReview(reservation?.reservation_id ?? '');
-      setProgress(prev => prev ? { ...prev, booking_review_status: 'submitted' } : prev);
-    } catch (err) {
-      alert('Failed to submit. Please try again.');
-      console.error(err);
-    } finally {
-      setSubmitting(false);
     }
   }
 
@@ -233,9 +231,9 @@ export default function BookingDetailPage() {
     : false;
 
   const rs          = progress?.booking_review_status ?? null;
-  const dirApproved = rs === 'director-approved' || rs === 'finance-verified';
-  const finVerified = rs === 'finance-verified';
   const docsReady   = progress?.documents_saved ?? false;
+  const dirApproved = docsReady && (rs === 'director-approved' || rs === 'finance-verified' || rs === 'Booked');
+  const finVerified = docsReady && (rs === 'finance-verified' || rs === 'Booked');
   const currentStage = !stage1Complete ? 1 : !docsReady ? 2 : !dirApproved ? 3 : 4;
 
   function goToBuyerInfo() { router.push('/sales/booking/buyer-info'); }
@@ -256,7 +254,7 @@ export default function BookingDetailPage() {
         {/* Reservation hero card */}
         <GlassCard className="overflow-hidden">
           <div className="px-4 py-4 flex items-center gap-4 relative">
-            {finVerified && (
+            {finVerified && privacyConsent && (
               <div className="absolute top-1 right-2 pointer-events-none select-none" style={{ transform: 'rotate(-8deg)' }}>
                 <svg width="72" height="72" viewBox="0 0 72 80" fill="none" xmlns="http://www.w3.org/2000/svg">
                   {/* Ring */}
@@ -550,6 +548,14 @@ export default function BookingDetailPage() {
                       </div>
                     )}
                     {dirApproved && !finVerified && (
+                      <StageRow
+                        icon={<FileText size={14} />}
+                        label="Upload 1st DP Proof"
+                        done={dpProofUploaded}
+                        onTap={() => router.push('/sales/booking/dp-proof')}
+                      />
+                    )}
+                    {dirApproved && !finVerified && dpProofUploaded && (
                       <div className="px-4 py-3 flex items-center gap-3">
                         <Clock size={13} className="text-amber-500" />
                         <p className="text-xs font-medium text-amber-600">Awaiting 1st DP verification by Finance</p>
@@ -563,21 +569,6 @@ export default function BookingDetailPage() {
                     )}
                   </StageCard>
 
-                  {/* Submit / Resubmit button */}
-                  {docsReady && (!rs || rs === 'director-rejected') && (
-                    <button
-                      type="button"
-                      onClick={handleSubmitForReview}
-                      disabled={submitting}
-                      className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 disabled:opacity-40 transition-opacity"
-                    >
-                      {submitting
-                        ? 'Submitting…'
-                        : rs === 'director-rejected'
-                        ? 'Resubmit for Director Review'
-                        : 'Submit for Director Review'}
-                    </button>
-                  )}
 
                   {/* Booking complete banner */}
                   {finVerified && (

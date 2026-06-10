@@ -28,7 +28,8 @@ interface FinanceBooking {
   scheme_name:           string | null;
   payment_term:          string | null;
   director_reviewed_at:  string | null;
-  payment_proof_url:     string | null;
+  payment_proof_url:          string | null;
+  proof_of_valid_id_urls:     string | null;
   tower:                 string | null;
   floor:                 string | null;
   unit_no:               string | null;
@@ -39,6 +40,11 @@ interface FinanceBooking {
   acknowledgement_receipt_no:   string | null;
   sales_invoice_no:             string | null;
   date_of_reservation_fee:      string | null;
+  proof_of_1st_dp_urls:         string | null;
+  dp_acknowledgement_receipt_no: string | null;
+  dp_sales_invoice_no:          string | null;
+  date_of_1st_dp:               string | null;
+  dp_verified_at:               string | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -52,6 +58,8 @@ function getInitials(name: string) {
 function financeBadgeStyle(bookingStatus: string | null, reservationStatus: string | null): { style: React.CSSProperties; label: string } {
   if (reservationStatus === 'Pending Review')
     return { style: { background: 'rgba(88,86,214,0.12)', color: '#3634A3' }, label: 'Pending Review' };
+  if (bookingStatus === 'Booked')
+    return { style: { background: 'rgba(52,199,89,0.12)', color: '#1A7F37' }, label: 'Booked' };
   if (bookingStatus === 'finance-verified')
     return { style: { background: 'rgba(52,199,89,0.12)', color: '#1A7F37' }, label: 'Verified' };
   return { style: { background: 'rgba(255,159,10,0.12)', color: '#A05A00' }, label: 'Pending' };
@@ -88,7 +96,7 @@ export default function BuyersPaymentPage() {
   useEffect(() => {
     async function loadOptions() {
       const [r1, r2] = await Promise.all([
-        supabase.from('reservations').select('project, seller_name').in('booking_review_status', ['director-approved', 'finance-verified']).limit(5000),
+        supabase.from('reservations').select('project, seller_name').in('booking_review_status', ['director-approved', 'finance-verified', 'Booked']).limit(5000),
         supabase.from('reservations').select('project, seller_name').eq('status', 'Pending Review').limit(5000),
       ]);
       const rows = [...(r1.data ?? []), ...(r2.data ?? [])];
@@ -106,8 +114,9 @@ export default function BuyersPaymentPage() {
       seller_name, status, booking_review_status, director_reviewed_at,
       net_list_price, vat, other_charges, total_contract_price,
       scheme_name, payment_term, signature_base64, created_at,
-      tower, floor, unit_no, unit_area, payment_proof_url, finance_verified_at,
-      acknowledgement_receipt_no, sales_invoice_no, date_of_reservation_fee
+      tower, floor, unit_no, unit_area, payment_proof_url, proof_of_valid_id_urls,
+      finance_verified_at, acknowledgement_receipt_no, sales_invoice_no, date_of_reservation_fee,
+      proof_of_1st_dp_urls, dp_acknowledgement_receipt_no, dp_sales_invoice_no, date_of_1st_dp, dp_verified_at
     `;
 
     let q;
@@ -115,7 +124,7 @@ export default function BuyersPaymentPage() {
       q = supabase
         .from('reservations')
         .select(SELECT)
-        .or('status.eq.Pending Review,booking_review_status.eq.director-approved,booking_review_status.eq.finance-verified')
+        .or('status.eq.Pending Review,booking_review_status.eq.director-approved,booking_review_status.eq.finance-verified,booking_review_status.eq.Booked')
         .order('created_at', { ascending: false })
         .limit(5000);
     } else if (statusFilter === 'Pending Review') {
@@ -128,7 +137,7 @@ export default function BuyersPaymentPage() {
     } else {
       const statusValues: Record<string, string[]> = {
         'Pending':  ['director-approved'],
-        'Verified': ['finance-verified'],
+        'Verified': ['finance-verified', 'Booked'],
       };
       q = supabase
         .from('reservations')

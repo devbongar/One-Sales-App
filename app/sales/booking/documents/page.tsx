@@ -4,11 +4,13 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
+import { supabase } from '@/lib/supabase';
 import { getBookingProgress } from '@/lib/booking-progress';
 import {
   fetchBookingDocuments, saveBookingDocuments,
   uploadDocumentFile, removeDocumentFile,
 } from '@/lib/booking-documents';
+import { submitForReview } from '@/lib/review';
 import { Plus, X, FileText, CheckCircle2, Loader2, Upload } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -110,20 +112,29 @@ export default function BookingDocumentsPage() {
   const [isSaved,          setIsSaved]          = useState(false);
   const [loading,          setLoading]          = useState(true);
 
-  const [coOwnerFiles,  setCoOwnerFiles]  = useState<DocFile[]>([]);
-  const [attyFiles,     setAttyFiles]     = useState<DocFile[]>([]);
-  const [spouseFiles,   setSpouseFiles]   = useState<DocFile[]>([]);
-  const [uploadingCo,   setUploadingCo]   = useState(false);
-  const [uploadingAtty, setUploadingAtty] = useState(false);
+  // Billing & income — always required
+  const [billingFiles,     setBillingFiles]     = useState<DocFile[]>([]);
+  const [incomeFiles,      setIncomeFiles]      = useState<DocFile[]>([]);
+  const [uploadingBilling, setUploadingBilling] = useState(false);
+  const [uploadingIncome,  setUploadingIncome]  = useState(false);
+
+  // Conditional ID docs
+  const [coOwnerFiles,    setCoOwnerFiles]    = useState<DocFile[]>([]);
+  const [attyFiles,       setAttyFiles]       = useState<DocFile[]>([]);
+  const [spouseFiles,     setSpouseFiles]     = useState<DocFile[]>([]);
+  const [uploadingCo,     setUploadingCo]     = useState(false);
+  const [uploadingAtty,   setUploadingAtty]   = useState(false);
   const [uploadingSpouse, setUploadingSpouse] = useState(false);
 
   const [isSaving,         setIsSaving]         = useState(false);
   const [showConfirmModal, setShowConfirmModal]  = useState(false);
   const [showDoneModal,    setShowDoneModal]     = useState(false);
 
-  const coInputRef     = useRef<HTMLInputElement>(null);
-  const attyInputRef   = useRef<HTMLInputElement>(null);
-  const spouseInputRef = useRef<HTMLInputElement>(null);
+  const billingInputRef = useRef<HTMLInputElement>(null);
+  const incomeInputRef  = useRef<HTMLInputElement>(null);
+  const coInputRef      = useRef<HTMLInputElement>(null);
+  const attyInputRef    = useRef<HTMLInputElement>(null);
+  const spouseInputRef  = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const raw = sessionStorage.getItem('selectedReservation');
@@ -132,8 +143,9 @@ export default function BookingDocumentsPage() {
     setReservation(r);
 
     if (r.reservation_id) {
-      getBookingProgress(r.reservation_id)
-        .then(async p => {
+      (async () => {
+        try {
+          const p = await getBookingProgress(r.reservation_id);
           setHasCoOwnership(p.has_co_ownership);
           setHasAttyInFact(p.has_atty_in_fact);
           setHasSpouse(p.has_spouse);
@@ -148,9 +160,26 @@ export default function BookingDocumentsPage() {
           setCoOwnerFiles((docs.co_owner_id_urls ?? []).map(toDocFile));
           setAttyFiles((docs.atty_in_fact_id_urls ?? []).map(toDocFile));
           setSpouseFiles((docs.spouse_id_urls ?? []).map(toDocFile));
-        })
-        .catch(err => console.error('[documents] load error:', err))
-        .finally(() => setLoading(false));
+
+          // Load billing & income from reservations table
+          const { data: resData } = await supabase
+            .from('reservations')
+            .select('proof_of_billing_urls, proof_of_income_urls')
+            .eq('reservation_id', r.reservation_id)
+            .single();
+          if (resData) {
+            const parse = (v: string | null): string[] => {
+              try { return JSON.parse(v ?? '[]') ?? []; } catch { return []; }
+            };
+            setBillingFiles(parse(resData.proof_of_billing_urls).map(toDocFile));
+            setIncomeFiles(parse(resData.proof_of_income_urls).map(toDocFile));
+          }
+        } catch (err) {
+          console.error('[documents] load error:', err);
+        } finally {
+          setLoading(false);
+        }
+      })();
     } else {
       setLoading(false);
     }
@@ -193,6 +222,14 @@ export default function BookingDocumentsPage() {
         attyFiles.map(f => f.url),
         spouseFiles.map(f => f.url),
       );
+      await supabase
+        .from('reservations')
+        .update({
+          proof_of_billing_urls: JSON.stringify(billingFiles.map(f => f.url)),
+          proof_of_income_urls:  JSON.stringify(incomeFiles.map(f => f.url)),
+        })
+        .eq('reservation_id', reservation?.reservation_id ?? '');
+      await submitForReview(reservation?.reservation_id ?? '');
       setIsSaved(true);
       setShowDoneModal(true);
     } catch (err) {
@@ -203,31 +240,57 @@ export default function BookingDocumentsPage() {
     }
   }
 
-  const needsSpouseId  = hasSpouse && !coOwnerIsSpouse;
-  const noDocsRequired = !hasCoOwnership && !hasAttyInFact && !needsSpouseId;
-  const canSave = !noDocsRequired
+  const needsSpouseId     = hasSpouse && !coOwnerIsSpouse;
+  const hasAnyConditional = hasCoOwnership || hasAttyInFact || needsSpouseId;
+
+  const canSave = billingFiles.length > 0 && incomeFiles.length > 0
     && (!hasCoOwnership || coOwnerFiles.length > 0)
     && (!hasAttyInFact  || attyFiles.length > 0)
     && (!needsSpouseId  || spouseFiles.length > 0);
 
   return (
-    <PageShell title="Required Documents" backButton onBack={() => router.push('/sales/booking/detail')}>
+    <PageShell title="Required Documents" backButton onBack={() => router.push('/account/buyers-verification')}>
       <div className="space-y-4 pb-6">
 
         {loading ? (
           <div className="flex items-center justify-center py-16">
             <Loader2 size={28} className="text-[#C03D25] animate-spin" />
           </div>
-        ) : noDocsRequired ? (
-          <GlassCard className="p-8 flex flex-col items-center gap-3 text-center">
-            <CheckCircle2 size={32} className="text-[#C7C7CC]" />
-            <p className="text-sm font-semibold text-[#6C6C70]">No documents required</p>
-            <p className="text-xs text-[#C7C7CC] leading-relaxed">
-              This booking has no co-owner or attorney in fact.
-            </p>
-          </GlassCard>
         ) : (
           <>
+            {/* Proof of Billing — always required */}
+            <DocSection
+              label="Proof of Billing"
+              files={billingFiles}
+              onAdd={() => billingInputRef.current?.click()}
+              onRemove={idx => handleRemove(idx, billingFiles, setBillingFiles)}
+              uploading={uploadingBilling}
+              disabled={isSaved}
+            />
+            <input ref={billingInputRef} type="file" accept="image/*,.pdf" className="hidden"
+              onChange={e => {
+                const file = e.target.files?.[0];
+                if (file) handleFileUpload(file, 'billing', setBillingFiles, setUploadingBilling);
+                e.target.value = '';
+              }} />
+
+            {/* Proof of Income — always required */}
+            <DocSection
+              label="Proof of Income"
+              files={incomeFiles}
+              onAdd={() => incomeInputRef.current?.click()}
+              onRemove={idx => handleRemove(idx, incomeFiles, setIncomeFiles)}
+              uploading={uploadingIncome}
+              disabled={isSaved}
+            />
+            <input ref={incomeInputRef} type="file" accept="image/*,.pdf" className="hidden"
+              onChange={e => {
+                const file = e.target.files?.[0];
+                if (file) handleFileUpload(file, 'income', setIncomeFiles, setUploadingIncome);
+                e.target.value = '';
+              }} />
+
+            {/* Conditional ID documents */}
             {hasCoOwnership && (
               <>
                 <DocSection
@@ -285,9 +348,16 @@ export default function BookingDocumentsPage() {
               </>
             )}
 
+            {!hasAnyConditional && isSaved && (
+              <GlassCard className="p-4 flex items-center gap-3">
+                <CheckCircle2 size={20} className="text-green-600 shrink-0" />
+                <p className="text-sm text-[#6C6C70]">All documents have been submitted.</p>
+              </GlassCard>
+            )}
+
             <button type="button"
               onClick={() => {
-                if (isSaved) { router.push('/sales/booking/detail'); return; }
+                if (isSaved) { router.push('/account/buyers-verification'); return; }
                 setShowConfirmModal(true);
               }}
               disabled={isSaving || (!isSaved && !canSave)}
@@ -337,7 +407,7 @@ export default function BookingDocumentsPage() {
         <div className="fixed inset-0 z-50 flex items-end justify-center">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
           <div className="relative w-full bg-white rounded-t-3xl px-6 pt-6 pb-10 space-y-5 animate-slide-up">
-            <button type="button" onClick={() => router.push('/sales/booking/detail')}
+            <button type="button" onClick={() => router.push('/account/buyers-verification')}
               className="absolute top-4 right-4 w-8 h-8 rounded-full bg-[#F2F2F7] flex items-center justify-center active:opacity-70">
               <X size={16} className="text-[#6C6C70]" />
             </button>
@@ -350,7 +420,7 @@ export default function BookingDocumentsPage() {
                 All required documents have been uploaded and saved successfully.
               </p>
             </div>
-            <button type="button" onClick={() => router.push('/sales/booking/detail')}
+            <button type="button" onClick={() => router.push('/account/buyers-verification')}
               className="w-full py-3.5 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80">
               Done
             </button>

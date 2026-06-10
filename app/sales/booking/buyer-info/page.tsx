@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import DatePickerInput from '@/components/ui/DatePickerInput';
-import { fetchAllClients, updateBuyerInfo, fetchBuyerInfo } from '@/lib/clients';
+import { fetchAllClients, updateBuyerInfo, fetchBuyerInfo, updateClient, ClientRecord } from '@/lib/clients';
 import { supabase } from '@/lib/supabase';
 import { COUNTRY_CODES } from '@/lib/client-form-options';
 import {
@@ -263,6 +263,7 @@ export default function BuyerInfoPage() {
   const [showConfirmModal,  setShowConfirmModal]  = useState(false);
   const [hasCoOwnership,    setHasCoOwnership]    = useState(false);
   const [hasAttyInFact,     setHasAttyInFact]     = useState(false);
+  const [clientRecord, setClientRecord] = useState<ClientRecord | null>(null);
   const [clientUuid,   setClientUuid]   = useState('');
   const [clientId,    setClientId]    = useState('');
   const [lastName,    setLastName]    = useState('');
@@ -331,6 +332,7 @@ export default function BuyerInfoPage() {
         [c.first_name, c.last_name, c.suffix].filter(Boolean).join(' ') === r.client_name
       );
       if (!match) return;
+      setClientRecord(match);
       setClientUuid(match.id);
       setClientId(match.client_id ?? '');
       setLastName(match.last_name ?? '');
@@ -398,7 +400,6 @@ export default function BuyerInfoPage() {
   }
 
   async function handleSave() {
-    if (isSaved) { routeAfterSave(); return; }
     if (!clientUuid) return;
     setIsSaving(true);
     try {
@@ -420,6 +421,32 @@ export default function BuyerInfoPage() {
         work_street: workStreet, work_building_unit: workBuildingUnit,
         mailing_type: mailingType, mailing_other: mailingOther,
       });
+      // Save editable personal fields back to the clients record
+      if (clientRecord) {
+        await updateClient(clientUuid, {
+          client_type: clientRecord.client_type,
+          last_name: lastName, first_name: firstName,
+          middle_name: middleName, suffix: suffix,
+          gender, civil_status: civilStatus,
+          date_of_birth: dateOfBirth,
+          citizenship,
+          country_code: clientRecord.country_code ?? '+63',
+          mobile_number: clientRecord.mobile_number ?? '',
+          landline_no: landline,
+          email,
+          reason_for_buying: clientRecord.reason_for_buying ?? '',
+          source_of_sale: clientRecord.source_of_sale ?? '',
+          monthly_household_income: clientRecord.monthly_household_income ?? '',
+          seller_type: clientRecord.seller_type ?? undefined,
+          sales_director: clientRecord.sales_director ?? undefined,
+          sales_manager: clientRecord.sales_manager ?? undefined,
+          property_specialist: clientRecord.property_specialist ?? undefined,
+          broker_director_head: clientRecord.broker_director_head ?? undefined,
+          broker_network_officer: clientRecord.broker_network_officer ?? undefined,
+          broker_bir_name: clientRecord.broker_bir_name ?? undefined,
+          broker_network_associate: clientRecord.broker_network_associate ?? undefined,
+        });
+      }
       // Sync has_spouse on the reservation so the spouse step shows/hides correctly
       if (reservation?.reservation_id) {
         await supabase
@@ -452,41 +479,36 @@ export default function BuyerInfoPage() {
           <ReadOnlyField label="Middle Name" icon={<User size={11} />}      value={middleName} />
           <ReadOnlyField label="Suffix"      icon={<User size={11} />}      value={suffix} />
 
-          <InputRow label="Gender" icon={<User size={11} />} required={!isSaved}>
-            <SelectInput value={gender} options={GENDER_OPTIONS} onChange={setGender} placeholder="Select gender" disabled={isSaved} />
+          <InputRow label="Gender" icon={<User size={11} />} required>
+            <SelectInput value={gender} options={GENDER_OPTIONS} onChange={setGender} placeholder="Select gender" />
           </InputRow>
-          <InputRow label="Civil Status" icon={<Heart size={11} />} required={!isSaved}>
-            <SelectInput value={civilStatus} options={CIVIL_STATUS_OPTIONS} onChange={setCivilStatus} placeholder="Select civil status" disabled={isSaved} />
+          <InputRow label="Civil Status" icon={<Heart size={11} />} required>
+            <SelectInput value={civilStatus} options={CIVIL_STATUS_OPTIONS} onChange={setCivilStatus} placeholder="Select civil status" />
           </InputRow>
 
-          <ReadOnlyField label="Citizenship"   icon={<Globe size={11} />}  value={citizenship} />
+          <InputRow label="Citizenship" icon={<Globe size={11} />}>
+            <SearchableSelect value={citizenship} options={COUNTRY_OPTIONS} onChange={setCitizenship} placeholder="Select citizenship" />
+          </InputRow>
           <InputRow label="Date of Birth" icon={<Calendar size={11} />}>
-            <DatePickerInput value={dateOfBirth} onChange={() => {}} disabled />
+            <DatePickerInput value={dateOfBirth} onChange={setDateOfBirth} />
           </InputRow>
           <ReadOnlyField label="Mobile No."    icon={<Phone size={11} />}  value={mobile} />
-          <ReadOnlyField label="Landline No."  icon={<Phone size={11} />}  value={landline} />
+          <InputRow label="Landline No." icon={<Phone size={11} />}>
+            <TextInput value={landline} onChange={setLandline} placeholder="e.g. 028XXXXXXX" />
+          </InputRow>
           <ReadOnlyField label="Email Address" icon={<Mail size={11} />}   value={email} />
 
-          <InputRow label="Tax ID No. (TIN)" icon={<CreditCard size={11} />} required={!noTin && !isSaved}>
+          <InputRow label="Tax ID No. (TIN)" icon={<CreditCard size={11} />} required={!noTin}>
             <TextInput value={noTin ? '' : tin} onChange={setTin}
-              placeholder={noTin ? 'No TIN' : 'XXX-XXX-XXX'} disabled={noTin || isSaved} />
+              placeholder={noTin ? 'No TIN' : 'XXX-XXX-XXX'} disabled={noTin} />
           </InputRow>
 
-          {isSaved ? (
-            noTin && (
-              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-[#F2F2F7]/50 border border-black/[0.06]">
-                <FileText size={14} className="text-[#C03D25] shrink-0" />
-                <span className="text-sm text-[#6C6C70] font-medium">No TIN</span>
-              </div>
-            )
-          ) : (
-            <button type="button" onClick={() => { setNoTin(p => !p); if (!noTin) setTin(''); }}
-              className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-semibold transition-all ${
-                noTin ? 'bg-[#C03D25] border-[#C03D25] text-white' : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
-              }`}>
-              {noTin && <Check size={13} />}<FileText size={14} />No TIN
-            </button>
-          )}
+          <button type="button" onClick={() => { setNoTin(p => !p); if (!noTin) setTin(''); }}
+            className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-semibold transition-all ${
+              noTin ? 'bg-[#C03D25] border-[#C03D25] text-white' : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
+            }`}>
+            {noTin && <Check size={13} />}<FileText size={14} />No TIN
+          </button>
 
           {noTin && (
             <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
@@ -653,10 +675,10 @@ export default function BuyerInfoPage() {
 
         {/* Save button */}
         <button type="button"
-          onClick={() => isSaved ? handleSave() : setShowConfirmModal(true)}
+          onClick={() => setShowConfirmModal(true)}
           disabled={isSaving}
           className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity disabled:opacity-60">
-          {isSaving ? 'Saving...' : isSaved ? 'Done' : 'Save'}
+          {isSaving ? 'Saving...' : 'Save'}
         </button>
 
       </div>

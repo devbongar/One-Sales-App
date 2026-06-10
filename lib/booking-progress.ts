@@ -24,7 +24,8 @@ export type BookingStatus =
   | 'submitted'
   | 'director-rejected'
   | 'director-approved'
-  | 'finance-verified';
+  | 'finance-verified'
+  | 'Booked';
 
 export async function getBookingProgress(reservationId: string): Promise<BookingProgress> {
   const { data, error } = await supabase.rpc('get_booking_progress', { p_reservation_id: reservationId });
@@ -85,6 +86,7 @@ export function computeBookingStatus(p?: BookingProgress): BookingStatus {
                   && (!p.has_atty_in_fact  || p.atty_saved);
   if (!stage1Done) return 'in-progress';
   if (!p.documents_saved) return 'stage1-complete';
+  if (p.booking_review_status === 'Booked')            return 'Booked';
   if (p.booking_review_status === 'finance-verified')  return 'finance-verified';
   if (p.booking_review_status === 'director-approved') return 'director-approved';
   if (p.booking_review_status === 'director-rejected') return 'director-rejected';

@@ -38,10 +38,12 @@ const BOOKING_STATUS_MAP: { value: BookingStatus; label: string }[] = [
   { value: 'director-rejected', label: 'Dir. Rejected' },
   { value: 'director-approved', label: 'Dir. Approved' },
   { value: 'finance-verified',  label: 'Finance Verified' },
+  { value: 'Booked',            label: 'Booked' },
 ];
 
 function bookingStatusStyle(status: BookingStatus): React.CSSProperties & { label: string } {
   switch (status) {
+    case 'Booked':            return { background: 'rgba(52,199,89,0.18)',   color: '#1A7F37', label: 'Booked' } as any;
     case 'finance-verified':  return { background: 'rgba(52,199,89,0.12)',   color: '#1A7F37', label: 'Finance Verified' } as any;
     case 'director-approved': return { background: 'rgba(48,176,199,0.12)',  color: '#0E6E7E', label: 'Dir. Approved' } as any;
     case 'director-rejected': return { background: 'rgba(255,59,48,0.12)',   color: '#C0392B', label: 'Dir. Rejected' } as any;
@@ -78,7 +80,7 @@ export default function BookingPage() {
     supabase
       .from('reservations')
       .select('seller_name, project')
-      .in('status', ['Reserved-paid', 'Approved'])
+      .in('status', ['Reserved-paid', 'Approved', 'Booked'])
       .limit(5000)
       .then(({ data }) => {
         if (!data) return;
@@ -93,7 +95,7 @@ export default function BookingPage() {
     let query = supabase
       .from('reservations')
       .select('reservation_id, client_name, project, inventory_code, unit_type, status, seller_name, payment_proof_url')
-      .in('status', ['Reserved-paid', 'Approved'])
+      .in('status', ['Reserved-paid', 'Approved', 'Booked'])
       .order('created_at', { ascending: false })
       .limit(5000);
 

@@ -1015,12 +1015,29 @@ export default function DirectorReviewPage() {
               ? 'This booking has been approved and forwarded to Finance.'
               : 'The agent has been notified to review and resubmit.'}
           </p>
-          <button
-            onClick={() => router.push('/account/buyers-verification')}
-            className="mt-2 px-6 py-3 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80"
-          >
-            Back to Queue
-          </button>
+          {done === 'approved' ? (
+            <button
+              onClick={() => {
+                sessionStorage.setItem('selectedReservation', JSON.stringify({
+                  reservation_id: booking?.reservation_id,
+                  client_name:    booking?.client_name,
+                  project:        booking?.project,
+                  inventory_code: booking?.inventory_code,
+                }));
+                router.push('/sales/booking/detail');
+              }}
+              className="mt-2 px-6 py-3 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80"
+            >
+              View Booking Detail
+            </button>
+          ) : (
+            <button
+              onClick={() => router.push('/account/buyers-verification')}
+              className="mt-2 px-6 py-3 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80"
+            >
+              Back to Queue
+            </button>
+          )}
         </GlassCard>
       </PageShell>
     );

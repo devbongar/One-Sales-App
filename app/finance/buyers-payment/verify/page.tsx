@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
+import { supabase } from '@/lib/supabase';
 import { approvePaymentReview, updateReservationStatus } from '@/lib/reservations';
+import { updateInventoryUnitStatus } from '@/lib/inventory';
 import {
   FileText, FolderOpen, CheckCircle2, XCircle,
   Hash, User, Building2, Tag,
@@ -32,12 +34,18 @@ interface FinanceBooking {
   total_contract_price:  number | null;
   scheme_name:           string | null;
   payment_term:          string | null;
-  payment_proof_url:     string | null;
+  payment_proof_url:          string | null;
+  proof_of_valid_id_urls:     string | null;
   director_reviewed_at:         string | null;
   finance_verified_at:          string | null;
   acknowledgement_receipt_no:   string | null;
   sales_invoice_no:             string | null;
   date_of_reservation_fee:      string | null;
+  proof_of_1st_dp_urls:         string | null;
+  dp_acknowledgement_receipt_no: string | null;
+  dp_sales_invoice_no:          string | null;
+  date_of_1st_dp:               string | null;
+  dp_verified_at:               string | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -79,6 +87,53 @@ function FileTile({ url }: { url: string }) {
   );
 }
 
+// ─── Input field sub-component ────────────────────────────────────────────────
+
+function VerifyInput({
+  icon, label, value, onChange, readOnly, placeholder, type = 'text',
+}: {
+  icon: React.ReactNode; label: string; value: string;
+  onChange: (v: string) => void; readOnly: boolean;
+  placeholder?: string; type?: string;
+}) {
+  return (
+    <>
+      <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
+        <span className="text-[#C03D25] shrink-0">{icon}</span>
+        <span className="flex-1 text-sm font-medium text-[#1C1C1E]">
+          {label}
+          {!readOnly && <span className="text-[#C03D25] text-xs leading-none ml-0.5">*</span>}
+        </span>
+        {type === 'date' && (
+          <input
+            type="date"
+            value={value}
+            onChange={e => !readOnly && onChange(e.target.value)}
+            readOnly={readOnly}
+            className={`text-sm text-[#1C1C1E] bg-transparent outline-none text-right ${readOnly ? 'pointer-events-none' : ''}`}
+          />
+        )}
+      </div>
+      {type !== 'date' && (
+        <div className="px-1 pb-3 pt-1">
+          <input
+            type={type}
+            value={value}
+            onChange={e => !readOnly && onChange(e.target.value)}
+            readOnly={readOnly}
+            placeholder={placeholder}
+            className={`w-full px-3 py-2.5 rounded-xl border text-sm text-[#1C1C1E] placeholder-[#C7C7CC] outline-none ${
+              readOnly
+                ? 'border-black/[0.06] bg-white text-[#3A3A3C] cursor-default'
+                : 'border-black/[0.1] bg-[#F2F2F7] focus:border-[#C03D25]/50'
+            }`}
+          />
+        </div>
+      )}
+    </>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function FinanceVerifyPage() {
@@ -89,6 +144,11 @@ export default function FinanceVerifyPage() {
   const [ackReceiptNo,   setAckReceiptNo]   = useState('');
   const [salesInvoiceNo, setSalesInvoiceNo] = useState('');
   const [dateOfResFee,   setDateOfResFee]   = useState(todayIso());
+
+  // DP fields
+  const [dpAckReceiptNo,   setDpAckReceiptNo]   = useState('');
+  const [dpSalesInvoiceNo, setDpSalesInvoiceNo] = useState('');
+  const [dpDate,           setDpDate]           = useState(todayIso());
 
   // Modal states
   const [showApproveConfirm, setShowApproveConfirm] = useState(false);
@@ -103,10 +163,16 @@ export default function FinanceVerifyPage() {
     if (!raw) { router.replace('/finance/buyers-payment'); return; }
     const b = JSON.parse(raw) as FinanceBooking;
     setBooking(b);
+    // RF fields
     if (b.acknowledgement_receipt_no) setAckReceiptNo(b.acknowledgement_receipt_no);
     if (b.sales_invoice_no)           setSalesInvoiceNo(b.sales_invoice_no);
     if (b.date_of_reservation_fee)    setDateOfResFee(b.date_of_reservation_fee);
+    // DP fields
+    if (b.dp_acknowledgement_receipt_no) setDpAckReceiptNo(b.dp_acknowledgement_receipt_no);
+    if (b.dp_sales_invoice_no)           setDpSalesInvoiceNo(b.dp_sales_invoice_no);
+    if (b.date_of_1st_dp)               setDpDate(b.date_of_1st_dp);
   }, []);
+
 
   async function handleApprove() {
     if (!booking) return;
@@ -114,7 +180,6 @@ export default function FinanceVerifyPage() {
     setActionError('');
     try {
       await approvePaymentReview(booking.reservation_id, ackReceiptNo.trim(), salesInvoiceNo.trim(), dateOfResFee);
-      // Update sessionStorage so re-opening this booking shows read-only state
       const updated = {
         ...booking,
         booking_review_status:      'finance-verified',
@@ -128,6 +193,72 @@ export default function FinanceVerifyPage() {
       setDone('approved');
     } catch (e: any) {
       setActionError(e.message ?? 'Failed to approve. Please try again.');
+    } finally {
+      setApproving(false);
+      setShowApproveConfirm(false);
+    }
+  }
+
+  async function handleApproveDp() {
+    if (!booking) return;
+    setApproving(true);
+    setActionError('');
+    try {
+      const now = new Date().toISOString();
+
+      // 1. Update reservations — mark Booked and finance-verified
+      const { error } = await supabase
+        .from('reservations')
+        .update({
+          dp_acknowledgement_receipt_no: dpAckReceiptNo.trim(),
+          dp_sales_invoice_no:           dpSalesInvoiceNo.trim(),
+          date_of_1st_dp:               dpDate,
+          dp_verified_at:               now,
+          booking_review_status:        'Booked',
+          status:                       'Booked',
+        })
+        .eq('reservation_id', booking.reservation_id);
+      if (error) throw new Error(error.message);
+
+      // 2. Update inventory unit status to Booked
+      if (booking.inventory_code) {
+        await updateInventoryUnitStatus(booking.inventory_code, 'Booked');
+      }
+
+      // 3. Post the 1st receivable line (excluding Reservation Fee) as Paid
+      const { data: lines } = await supabase
+        .from('receivables_database')
+        .select('id, type_of_payment')
+        .eq('reservation_id', booking.reservation_id)
+        .neq('type_of_payment', 'Reservation Fee')
+        .order('due_date', { ascending: true })
+        .limit(1);
+      if (lines && lines.length > 0) {
+        await supabase
+          .from('receivables_database')
+          .update({
+            payment_status:             'Paid',
+            acknowledgement_receipt_no: dpAckReceiptNo.trim(),
+            sales_invoice_number:       dpSalesInvoiceNo.trim(),
+            posting_date:              dpDate,
+          })
+          .eq('id', lines[0].id);
+      }
+
+      const updated = {
+        ...booking,
+        status:                        'Booked',
+        booking_review_status:         'Booked',
+        dp_acknowledgement_receipt_no: dpAckReceiptNo.trim(),
+        dp_sales_invoice_no:           dpSalesInvoiceNo.trim(),
+        date_of_1st_dp:               dpDate,
+        dp_verified_at:               now,
+      };
+      sessionStorage.setItem('financeBooking', JSON.stringify(updated));
+      setBooking(updated);
+      setDone('approved');
+    } catch (e: any) {
+      setActionError(e.message ?? 'Failed to verify. Please try again.');
     } finally {
       setApproving(false);
       setShowApproveConfirm(false);
@@ -149,22 +280,33 @@ export default function FinanceVerifyPage() {
     }
   }
 
-  const proofUrls      = parseJson(booking?.payment_proof_url ?? null);
-  const alreadyVerified = booking?.booking_review_status === 'finance-verified' || !!booking?.finance_verified_at;
-  const canApprove     = !alreadyVerified && ackReceiptNo.trim().length > 0 && salesInvoiceNo.trim().length > 0 && !!dateOfResFee;
+  const proofUrls    = parseJson(booking?.payment_proof_url ?? null);
+  const validIdUrls  = parseJson(booking?.proof_of_valid_id_urls ?? null);
+  const dpProofUrls  = parseJson(booking?.proof_of_1st_dp_urls ?? null);
+
+  const rfVerified  = !!booking?.finance_verified_at;
+  const dpVerified  = !!booking?.dp_verified_at;
+  // isDPPending: director has approved, DP not yet finance-verified
+  const isDPPending = booking?.booking_review_status === 'director-approved';
+  const alreadyVerified = isDPPending ? dpVerified : rfVerified;
+
+  const canApproveRF = !rfVerified && ackReceiptNo.trim().length > 0 && salesInvoiceNo.trim().length > 0 && !!dateOfResFee;
+  const canApproveDP = !dpVerified && dpAckReceiptNo.trim().length > 0 && dpSalesInvoiceNo.trim().length > 0 && !!dpDate;
+  const canApprove   = isDPPending ? canApproveDP : canApproveRF;
 
   // ── Done screens ──────────────────────────────────────────────────────────
 
   if (done === 'approved') {
+    const title = isDPPending ? '1st DP Verified' : 'Payment Approved';
+    const desc  = isDPPending
+      ? `The 1st down payment for ${booking?.client_name} has been verified.`
+      : `The reservation fee payment for ${booking?.client_name} has been approved.`;
     return (
       <PageShell title="Finance Verification" backButton onBack={() => router.push('/finance/buyers-payment')}>
         <GlassCard className="p-8 flex flex-col items-center gap-4">
           <CheckCircle2 size={48} className="text-green-500" />
-          <p className="text-base font-bold text-[#1C1C1E]">Payment Approved</p>
-          <p className="text-sm text-[#8E8E93] text-center">
-            The reservation fee payment for{' '}
-            <span className="font-semibold text-[#1C1C1E]">{booking?.client_name}</span> has been approved.
-          </p>
+          <p className="text-base font-bold text-[#1C1C1E]">{title}</p>
+          <p className="text-sm text-[#8E8E93] text-center">{desc}</p>
           <button
             onClick={() => router.push('/finance/buyers-payment')}
             className="mt-2 px-6 py-3 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80"
@@ -210,6 +352,30 @@ export default function FinanceVerifyPage() {
     <PageShell title="Finance Verification" backButton onBack={() => router.push('/finance/buyers-payment')}>
       <div className="space-y-4 pb-6">
 
+        {/* Mode label */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {rfVerified && (
+            <span className="text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider bg-green-100 text-green-700">
+              RF Verified
+            </span>
+          )}
+          {dpVerified && (
+            <span className="text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider bg-green-100 text-green-700">
+              1st DP Verified
+            </span>
+          )}
+          {!rfVerified && !isDPPending && (
+            <span className="text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider bg-amber-100 text-amber-700">
+              Reservation Fee Verification
+            </span>
+          )}
+          {isDPPending && !dpVerified && (
+            <span className="text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider bg-purple-100 text-purple-700">
+              1st Down Payment Verification
+            </span>
+          )}
+        </div>
+
         {/* Reservation info */}
         <GlassCard className="px-4 py-1">
           {([
@@ -226,7 +392,7 @@ export default function FinanceVerifyPage() {
           ))}
         </GlassCard>
 
-        {/* Proof of Payment */}
+        {/* ── Reservation Fee Section (always shown) ── */}
         <GlassCard className="px-4 py-4 space-y-3">
           <div className="flex items-center justify-between">
             <p className="text-xs font-bold text-[#1C1C1E] uppercase tracking-wider">Proof of Payment</p>
@@ -248,112 +414,158 @@ export default function FinanceVerifyPage() {
           )}
         </GlassCard>
 
-        {/* RF Fields */}
+        <GlassCard className="px-4 py-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-bold text-[#1C1C1E] uppercase tracking-wider">Valid ID</p>
+            {validIdUrls.length > 0 && (
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+                {validIdUrls.length} file{validIdUrls.length > 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+          {validIdUrls.length === 0 ? (
+            <div className="py-7 flex flex-col items-center gap-2">
+              <FolderOpen size={22} className="text-[#C7C7CC]" />
+              <p className="text-xs text-[#C7C7CC]">No valid ID uploaded</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-2">
+              {validIdUrls.map(url => <FileTile key={url} url={url} />)}
+            </div>
+          )}
+        </GlassCard>
+
         <GlassCard className="px-4 py-1">
           <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider py-2.5 border-b border-black/[0.06]">
             Reservation Fee Details
           </p>
-
-          {/* Acknowledgement Receipt No. */}
-          <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
-            <Receipt size={15} className="text-[#C03D25] shrink-0" />
-            <span className="flex-1 text-sm font-medium text-[#1C1C1E]">
-              Acknowledgement Receipt No.
-              <span className="text-[#C03D25] text-xs leading-none ml-0.5">*</span>
-            </span>
-          </div>
-          <div className="px-1 pb-3 pt-1">
-            <input
-              type="text"
-              value={ackReceiptNo}
-              onChange={e => !alreadyVerified && setAckReceiptNo(e.target.value)}
-              readOnly={alreadyVerified}
-              placeholder="Enter receipt number"
-              className={`w-full px-3 py-2.5 rounded-xl border text-sm text-[#1C1C1E] placeholder-[#C7C7CC] outline-none ${
-                alreadyVerified
-                  ? 'border-black/[0.06] bg-white text-[#3A3A3C] cursor-default'
-                  : 'border-black/[0.1] bg-[#F2F2F7] focus:border-[#C03D25]/50'
-              }`}
-            />
-          </div>
-
-          {/* Sales Invoice No. */}
-          <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06] border-t border-t-black/[0.06]">
-            <FileDigit size={15} className="text-[#C03D25] shrink-0" />
-            <span className="flex-1 text-sm font-medium text-[#1C1C1E]">
-              Sales Invoice No.
-              {!alreadyVerified && <span className="text-[#C03D25] text-xs leading-none ml-0.5">*</span>}
-            </span>
-          </div>
-          <div className="px-1 pb-3 pt-1">
-            <input
-              type="text"
-              value={salesInvoiceNo}
-              onChange={e => !alreadyVerified && setSalesInvoiceNo(e.target.value)}
-              readOnly={alreadyVerified}
-              placeholder="Enter invoice number"
-              className={`w-full px-3 py-2.5 rounded-xl border text-sm text-[#1C1C1E] placeholder-[#C7C7CC] outline-none ${
-                alreadyVerified
-                  ? 'border-black/[0.06] bg-white text-[#3A3A3C] cursor-default'
-                  : 'border-black/[0.1] bg-[#F2F2F7] focus:border-[#C03D25]/50'
-              }`}
-            />
-          </div>
-
-          {/* Date of Reservation Fee */}
-          <div className="flex items-center gap-3 py-3 px-1 border-t border-black/[0.06]">
-            <CalendarDays size={15} className="text-[#C03D25] shrink-0" />
-            <span className="flex-1 text-sm font-medium text-[#1C1C1E]">
-              Date of Reservation Fee
-              {!alreadyVerified && <span className="text-[#C03D25] text-xs leading-none ml-0.5">*</span>}
-            </span>
-            <input
-              type="date"
-              value={dateOfResFee}
-              onChange={e => !alreadyVerified && setDateOfResFee(e.target.value)}
-              readOnly={alreadyVerified}
-              className={`text-sm text-[#1C1C1E] bg-transparent outline-none text-right ${alreadyVerified ? 'pointer-events-none' : ''}`}
-            />
-          </div>
+          <VerifyInput
+            icon={<Receipt size={15}/>}
+            label="Acknowledgement Receipt No."
+            value={ackReceiptNo}
+            onChange={setAckReceiptNo}
+            readOnly={rfVerified || isDPPending}
+            placeholder="Enter receipt number"
+          />
+          <VerifyInput
+            icon={<FileDigit size={15}/>}
+            label="Sales Invoice No."
+            value={salesInvoiceNo}
+            onChange={setSalesInvoiceNo}
+            readOnly={rfVerified || isDPPending}
+            placeholder="Enter invoice number"
+          />
+          <VerifyInput
+            icon={<CalendarDays size={15}/>}
+            label="Date of Reservation Fee"
+            value={dateOfResFee}
+            onChange={setDateOfResFee}
+            readOnly={rfVerified || isDPPending}
+            type="date"
+          />
         </GlassCard>
+
+        {/* ── 1st DP Section (shown when pending or already verified) ── */}
+        {(isDPPending || dpVerified) && (
+          <>
+            <GlassCard className="px-4 py-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-bold text-[#1C1C1E] uppercase tracking-wider">Proof of 1st Down Payment</p>
+                {dpProofUrls.length > 0 && (
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+                    {dpProofUrls.length} file{dpProofUrls.length > 1 ? 's' : ''}
+                  </span>
+                )}
+              </div>
+              {dpProofUrls.length === 0 ? (
+                <div className="py-7 flex flex-col items-center gap-2">
+                  <FolderOpen size={22} className="text-[#C7C7CC]" />
+                  <p className="text-xs text-[#C7C7CC]">No proof uploaded yet</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-2">
+                  {dpProofUrls.map(url => <FileTile key={url} url={url} />)}
+                </div>
+              )}
+            </GlassCard>
+
+            <GlassCard className="px-4 py-1">
+              <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider py-2.5 border-b border-black/[0.06]">
+                1st Down Payment Details
+              </p>
+              <VerifyInput
+                icon={<Receipt size={15}/>}
+                label="Acknowledgement Receipt No."
+                value={dpAckReceiptNo}
+                onChange={setDpAckReceiptNo}
+                readOnly={dpVerified}
+                placeholder="Enter receipt number"
+              />
+              <VerifyInput
+                icon={<FileDigit size={15}/>}
+                label="Sales Invoice No."
+                value={dpSalesInvoiceNo}
+                onChange={setDpSalesInvoiceNo}
+                readOnly={dpVerified}
+                placeholder="Enter invoice number"
+              />
+              <VerifyInput
+                icon={<CalendarDays size={15}/>}
+                label="Date of 1st Down Payment"
+                value={dpDate}
+                onChange={setDpDate}
+                readOnly={dpVerified}
+                type="date"
+              />
+            </GlassCard>
+          </>
+        )}
 
         {/* Error */}
         {actionError && (
           <p className="text-red-500 text-xs text-center px-4">{actionError}</p>
         )}
 
-        {/* Already verified banner */}
-        {alreadyVerified && (
+        {/* Verified banners */}
+        {rfVerified && !isDPPending && !dpVerified && (
           <GlassCard className="px-4 py-3 flex items-center gap-3 bg-green-50">
             <CheckCircle2 size={18} className="text-green-500 shrink-0" />
-            <p className="text-sm font-semibold text-green-700">Payment already verified</p>
+            <p className="text-sm font-semibold text-green-700">Reservation fee verified</p>
+          </GlassCard>
+        )}
+        {dpVerified && (
+          <GlassCard className="px-4 py-3 flex items-center gap-3 bg-green-50">
+            <CheckCircle2 size={18} className="text-green-500 shrink-0" />
+            <p className="text-sm font-semibold text-green-700">RF &amp; 1st DP fully verified</p>
           </GlassCard>
         )}
 
-        {/* Action buttons */}
-        {!alreadyVerified && <div className="space-y-2.5">
-          <button
-            type="button"
-            disabled={!canApprove || approving}
-            onClick={() => { setActionError(''); setShowApproveConfirm(true); }}
-            className={`w-full py-4 rounded-2xl text-sm font-bold transition-all flex items-center justify-center gap-2 ${
-              canApprove
-                ? 'bg-green-500 text-white shadow-[0_4px_16px_rgba(34,197,94,0.35)] active:opacity-80'
-                : 'bg-[#E5E5EA] text-[#C7C7CC] cursor-not-allowed'
-            }`}
-          >
-            <CheckCircle2 size={15} />
-            Approve
-          </button>
-          <button
-            type="button"
-            disabled={rejecting}
-            onClick={() => { setActionError(''); setShowRejectConfirm(true); }}
-            className="w-full py-4 rounded-2xl bg-[#FFF1F0] text-[#FF3B30] text-sm font-bold active:opacity-80"
-          >
-            Reject
-          </button>
-        </div>}
+        {/* Action buttons — only when something is pending */}
+        {(!rfVerified || isDPPending) && !dpVerified && (
+          <div className="space-y-2.5">
+            <button
+              type="button"
+              disabled={!canApprove || approving}
+              onClick={() => { setActionError(''); setShowApproveConfirm(true); }}
+              className={`w-full py-4 rounded-2xl text-sm font-bold transition-all flex items-center justify-center gap-2 ${
+                canApprove
+                  ? 'bg-green-500 text-white shadow-[0_4px_16px_rgba(34,197,94,0.35)] active:opacity-80'
+                  : 'bg-[#E5E5EA] text-[#C7C7CC] cursor-not-allowed'
+              }`}
+            >
+              <CheckCircle2 size={15} />
+              {isDPPending ? 'Verify 1st DP' : 'Approve'}
+            </button>
+            <button
+              type="button"
+              disabled={rejecting}
+              onClick={() => { setActionError(''); setShowRejectConfirm(true); }}
+              className="w-full py-4 rounded-2xl bg-[#FFF1F0] text-[#FF3B30] text-sm font-bold active:opacity-80"
+            >
+              Reject
+            </button>
+          </div>
+        )}
 
       </div>
 
@@ -366,9 +578,13 @@ export default function FinanceVerifyPage() {
               <div className="w-12 h-12 rounded-full bg-green-50 flex items-center justify-center mb-3">
                 <CheckCircle2 size={24} className="text-green-500" />
               </div>
-              <p className="text-base font-bold text-[#1C1C1E] text-center">Approve Payment?</p>
+              <p className="text-base font-bold text-[#1C1C1E] text-center">
+                {isDPPending ? 'Verify 1st Down Payment?' : 'Approve Payment?'}
+              </p>
               <p className="text-sm text-[#8E8E93] mt-1 text-center leading-relaxed">
-                This will mark the reservation fee payment as approved and save the RF details.
+                {isDPPending
+                  ? 'This will mark the 1st DP as verified and save the details.'
+                  : 'This will mark the reservation fee payment as approved and save the RF details.'}
               </p>
             </div>
             <div className="px-6 py-3 border-b border-black/[0.06] space-y-1.5">
@@ -380,26 +596,45 @@ export default function FinanceVerifyPage() {
                 <span className="text-xs text-[#8E8E93]">Client</span>
                 <span className="text-xs font-semibold text-[#1C1C1E]">{booking.client_name}</span>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-[#8E8E93]">Ack. Receipt No.</span>
-                <span className="text-xs font-semibold text-[#1C1C1E]">{ackReceiptNo}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-[#8E8E93]">Sales Invoice No.</span>
-                <span className="text-xs font-semibold text-[#1C1C1E]">{salesInvoiceNo}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-[#8E8E93]">Date of RF</span>
-                <span className="text-xs font-semibold text-[#1C1C1E]">{fmtDate(dateOfResFee)}</span>
-              </div>
+              {isDPPending ? (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-[#8E8E93]">Ack. Receipt No.</span>
+                    <span className="text-xs font-semibold text-[#1C1C1E]">{dpAckReceiptNo}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-[#8E8E93]">Sales Invoice No.</span>
+                    <span className="text-xs font-semibold text-[#1C1C1E]">{dpSalesInvoiceNo}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-[#8E8E93]">Date of 1st DP</span>
+                    <span className="text-xs font-semibold text-[#1C1C1E]">{fmtDate(dpDate)}</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-[#8E8E93]">Ack. Receipt No.</span>
+                    <span className="text-xs font-semibold text-[#1C1C1E]">{ackReceiptNo}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-[#8E8E93]">Sales Invoice No.</span>
+                    <span className="text-xs font-semibold text-[#1C1C1E]">{salesInvoiceNo}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-[#8E8E93]">Date of RF</span>
+                    <span className="text-xs font-semibold text-[#1C1C1E]">{fmtDate(dateOfResFee)}</span>
+                  </div>
+                </>
+              )}
             </div>
             {actionError && <p className="text-red-500 text-xs text-center px-6 pt-3">{actionError}</p>}
             <div className="px-6 pb-7 pt-4 flex flex-col gap-2.5">
-              <button type="button" disabled={approving} onClick={handleApprove}
+              <button type="button" disabled={approving} onClick={isDPPending ? handleApproveDp : handleApprove}
                 className="w-full py-3.5 rounded-2xl bg-green-500 text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60 active:opacity-80">
                 {approving
-                  ? <><Loader2 size={15} className="animate-spin" /> Approving...</>
-                  : <><CheckCircle2 size={15} /> Yes, Approve</>
+                  ? <><Loader2 size={15} className="animate-spin" /> {isDPPending ? 'Verifying...' : 'Approving...'}</>
+                  : <><CheckCircle2 size={15} /> {isDPPending ? 'Yes, Verify' : 'Yes, Approve'}</>
                 }
               </button>
               <button type="button" disabled={approving} onClick={() => setShowApproveConfirm(false)}

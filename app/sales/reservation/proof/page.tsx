@@ -8,7 +8,7 @@ import {
   Receipt, CalendarDays, Upload, Camera, ScanLine,
   ImagePlus, X, AlertTriangle, Loader2, Check, CheckCircle2,
   User, Building2, Tag, LayoutGrid, BadgeCheck, FileText,
-  ChevronDown, CreditCard, FileImage, ShieldCheck,
+  ChevronDown, CreditCard, ShieldCheck,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { uploadPaymentProof, uploadDocumentFile, updateReservationPayment, updateReservationStatus } from '@/lib/reservations';
@@ -33,7 +33,7 @@ const ADA_BANKS = [
   'Philippine National Bank (PNB)',
 ] as const;
 
-type UploadTarget = 'payment' | 'billing' | 'income' | 'valid-id';
+type UploadTarget = 'payment' | 'valid-id';
 
 interface SelectedReservation {
   reservation_id: string;
@@ -104,15 +104,14 @@ export default function ProofOfPaymentPage() {
 
   // New-blob uploads
   const [files,       setFiles]       = useState<UploadedFile[]>([]);
-  const [billingFiles, setBillingFiles] = useState<UploadedFile[]>([]);
-  const [incomeFiles,  setIncomeFiles]  = useState<UploadedFile[]>([]);
   const [validIdFiles, setValidIdFiles] = useState<UploadedFile[]>([]);
 
   // Existing remote URLs (pre-loaded on edit)
   const [existingPaymentUrls, setExistingPaymentUrls] = useState<string[]>([]);
-  const [existingBillingUrls, setExistingBillingUrls] = useState<string[]>([]);
-  const [existingIncomeUrls,  setExistingIncomeUrls]  = useState<string[]>([]);
   const [existingValidIdUrls, setExistingValidIdUrls] = useState<string[]>([]);
+  // Preserved (not displayed — managed by booking documents page)
+  const [preservedBillingUrls, setPreservedBillingUrls] = useState<string[]>([]);
+  const [preservedIncomeUrls,  setPreservedIncomeUrls]  = useState<string[]>([]);
 
   const [subsequentMode,      setSubsequentMode]      = useState('');
   const [adaBank,             setAdaBank]             = useState('');
@@ -127,13 +126,11 @@ export default function ProofOfPaymentPage() {
 
   // Paid-view actions
   const [editMode,          setEditMode]          = useState(false);
-  const [loadingEdit,       setLoadingEdit]       = useState(false);
-  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
-  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [showRecallConfirm, setShowRecallConfirm] = useState(false);
-  const [submitting,        setSubmitting]        = useState(false);
-  const [cancelling,        setCancelling]        = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [recalling,         setRecalling]         = useState(false);
+  const [cancelling,        setCancelling]        = useState(false);
+  const [resubmitting,      setResubmitting]      = useState(false);
   const [actionError,       setActionError]       = useState('');
 
   const cameraPhotoRef = useRef<HTMLInputElement>(null);
@@ -143,11 +140,6 @@ export default function ProofOfPaymentPage() {
   const PAID_STATUSES = ['Reserved-paid', 'Pending Review', 'Approved'];
   const alreadyPaid = PAID_STATUSES.includes(reservation?.status ?? '');
   const isApproved = reservation?.status === 'Approved';
-
-  // Parse stored proof URLs (read-only view — immediate, from sessionStorage)
-  const proofUrls: string[] = (() => {
-    try { return JSON.parse(reservation?.payment_proof_url ?? '[]'); } catch { return []; }
-  })();
 
   useEffect(() => {
     const id  = sessionStorage.getItem('currentReservationId');
@@ -173,8 +165,8 @@ export default function ProofOfPaymentPage() {
     setAdaBank(data.ada_bank ?? '');
     if (data.payment_date) setPaymentDate(data.payment_date);
     setExistingPaymentUrls(parse(data.payment_proof_url));
-    setExistingBillingUrls(parse(data.proof_of_billing_urls));
-    setExistingIncomeUrls(parse(data.proof_of_income_urls));
+    setPreservedBillingUrls(parse(data.proof_of_billing_urls));
+    setPreservedIncomeUrls(parse(data.proof_of_income_urls));
     setExistingValidIdUrls(parse(data.proof_of_valid_id_urls));
   }
 
@@ -186,30 +178,6 @@ export default function ProofOfPaymentPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reservationId, reservationStatus]);
 
-  // ── Edit mode: fetch full row from DB and pre-populate ──
-  async function handleEnterEditMode() {
-    setLoadingEdit(true);
-    try {
-      const id = reservationId || sessionStorage.getItem('currentReservationId') || '';
-      await loadExistingData(id);
-      // Clear any leftover new-blob state
-      setFiles([]); setBillingFiles([]); setIncomeFiles([]); setValidIdFiles([]);
-    } catch (e) {
-      console.error('[edit] failed to load reservation data:', e);
-    } finally {
-      setLoadingEdit(false);
-      setEditMode(true);
-    }
-  }
-
-  async function handleCancelEdit() {
-    setEditMode(false);
-    setFiles([]); setBillingFiles([]); setIncomeFiles([]); setValidIdFiles([]);
-    // Restore existing-URL states so the read-only view is correct after cancel
-    const id = reservationId || sessionStorage.getItem('currentReservationId') || '';
-    if (id) loadExistingData(id).catch(e => console.error('[cancel-edit]', e));
-  }
-
   // ── File upload handling ──
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const selected = Array.from(e.target.files ?? []);
@@ -217,14 +185,10 @@ export default function ProofOfPaymentPage() {
 
     const maxAllowed   = activeUploadTarget === 'payment' ? MAX_FILES : MAX_DOC_FILES;
     const existingCount =
-      activeUploadTarget === 'payment'   ? existingPaymentUrls.length :
-      activeUploadTarget === 'billing'   ? existingBillingUrls.length :
-      activeUploadTarget === 'income'    ? existingIncomeUrls.length  :
+      activeUploadTarget === 'payment' ? existingPaymentUrls.length :
       existingValidIdUrls.length;
     const newCount =
-      activeUploadTarget === 'payment'   ? files.length       :
-      activeUploadTarget === 'billing'   ? billingFiles.length :
-      activeUploadTarget === 'income'    ? incomeFiles.length  :
+      activeUploadTarget === 'payment' ? files.length :
       validIdFiles.length;
 
     const remaining  = maxAllowed - existingCount - newCount;
@@ -242,10 +206,8 @@ export default function ProofOfPaymentPage() {
       })
     );
 
-    if (activeUploadTarget === 'payment')        setFiles(prev => [...prev, ...processed]);
-    else if (activeUploadTarget === 'billing')   setBillingFiles(prev => [...prev, ...processed]);
-    else if (activeUploadTarget === 'income')    setIncomeFiles(prev => [...prev, ...processed]);
-    else if (activeUploadTarget === 'valid-id')  setValidIdFiles(prev => [...prev, ...processed]);
+    if (activeUploadTarget === 'payment')       setFiles(prev => [...prev, ...processed]);
+    else if (activeUploadTarget === 'valid-id') setValidIdFiles(prev => [...prev, ...processed]);
 
     e.target.value = '';
   }
@@ -259,8 +221,7 @@ export default function ProofOfPaymentPage() {
     if (target === 'payment') {
       setFiles(prev => { URL.revokeObjectURL(prev[index].preview); return prev.filter((_, i) => i !== index); });
     } else {
-      const setter = target === 'billing' ? setBillingFiles : target === 'income' ? setIncomeFiles : setValidIdFiles;
-      setter(prev => { URL.revokeObjectURL(prev[index].preview); return prev.filter((_, i) => i !== index); });
+      setValidIdFiles(prev => { URL.revokeObjectURL(prev[index].preview); return prev.filter((_, i) => i !== index); });
     }
   }
 
@@ -282,21 +243,6 @@ export default function ProofOfPaymentPage() {
     return null;
   }
 
-  // ── Action handlers ──
-  async function handleSubmitForVerification() {
-    setSubmitting(true);
-    setActionError('');
-    try {
-      await updateReservationStatus(reservationId, 'Pending Review');
-      router.push('/sales/reservation');
-    } catch (e: any) {
-      setActionError(e.message ?? 'Failed to submit. Please try again.');
-    } finally {
-      setSubmitting(false);
-      setShowSubmitConfirm(false);
-    }
-  }
-
   async function handleRecall() {
     setRecalling(true);
     setActionError('');
@@ -314,13 +260,27 @@ export default function ProofOfPaymentPage() {
     }
   }
 
+  async function handleResubmit() {
+    setResubmitting(true);
+    setActionError('');
+    try {
+      await updateReservationStatus(reservationId, 'Pending Review');
+      sessionStorage.removeItem('currentReservationId');
+      router.push('/sales/reservation');
+    } catch (e: any) {
+      setActionError(e.message ?? 'Failed to resubmit. Please try again.');
+    } finally {
+      setResubmitting(false);
+    }
+  }
+
   async function handleCancelReservation() {
     setCancelling(true);
     setActionError('');
     try {
       await updateReservationStatus(reservationId, 'Cancelled');
-      const inventoryCode = getInventoryCode();
-      if (inventoryCode) await updateInventoryUnitStatus(inventoryCode, 'Available');
+      sessionStorage.removeItem('currentReservationId');
+      sessionStorage.removeItem('selectedReservation');
       router.push('/sales/reservation');
     } catch (e: any) {
       setActionError(e.message ?? 'Failed to cancel. Please try again.');
@@ -337,15 +297,9 @@ export default function ProofOfPaymentPage() {
     setSaveError('');
     try {
       // Upload only new blobs; existing URLs are kept as-is
-      const [newPaymentUrls, newBillingUrls, newIncomeUrls, newValidIdUrls] = await Promise.all([
+      const [newPaymentUrls, newValidIdUrls] = await Promise.all([
         Promise.all(files.map((f, i) =>
           uploadPaymentProof(reservationId, f.blob, `${Date.now()}_${i + 1}_${f.name}`)
-        )),
-        Promise.all(billingFiles.map((f, i) =>
-          uploadDocumentFile(reservationId, 'billing', f.blob, `${Date.now()}_${i + 1}_${f.name}`)
-        )),
-        Promise.all(incomeFiles.map((f, i) =>
-          uploadDocumentFile(reservationId, 'income', f.blob, `${Date.now()}_${i + 1}_${f.name}`)
         )),
         Promise.all(validIdFiles.map((f, i) =>
           uploadDocumentFile(reservationId, 'valid-id', f.blob, `${Date.now()}_${i + 1}_${f.name}`)
@@ -353,55 +307,34 @@ export default function ProofOfPaymentPage() {
       ]);
 
       // Merge kept existing URLs with newly uploaded URLs
-      const mergedPayment  = [...existingPaymentUrls, ...newPaymentUrls];
-      const mergedBilling  = [...existingBillingUrls, ...newBillingUrls];
-      const mergedIncome   = [...existingIncomeUrls,  ...newIncomeUrls];
-      const mergedValidId  = [...existingValidIdUrls, ...newValidIdUrls];
+      const mergedPayment = [...existingPaymentUrls, ...newPaymentUrls];
+      const mergedValidId = [...existingValidIdUrls, ...newValidIdUrls];
 
       await updateReservationPayment(reservationId, paymentDate, mergedPayment, {
         subsequentMode,
         adaBank: adaBank || undefined,
-        billingUrls: mergedBilling,
-        incomeUrls:  mergedIncome,
+        billingUrls: preservedBillingUrls.length > 0 ? preservedBillingUrls : undefined,
+        incomeUrls:  preservedIncomeUrls.length  > 0 ? preservedIncomeUrls  : undefined,
         validIdUrls: mergedValidId,
       });
 
       const inventoryCode = getInventoryCode();
       if (inventoryCode) await updateInventoryUnitStatus(inventoryCode, 'Reserved');
 
-      // Generate receivable lines (first-time only; non-fatal)
-      if (!editMode) {
-        try {
-          await generateReceivableLines(reservationId, paymentDate);
-        } catch (e) {
-          console.error('[receivables] Failed to generate lines:', e);
-        }
-        try {
-          await generateCommissionSchedule(reservationId);
-        } catch (e) {
-          console.error('[commission] Failed to generate schedule:', e);
-        }
+      // Generate receivable lines and commission schedule (non-fatal)
+      try {
+        await generateReceivableLines(reservationId, paymentDate);
+      } catch (e) {
+        console.error('[receivables] Failed to generate lines:', e);
+      }
+      try {
+        await generateCommissionSchedule(reservationId);
+      } catch (e) {
+        console.error('[commission] Failed to generate schedule:', e);
       }
 
-      if (editMode) {
-        setShowConfirm(false);
-        setEditMode(false);
-        // Refresh reservation in session to reflect new proof URL
-        const { data } = await supabase
-          .from('reservations')
-          .select('reservation_id, client_name, project, inventory_code, unit_type, status, seller_name, payment_proof_url')
-          .eq('reservation_id', reservationId)
-          .single();
-        if (data) {
-          setReservation(data as SelectedReservation);
-          sessionStorage.setItem('selectedReservation', JSON.stringify(data));
-        }
-        // Clear edit state
-        setExistingPaymentUrls([]); setExistingBillingUrls([]);
-        setExistingIncomeUrls([]); setExistingValidIdUrls([]);
-        setFiles([]); setBillingFiles([]); setIncomeFiles([]); setValidIdFiles([]);
-        return;
-      }
+      // Submit for verification immediately
+      await updateReservationStatus(reservationId, 'Pending Review');
 
       sessionStorage.removeItem('currentReservationId');
       sessionStorage.removeItem('reservationData');
@@ -417,32 +350,14 @@ export default function ProofOfPaymentPage() {
 
   // canConfirm: in edit mode relax the "must have new files" — existing counts too
   const totalPaymentFiles = existingPaymentUrls.length + files.length;
-  const totalBillingFiles = existingBillingUrls.length + billingFiles.length;
-  const totalIncomeFiles  = existingIncomeUrls.length  + incomeFiles.length;
   const totalValidIdFiles = existingValidIdUrls.length + validIdFiles.length;
 
   const canConfirm = totalPaymentFiles > 0 && !!paymentDate
     && !!subsequentMode && (!adaSelected || !!adaBank)
-    && totalBillingFiles > 0 && totalIncomeFiles > 0 && totalValidIdFiles > 0;
+    && totalValidIdFiles > 0;
 
   // Doc section helper
   const docSections = [
-    {
-      target: 'billing'  as UploadTarget,
-      label: 'Proof of Billing',
-      icon: <FileText size={16} />,
-      existingUrls: existingBillingUrls,
-      setExisting: setExistingBillingUrls,
-      newFiles: billingFiles,
-    },
-    {
-      target: 'income'   as UploadTarget,
-      label: 'Proof of Income',
-      icon: <FileImage size={16} />,
-      existingUrls: existingIncomeUrls,
-      setExisting: setExistingIncomeUrls,
-      newFiles: incomeFiles,
-    },
     {
       target: 'valid-id' as UploadTarget,
       label: 'Proof of Valid ID',
@@ -514,27 +429,27 @@ export default function ProofOfPaymentPage() {
         )}
 
         <p className="text-xs text-[#8E8E93] leading-relaxed">
-          {alreadyPaid && editMode
-            ? 'Edit mode — you can remove or add files, then tap Save Changes.'
-            : isApproved
+          {isApproved
             ? 'This reservation has been approved. All details are read-only.'
             : reservation?.status === 'Pending Review'
             ? 'This reservation has been submitted for verification and is currently under review.'
-            : alreadyPaid
-            ? 'Payment has already been confirmed for this reservation.'
-            : 'Please upload your proof of payment for the reservation fee of ₱25,000. This will be reviewed and validated by our team.'
+            : reservation?.status === 'Reserved-paid' && !editMode
+            ? 'This submission was returned. You may edit and resubmit, or cancel the reservation.'
+            : reservation?.status === 'Reserved-paid' && editMode
+            ? 'Update the payment details below and resubmit for verification.'
+            : 'Upload your proof of payment and valid ID, then tap Submit for Verification. Your reservation will be sent for review immediately.'
           }
         </p>
       </GlassCard>
 
-      {/* Read-only proof thumbnails — shown only when paid and NOT in edit mode */}
-      {alreadyPaid && !editMode && proofUrls.length > 0 && (
+      {/* Read-only proof thumbnails */}
+      {alreadyPaid && existingPaymentUrls.length > 0 && (
         <GlassCard className="px-4 py-3 space-y-3">
           <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">
-            Payment Proof ({proofUrls.length} file{proofUrls.length > 1 ? 's' : ''})
+            Payment Proof ({existingPaymentUrls.length} file{existingPaymentUrls.length > 1 ? 's' : ''})
           </p>
           <div className="grid grid-cols-3 gap-2">
-            {proofUrls.map((url, i) => {
+            {existingPaymentUrls.map((url, i) => {
               const isPdf = url.toLowerCase().includes('.pdf');
               return isPdf ? (
                 <button key={i} type="button" onClick={() => setLightboxUrl(url)}
@@ -554,7 +469,7 @@ export default function ProofOfPaymentPage() {
       )}
 
       {/* Read-only subsequent mode of payment */}
-      {alreadyPaid && !editMode && subsequentMode && (
+      {alreadyPaid && subsequentMode && (
         <GlassCard className="px-4 py-3 space-y-1.5">
           <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Subsequent Mode of Payment</p>
           <p className="text-sm font-semibold text-[#1C1C1E]">{subsequentMode}</p>
@@ -564,37 +479,29 @@ export default function ProofOfPaymentPage() {
         </GlassCard>
       )}
 
-      {/* Read-only document files — billing, income, valid-id */}
-      {alreadyPaid && !editMode && (existingBillingUrls.length > 0 || existingIncomeUrls.length > 0 || existingValidIdUrls.length > 0) && (
-        <GlassCard className="px-4 py-3 space-y-4">
-          {[
-            { label: 'Proof of Billing',  urls: existingBillingUrls },
-            { label: 'Proof of Income',   urls: existingIncomeUrls  },
-            { label: 'Proof of Valid ID', urls: existingValidIdUrls },
-          ].filter(s => s.urls.length > 0).map(({ label, urls }) => (
-            <div key={label} className="space-y-2">
-              <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">
-                {label} ({urls.length} file{urls.length > 1 ? 's' : ''})
-              </p>
-              <div className="grid grid-cols-3 gap-2">
-                {urls.map((url, i) => {
-                  const isPdf = url.toLowerCase().includes('.pdf');
-                  return isPdf ? (
-                    <button key={i} type="button" onClick={() => setLightboxUrl(url)}
-                      className="aspect-square rounded-xl bg-[#F2F2F7] border border-black/[0.08] flex flex-col items-center justify-center gap-1 active:opacity-70">
-                      <FileText size={22} className="text-[#C03D25]" />
-                      <span className="text-[9px] font-semibold text-[#8E8E93]">PDF {i + 1}</span>
-                    </button>
-                  ) : (
-                    <button key={i} type="button" onClick={() => setLightboxUrl(url)}
-                      className="aspect-square rounded-xl overflow-hidden border border-black/[0.08] block active:opacity-70">
-                      <img src={url} alt={`${label} ${i + 1}`} className="w-full h-full object-cover" />
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
+      {/* Read-only document files — valid-id */}
+      {alreadyPaid && existingValidIdUrls.length > 0 && (
+        <GlassCard className="px-4 py-3 space-y-2">
+          <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">
+            Proof of Valid ID ({existingValidIdUrls.length} file{existingValidIdUrls.length > 1 ? 's' : ''})
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            {existingValidIdUrls.map((url, i) => {
+              const isPdf = url.toLowerCase().includes('.pdf');
+              return isPdf ? (
+                <button key={i} type="button" onClick={() => setLightboxUrl(url)}
+                  className="aspect-square rounded-xl bg-[#F2F2F7] border border-black/[0.08] flex flex-col items-center justify-center gap-1 active:opacity-70">
+                  <FileText size={22} className="text-[#C03D25]" />
+                  <span className="text-[9px] font-semibold text-[#8E8E93]">PDF {i + 1}</span>
+                </button>
+              ) : (
+                <button key={i} type="button" onClick={() => setLightboxUrl(url)}
+                  className="aspect-square rounded-xl overflow-hidden border border-black/[0.08] block active:opacity-70">
+                  <img src={url} alt={`Valid ID ${i + 1}`} className="w-full h-full object-cover" />
+                </button>
+              );
+            })}
+          </div>
         </GlassCard>
       )}
 
@@ -680,7 +587,7 @@ export default function ProofOfPaymentPage() {
             </div>
           )}
 
-          {/* Doc sections: billing, income, valid-id */}
+          {/* Doc section: valid-id */}
           {docSections.map(({ target, label, icon, existingUrls, setExisting, newFiles }) => {
             const total  = existingUrls.length + newFiles.length;
             const canAdd = total < MAX_DOC_FILES;
@@ -785,39 +692,42 @@ export default function ProofOfPaymentPage() {
               canConfirm ? 'bg-[#C03D25] text-white active:opacity-80' : 'bg-[#E5E5EA] text-[#C7C7CC] cursor-not-allowed'
             }`}
           >
-            {editMode ? 'Save Changes' : 'Confirm Payment'}
+            {editMode ? 'Resubmit for Verification' : 'Submit for Verification'}
           </button>
           {editMode && (
-            <button type="button" onClick={handleCancelEdit}
-              className="w-full py-4 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-80">
+            <button type="button" onClick={() => setEditMode(false)}
+              className="w-full py-4 rounded-2xl border-2 border-black/10 text-[#6C6C70] text-sm font-semibold active:opacity-70">
               Cancel Edit
             </button>
           )}
         </div>
       )}
 
-      {/* Action buttons — paid view, not editing */}
-      {alreadyPaid && !editMode && !isApproved && reservation?.status === 'Reserved-paid' && (
+
+      {/* Edit / Resubmit / Cancel — shown when returned (Reserved-paid) */}
+      {reservation?.status === 'Reserved-paid' && !editMode && (
         <div className="space-y-2.5 pb-2">
+          {actionError && <p className="text-red-500 text-xs text-center">{actionError}</p>}
           <button
             type="button"
-            disabled={loadingEdit}
-            onClick={handleEnterEditMode}
-            className="w-full py-4 rounded-2xl border-2 border-[#C03D25] text-[#C03D25] text-sm font-bold active:bg-[#C03D25]/10 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+            onClick={() => { setActionError(''); setEditMode(true); }}
+            className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity"
           >
-            {loadingEdit ? <><Loader2 size={15} className="animate-spin" /> Loading...</> : 'Edit'}
+            Edit
           </button>
           <button
             type="button"
-            onClick={() => { setActionError(''); setShowSubmitConfirm(true); }}
-            className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80"
+            disabled={resubmitting}
+            onClick={() => { setActionError(''); handleResubmit(); }}
+            className="w-full py-4 rounded-2xl bg-[#34C759] text-white text-sm font-bold active:opacity-80 disabled:opacity-50 transition-opacity flex items-center justify-center gap-2"
           >
-            Submit for Verification
+            {resubmitting ? <><Loader2 size={15} className="animate-spin" /> Resubmitting…</> : 'Resubmit for Verification'}
           </button>
           <button
             type="button"
+            disabled={cancelling}
             onClick={() => { setActionError(''); setShowCancelConfirm(true); }}
-            className="w-full py-4 rounded-2xl bg-[#FFF1F0] text-[#FF3B30] text-sm font-bold active:opacity-80"
+            className="w-full py-4 rounded-2xl border-2 border-[#FF3B30] text-[#FF3B30] text-sm font-bold active:opacity-80 disabled:opacity-50 transition-opacity"
           >
             Cancel Reservation
           </button>
@@ -825,7 +735,7 @@ export default function ProofOfPaymentPage() {
       )}
 
       {/* Recall button — shown only when Pending Review */}
-      {alreadyPaid && !editMode && !isApproved && reservation?.status === 'Pending Review' && (
+      {alreadyPaid && !isApproved && reservation?.status === 'Pending Review' && (
         <div className="space-y-2.5 pb-2">
           {actionError ? <p className="text-red-500 text-xs text-center">{actionError}</p> : null}
           <button
@@ -887,13 +797,10 @@ export default function ProofOfPaymentPage() {
                 <AlertTriangle size={24} className="text-amber-500" />
               </div>
               <p className="text-base font-bold text-[#1C1C1E] text-center">
-                {editMode ? 'Save Changes?' : 'Confirm Payment'}
+                Submit for Verification
               </p>
               <p className="text-sm text-[#8E8E93] mt-1 text-center leading-relaxed">
-                {editMode
-                  ? 'Your updated files and payment details will be saved.'
-                  : 'Are you sure you want to confirm the payment of the Reservation Fee of ₱25,000?'
-                }
+                Your proof of payment will be saved and submitted for review immediately.
               </p>
             </div>
             <div className="px-6 py-3 border-b border-black/[0.06] space-y-1.5">
@@ -915,55 +822,13 @@ export default function ProofOfPaymentPage() {
               <button type="button" disabled={saving} onClick={handleConfirmPayment}
                 className="w-full py-3.5 rounded-2xl bg-[#C03D25] text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60 active:opacity-80">
                 {saving
-                  ? <><Loader2 size={15} className="animate-spin" /> Saving...</>
-                  : <><CheckCircle2 size={15} /> {editMode ? 'Yes, Save Changes' : 'Yes, Confirm Payment'}</>
+                  ? <><Loader2 size={15} className="animate-spin" /> Submitting...</>
+                  : <><CheckCircle2 size={15} /> Yes, Submit for Verification</>
                 }
               </button>
               <button type="button" disabled={saving} onClick={() => setShowConfirm(false)}
                 className="w-full py-3.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-70">
                 Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Submit for Verification Modal */}
-      {showSubmitConfirm && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center px-4 pb-8"
-          style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}>
-          <div className="w-full max-w-sm bg-white rounded-3xl overflow-hidden shadow-2xl">
-            <div className="flex flex-col items-center px-6 pt-7 pb-4 border-b border-black/[0.06]">
-              <div className="w-12 h-12 rounded-full bg-[rgba(192,61,37,0.12)] flex items-center justify-center mb-3">
-                <CheckCircle2 size={24} className="text-[#C03D25]" />
-              </div>
-              <p className="text-base font-bold text-[#1C1C1E] text-center">Submit for Verification?</p>
-              <p className="text-sm text-[#8E8E93] mt-1 text-center leading-relaxed">
-                This reservation will be submitted for review and will become available in the Buyers Payment page.
-              </p>
-            </div>
-            <div className="px-6 py-3 border-b border-black/[0.06] space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-[#8E8E93]">Reservation ID</span>
-                <span className="text-xs font-bold text-[#C03D25]">{reservationId}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-[#8E8E93]">New Status</span>
-                <span className="text-xs font-semibold text-[#1C1C1E]">Pending Review</span>
-              </div>
-            </div>
-            {actionError && <p className="text-red-500 text-xs text-center px-6 pt-3">{actionError}</p>}
-            <div className="px-6 pb-7 pt-4 flex flex-col gap-2.5">
-              <button type="button" disabled={submitting} onClick={handleSubmitForVerification}
-                className="w-full py-3.5 rounded-2xl bg-[#C03D25] text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60 active:opacity-80">
-                {submitting
-                  ? <><Loader2 size={15} className="animate-spin" /> Submitting...</>
-                  : <><CheckCircle2 size={15} /> Yes, Submit for Verification</>
-                }
-              </button>
-              <button type="button" disabled={submitting} onClick={() => setShowSubmitConfirm(false)}
-                className="w-full py-3.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-70">
-                Go Back
               </button>
             </div>
           </div>
@@ -981,7 +846,7 @@ export default function ProofOfPaymentPage() {
               </div>
               <p className="text-base font-bold text-[#1C1C1E] text-center">Cancel Reservation?</p>
               <p className="text-sm text-[#8E8E93] mt-1 text-center leading-relaxed">
-                This action cannot be undone. The reservation will be cancelled and the unit will be returned to Available.
+                This will permanently cancel the reservation. This action cannot be undone.
               </p>
             </div>
             <div className="px-6 py-3 border-b border-black/[0.06] space-y-1.5">
@@ -991,7 +856,7 @@ export default function ProofOfPaymentPage() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-[#8E8E93]">Client</span>
-                <span className="text-xs font-semibold text-[#1C1C1E]">{reservation?.client_name ?? '—'}</span>
+                <span className="text-xs font-semibold text-[#1C1C1E]">{reservation?.client_name}</span>
               </div>
             </div>
             {actionError && <p className="text-red-500 text-xs text-center px-6 pt-3">{actionError}</p>}
@@ -999,7 +864,7 @@ export default function ProofOfPaymentPage() {
               <button type="button" disabled={cancelling} onClick={handleCancelReservation}
                 className="w-full py-3.5 rounded-2xl bg-[#FF3B30] text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60 active:opacity-80">
                 {cancelling
-                  ? <><Loader2 size={15} className="animate-spin" /> Cancelling...</>
+                  ? <><Loader2 size={15} className="animate-spin" /> Cancelling…</>
                   : 'Yes, Cancel Reservation'
                 }
               </button>
