@@ -7,6 +7,7 @@ import GlassCard from '@/components/ui/GlassCard';
 import { fetchProjects, fetchTowers, fetchFloorsByCategory, fetchUnitTypes, fetchInventoryUnits, InventoryUnit } from '@/lib/inventory';
 import { fetchAllPayterms, PaytermRecord } from '@/lib/paytems';
 import { fetchReservationFee, fetchVatThreshold, computeVat, fetchHicTarget } from '@/lib/admin';
+import { supabase } from '@/lib/supabase';
 import {
   Check, ChevronDown, ChevronLeft, Calculator,
   Building2, Layers, Home, Car, Bike, LayoutGrid,
@@ -150,11 +151,11 @@ function StepIndicator({ current, onNavigate, hasComparisons }: { current: numbe
   );
 }
 
-function InlineSelect({ label, value, options, onChange, placeholder = 'Select', disabled = false, icon, required, error }: {
+function InlineSelect({ label, value, options, onChange, placeholder = 'Select', disabled = false, icon, required, error, formatDisplay }: {
   label: string; value: string;
   options: string[]; onChange: (v: string) => void;
   placeholder?: string; disabled?: boolean; icon?: React.ReactNode;
-  required?: boolean; error?: string;
+  required?: boolean; error?: string; formatDisplay?: (v: string) => string;
 }) {
   const [open, setOpen] = useState(false);
   const selectedRef = useRef<HTMLButtonElement>(null);
@@ -181,7 +182,7 @@ function InlineSelect({ label, value, options, onChange, placeholder = 'Select',
           {required && <span className="text-[#C03D25] text-xs leading-none">*</span>}
         </span>
         <span className={`text-right text-sm truncate max-w-[140px] ${value ? 'text-[#1C1C1E]' : 'text-[#8E8E93]'}`}>
-          {value || placeholder}
+          {value ? (formatDisplay ? formatDisplay(value) : value) : placeholder}
         </span>
         <ChevronDown size={14} className={`text-[#C7C7CC] shrink-0 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
       </button>
@@ -199,7 +200,7 @@ function InlineSelect({ label, value, options, onChange, placeholder = 'Select',
                   : 'text-[#1C1C1E] hover:bg-gray-50 active:bg-gray-100'
               }`}
             >
-              {o}
+              {formatDisplay ? formatDisplay(o) : o}
               {o === value && <Check size={14} />}
             </button>
           ))}
@@ -315,10 +316,25 @@ export default function SampleComputationPage() {
     // Read seller from session
     let sellerName = '';
     let sellerContact = '';
+    let sellerMobile = '';
     try {
       const raw = typeof window !== 'undefined' ? localStorage.getItem('osa_session') : null;
-      if (raw) { const s = JSON.parse(raw); sellerName = s.full_name ?? ''; sellerContact = s.email ?? ''; }
+      if (raw) {
+        const s = JSON.parse(raw);
+        sellerName    = s.full_name ?? '';
+        sellerContact = s.email     ?? '';
+      }
     } catch {}
+    if (sellerContact) {
+      try {
+        const { data } = await supabase
+          .from('Salesperson')
+          .select('"Mobile Number"')
+          .eq('Email Address', sellerContact)
+          .maybeSingle();
+        sellerMobile = (data as any)?.['Mobile Number'] ?? '';
+      } catch {}
+    }
 
     // Load logo once
     let logoB64 = '';
@@ -345,14 +361,17 @@ export default function SampleComputationPage() {
       doc.setFontSize(8);
       doc.text(`${dateStr}  ·  ${timeStr}`, pageW - mg, 24, { align: 'right' });
 
-      // Seller row (no background)
+      // Seller row (no background) — 3 columns: Name | Mobile | Email
+      const colSellerMobile = mg + 100;
       doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(...lt);
-      doc.text('SELLER', mg, HDR + 5);
+      doc.text('SELLER',        mg,              HDR + 5);
+      doc.text('MOBILE NO.',    colSellerMobile, HDR + 5);
       if (sellerContact) doc.text('EMAIL ADDRESS', pageW - mg, HDR + 5, { align: 'right' });
       doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...dark);
       doc.text(sellerName || '—', mg, HDR + 10.5);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...dark);
+      doc.text(sellerMobile || '—', colSellerMobile, HDR + 10.5);
       if (sellerContact) {
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...dark);
         doc.text(sellerContact, pageW - mg, HDR + 10.5, { align: 'right' });
       }
 
@@ -436,36 +455,41 @@ export default function SampleComputationPage() {
       drawFooter();
       y = BODY_T;
 
-      // Unit details — two columns
+      // Unit details
       secLabel(`Computation ${idx + 1}`);
-      const col2 = mg + (pageW - mg * 2) / 2;
-      const uInfo: [string, string][] = [
-        ['Project', c.project],   ['Tower', c.tower],
-        ['Floor',   c.floor],     ['Unit No.', c.unitNo],
-        ['Unit Type', c.unitType || '—'], ['Area', `${c.unitArea} sqm`],
-      ];
-      for (let i = 0; i < uInfo.length; i += 2) {
-        const [ll, lv] = uInfo[i]; const pair = uInfo[i + 1];
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...lt);
-        doc.text(ll, mg, y); if (pair) doc.text(pair[0], col2, y); y += 3.5;
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(...dark);
-        doc.text(lv, mg, y); if (pair) doc.text(pair[1], col2, y); y += RH;
-      }
 
-      // Payment Scheme row — scheme name (coral) on left, term/DP detail on right
+      // Row 1: Project | Tower | Floor | Unit No. (4 columns)
+      const r1c1 = mg, r1c2 = mg + 60, r1c3 = mg + 105, r1c4 = mg + 145;
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...lt);
-      doc.text('Payment Scheme', mg, y); y += 3.5;
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(...coral);
-      doc.text(c.schemeName, mg, y);
+      doc.text('Project',  r1c1, y); doc.text('Tower',    r1c2, y);
+      doc.text('Floor',    r1c3, y); doc.text('Unit No.', r1c4, y);
+      y += 3.5;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(...dark);
+      doc.text(c.project, r1c1, y); doc.text(c.tower,  r1c2, y);
+      doc.text(c.floor,   r1c3, y); doc.text(c.unitNo, r1c4, y);
+      y += RH;
+
+      // Row 2: Unit Type | Area | Payment Scheme (3 columns)
+      const r2c1 = mg, r2c2 = mg + 60, r2c3 = mg + 115;
       let termDetail = '';
       if (c.paymentScheme === 'deferred_cash') termDetail = `${c.termMonths} months`;
-      else if (c.paymentScheme === 'spot_dp')       termDetail = `DP ${c.dpRate}`;
-      else if (c.paymentScheme === 'stretched_dp')  termDetail = `DP ${c.dpRate}  ·  ${c.termMonths} months`;
+      else if (c.paymentScheme === 'spot_dp')      termDetail = `DP ${c.dpRate}%`;
+      else if (c.paymentScheme === 'stretched_dp') termDetail = `DP ${c.dpRate}%  ·  ${c.termMonths} months`;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...lt);
+      doc.text('Unit Type',       r2c1, y);
+      doc.text('Area',            r2c2, y);
+      doc.text('Payment Scheme',  r2c3, y);
+      y += 3.5;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(...dark);
+      doc.text(c.unitType || '—',       r2c1, y);
+      doc.text(`${c.unitArea} sqm`,     r2c2, y);
+      doc.setTextColor(...coral);
+      doc.text(c.schemeName,            r2c3, y);
       if (termDetail) {
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...lt);
-        doc.text(termDetail, pageW - mg, y, { align: 'right' });
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...lt);
+        doc.text(termDetail, r2c3, y + 4);
       }
-      y += RH;
+      y += RH + (termDetail ? 3 : 0);
       hr();
 
       // Price Computation
@@ -1255,7 +1279,8 @@ export default function SampleComputationPage() {
                 <div className="border border-black/[0.06] rounded-2xl bg-white">
                   <InlineSelect label="DP Rate" value={dpRate}
                     options={paymentScheme === 'spot_dp' ? spotDpRateOptions : stretchedDpRateOptions}
-                    onChange={setDpRate} placeholder="Select DP rate" icon={<CreditCard size={16} />} />
+                    onChange={setDpRate} placeholder="Select DP rate" icon={<CreditCard size={16} />}
+                    formatDisplay={v => `${v}%`} />
                 </div>
               )}
               {paymentScheme === 'stretched_dp' && stretchedDpTermOptions.length > 0 && (

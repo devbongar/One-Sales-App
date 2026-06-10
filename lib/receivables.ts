@@ -278,7 +278,8 @@ export async function fetchReceivableSummaries(): Promise<ReservationReceivableS
 
   const { data: lines, error: linesErr } = await supabase
     .from('receivables_database')
-    .select('reservation_id, client_name, inventory_code, due_date, total_amount_due, amount_paid, payment_status');
+    .select('reservation_id, client_name, inventory_code, due_date, total_amount_due, amount_paid, payment_status')
+    .limit(10000);
   if (linesErr) throw linesErr;
   if (!lines || lines.length === 0) return [];
 

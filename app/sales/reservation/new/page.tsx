@@ -17,7 +17,9 @@ import {
   Building2, Layers, Home, Car, Bike, LayoutGrid,
   BarChart3, Grid3X3,
   Banknote, Clock, CreditCard, CalendarRange, Plus, Ruler, X, GitCompare, AlertTriangle,
+  Search, ChevronLeft,
 } from 'lucide-react';
+import { COUNTRY_CODES } from '@/lib/client-form-options';
 
 // ─── Payment Schemes ──────────────────────────────────────────────────────────
 const PAYMENT_SCHEMES = [
@@ -351,11 +353,19 @@ export default function NewReservationPage() {
   const [email,       setEmail]       = useState('');
   const [isMegawide,  setIsMegawide]  = useState(false);
 
-  // Client search
-  const [allClients,           setAllClients]           = useState<ClientRecord[]>([]);
-  const [clientSearch,         setClientSearch]         = useState('');
-  const [clientDropdownOpen,   setClientDropdownOpen]   = useState(false);
-  const [selectedClientRecord, setSelectedClientRecord] = useState<ClientRecord | null>(null);
+  // Client search / form fields
+  const [allClients,            setAllClients]            = useState<ClientRecord[]>([]);
+  const [selectedClientRecord,  setSelectedClientRecord]  = useState<ClientRecord | null>(null);
+  const [clientLastName,        setClientLastName]        = useState('');
+  const [clientFirstName,       setClientFirstName]       = useState('');
+  const [clientMiddleName,      setClientMiddleName]      = useState('');
+  const [clientSuffix,          setClientSuffix]          = useState('');
+  const [clientMobileRaw,       setClientMobileRaw]       = useState('');
+  const [clientCountryCode,     setClientCountryCode]     = useState('+63');
+  const [clientCountryOpen,     setClientCountryOpen]     = useState(false);
+  const [clientCountrySearch,   setClientCountrySearch]   = useState('');
+  const [clientEmailField,      setClientEmailField]      = useState('');
+  const [clientSuggestionsOpen, setClientSuggestionsOpen] = useState(false);
 
   // Seller Info
   const [sellerSearch,       setSellerSearch]       = useState('');
@@ -492,9 +502,25 @@ export default function NewReservationPage() {
     fetchAllClients().then(setAllClients).catch(console.error);
   }, []);
 
+  // Sync fullName / contact / email from individual client fields
+  useEffect(() => {
+    if (selectedClientRecord) return;
+    const parts = [clientFirstName.trim(), clientMiddleName.trim(), clientLastName.trim(), clientSuffix.trim()].filter(Boolean);
+    setFullName(parts.join(' '));
+    setContact(clientMobileRaw ? `${clientCountryCode}${clientMobileRaw}` : '');
+    setEmail(clientEmailField);
+  }, [clientLastName, clientFirstName, clientMiddleName, clientSuffix, clientMobileRaw, clientCountryCode, clientEmailField, selectedClientRecord]);
+
+  function resetClientFields() {
+    setClientLastName(''); setClientFirstName(''); setClientMiddleName('');
+    setClientSuffix(''); setClientMobileRaw(''); setClientCountryCode('+63');
+    setClientEmailField(''); setClientSuggestionsOpen(false);
+    setSelectedClientRecord(null);
+  }
+
   function handleClearForm() {
     setFullName(''); setContact(''); setEmail(''); setIsMegawide(false);
-    setClientSearch(''); setSelectedClientRecord(null); setClientDropdownOpen(false);
+    resetClientFields();
     setSellerSearch(''); setSellerRecord(null); setSellerDropdownOpen(false);
     setErrors({});
   }
@@ -504,14 +530,32 @@ export default function NewReservationPage() {
       .filter(Boolean).join(' ');
   }
 
+  const clientSuggestions = (!selectedClientRecord && clientLastName.trim().length >= 2)
+    ? allClients
+        .filter(c => c.last_name.toLowerCase().startsWith(clientLastName.trim().toLowerCase()))
+        .slice(0, 8)
+    : [];
+
+  const selectedMobileCountry = COUNTRY_CODES.find(c => c.dial === clientCountryCode) ?? COUNTRY_CODES[0];
+  const filteredMobileCountries = clientCountrySearch
+    ? COUNTRY_CODES.filter(c =>
+        c.name.toLowerCase().includes(clientCountrySearch.toLowerCase()) ||
+        c.dial.includes(clientCountrySearch))
+    : COUNTRY_CODES;
+
   function handleSelectClient(c: ClientRecord) {
-    const name = formatClientFullName(c);
-    setFullName(name);
     setSelectedClientRecord(c);
-    setClientDropdownOpen(false);
-    setClientSearch('');
-    const digits = c.mobile_number ?? '';
+    setClientLastName(c.last_name);
+    setClientFirstName(c.first_name);
+    setClientMiddleName(c.middle_name ?? '');
+    setClientSuffix(c.suffix ?? '');
+    setClientMobileRaw(c.mobile_number ?? '');
+    setClientCountryCode(c.country_code ?? '+63');
+    setClientEmailField(c.email ?? '');
+    setClientSuggestionsOpen(false);
     const cc = c.country_code ?? '+63';
+    const digits = c.mobile_number ?? '';
+    setFullName(formatClientFullName(c));
     setContact(digits ? `${cc}${digits}` : '');
     setEmail(c.email ?? '');
     setIsMegawide(c.is_megawide_employee ?? false);
@@ -519,13 +563,9 @@ export default function NewReservationPage() {
   }
 
   function handleClearClient() {
-    setSelectedClientRecord(null);
-    setFullName('');
-    setContact('');
-    setEmail('');
     setIsMegawide(false);
-    setClientDropdownOpen(false);
-    setClientSearch('');
+    resetClientFields();
+    setFullName(''); setContact(''); setEmail('');
   }
 
   function validateStep0(): boolean {
@@ -677,142 +717,158 @@ export default function NewReservationPage() {
           {/* Client Information */}
           <SectionHeader icon={<User size={13} />}>Client Information</SectionHeader>
           <GlassCard className="px-4 py-1">
-            {/* Searchable client dropdown */}
-            <div className={`border-b border-black/[0.06] ${errors.fullName ? 'bg-red-50/50' : ''}`}>
-              <button
-                type="button"
-                onClick={() => { setClientDropdownOpen(p => !p); setClientSearch(''); }}
-                className="w-full flex items-center gap-3 py-3 px-1"
-              >
+
+            {/* Last Name — always shown first */}
+            <div className="relative border-b border-black/[0.06]">
+              <div className={`flex items-center gap-3 py-3 px-1 ${errors.fullName ? 'bg-red-50/50 rounded-t-xl' : ''}`}>
                 <span className={`shrink-0 ${errors.fullName ? 'text-red-400' : 'text-[#C03D25]'}`}><User size={16} /></span>
-                <span className="text-sm font-medium text-[#1C1C1E] flex-1 text-left flex items-center gap-0.5">
-                  Full Name
-                  <span className="text-[#C03D25] text-xs leading-none">*</span>
+                <span className="text-sm font-medium text-[#1C1C1E] w-24 shrink-0 flex items-center gap-0.5">
+                  Last Name<span className="text-[#C03D25] text-xs leading-none">*</span>
                 </span>
-                <span className={`text-sm text-right truncate max-w-[160px] ${selectedClientRecord ? 'text-[#1C1C1E]' : 'text-[#8E8E93]'}`}>
-                  {selectedClientRecord ? formatClientFullName(selectedClientRecord) : 'Search client'}
-                </span>
-                {selectedClientRecord
-                  ? <X size={14} className="text-[#C7C7CC] shrink-0" onClickCapture={e => { e.stopPropagation(); handleClearClient(); }} />
-                  : <ChevronDown size={14} className={`text-[#C7C7CC] shrink-0 transition-transform duration-200 ${clientDropdownOpen ? 'rotate-180' : ''}`} />
-                }
-              </button>
-              {clientDropdownOpen && (
-                <div className="pb-2">
-                  <div className="flex items-center gap-2 mx-1 mb-2 px-3 py-2 bg-[#F2F2F7] rounded-xl">
-                    <input
-                      autoFocus
-                      type="text"
-                      value={clientSearch}
-                      onChange={e => setClientSearch(e.target.value)}
-                      placeholder="Type to search..."
-                      className="flex-1 text-sm bg-transparent outline-none text-[#1C1C1E] placeholder:text-[#C7C7CC]"
-                    />
-                    {clientSearch && (
-                      <button type="button" onClick={() => setClientSearch('')}>
-                        <X size={12} className="text-[#C7C7CC]" />
-                      </button>
-                    )}
-                  </div>
-                  <div className="max-h-48 overflow-y-auto space-y-0.5">
-                    {(() => {
-                      const q = clientSearch.trim().toLowerCase();
-                      const filtered = q.length === 0
-                        ? allClients
-                        : allClients.filter(c =>
-                            formatClientFullName(c).toLowerCase().includes(q)
-                          );
-                      if (filtered.length > 0) {
-                        return filtered.map(c => (
-                          <button
-                            key={c.id}
-                            type="button"
-                            onClick={() => handleSelectClient(c)}
-                            className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm active:bg-gray-100"
-                          >
-                            <span className="font-medium text-[#1C1C1E] text-left">{formatClientFullName(c)}</span>
-                            <span className="text-[#8E8E93] text-xs shrink-0 ml-2">{c.client_id ?? ''}</span>
-                          </button>
-                        ));
-                      }
-                      return (
-                        <div className="flex flex-col items-center gap-2 py-3">
-                          <p className="text-center text-xs text-[#8E8E93]">No clients found</p>
-                          <button
-                            type="button"
-                            onClick={() => router.push('/sales/client-registration/new')}
-                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#C03D25]/10 text-[#C03D25] text-xs font-semibold active:opacity-70"
-                          >
-                            <UserPlus size={13} />
-                            Add New Client
-                          </button>
-                        </div>
-                      );
-                    })()}
-                  </div>
+                <input
+                  type="text"
+                  value={clientLastName}
+                  readOnly={!!selectedClientRecord}
+                  onChange={e => {
+                    setClientLastName(e.target.value);
+                    setClientSuggestionsOpen(true);
+                  }}
+                  onFocus={() => setClientSuggestionsOpen(true)}
+                  placeholder="e.g. Dela Cruz"
+                  className="flex-1 bg-transparent text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC] text-right"
+                />
+                {selectedClientRecord && (
+                  <button type="button" onMouseDown={e => { e.preventDefault(); handleClearClient(); }}>
+                    <X size={14} className="text-[#C7C7CC] shrink-0" />
+                  </button>
+                )}
+              </div>
+              {/* Suggestions dropdown */}
+              {clientSuggestionsOpen && clientSuggestions.length > 0 && !selectedClientRecord && (
+                <div className="absolute left-0 right-0 top-full z-20 bg-white rounded-2xl shadow-xl border border-black/[0.08] overflow-hidden">
+                  {clientSuggestions.map(c => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onMouseDown={e => { e.preventDefault(); handleSelectClient(c); }}
+                      className="w-full flex items-center justify-between px-4 py-3 border-b border-black/[0.05] last:border-0 active:bg-[#F2F2F7] text-left"
+                    >
+                      <div>
+                        <p className="text-sm font-semibold text-[#1C1C1E]">{c.last_name}, {c.first_name}{c.suffix ? ` ${c.suffix}` : ''}</p>
+                        <p className="text-xs text-[#8E8E93]">{c.email ?? c.mobile_number ?? '—'}</p>
+                      </div>
+                      <span className="text-[10px] font-mono text-[#8E8E93] shrink-0 ml-2">{c.client_id ?? ''}</span>
+                    </button>
+                  ))}
                 </div>
               )}
-              {errors.fullName && <p className="text-red-400 text-[11px] px-1 pb-2 -mt-1">{errors.fullName}</p>}
+              {errors.fullName && <p className="text-red-400 text-[11px] px-1 pb-2">{errors.fullName}</p>}
             </div>
 
-            {/* Client ID — read-only, populated from selected client */}
-            <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
-              <span className="text-[#C03D25] shrink-0"><UserCheck size={16} /></span>
-              <span className="text-[#1C1C1E] text-sm font-medium flex-1">Client ID</span>
-              <span className={`text-sm text-right font-mono ${selectedClientRecord?.client_id ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
-                {selectedClientRecord?.client_id ?? 'Auto-filled from client'}
-              </span>
-            </div>
+            {/* Rest of fields — revealed once last name is entered */}
+            {clientLastName.trim().length > 0 && (
+              <>
+                {/* Existing client badge */}
+                {selectedClientRecord && (
+                  <div className="flex items-center gap-2 py-2 px-1 border-b border-black/[0.06] bg-green-50/50">
+                    <UserCheck size={14} className="text-green-600 shrink-0" />
+                    <span className="text-xs font-semibold text-green-700 flex-1">Existing client</span>
+                    <span className="text-[10px] font-mono text-[#8E8E93]">{selectedClientRecord.client_id ?? ''}</span>
+                  </div>
+                )}
 
-            {/* Contact — read-only, populated from selected client */}
-            <div className={`border-b border-black/[0.06] ${errors.contact ? 'bg-red-50/50' : ''}`}>
-              <div className="flex items-center gap-3 py-3 px-1">
-                <span className={`shrink-0 ${errors.contact ? 'text-red-400' : 'text-[#C03D25]'}`}><Phone size={16} /></span>
-                <span className="text-[#1C1C1E] text-sm font-medium flex-1 flex items-center gap-0.5">
-                  Contact Number
-                  <span className="text-[#C03D25] text-xs leading-none">*</span>
-                </span>
-                <span className={`text-sm text-right ${contact ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
-                  {contact && selectedClientRecord
-                    ? (() => {
-                        const cc = selectedClientRecord.country_code ?? '+63';
-                        const digits = contact.replace(cc, '').replace(/\D/g, '').slice(0, 10);
-                        const fmt = digits.length <= 3 ? digits
-                          : digits.length <= 6 ? `${digits.slice(0,3)} ${digits.slice(3)}`
-                          : `${digits.slice(0,3)} ${digits.slice(3,6)} ${digits.slice(6)}`;
-                        return `${cc} ${fmt}`;
-                      })()
-                    : 'Auto-filled from client'}
-                </span>
-              </div>
-              {errors.contact && <p className="text-red-400 text-[11px] px-1 pb-2 -mt-1">{errors.contact}</p>}
-            </div>
+                {/* First Name */}
+                <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
+                  <span className="text-[#C03D25] shrink-0"><User size={16} /></span>
+                  <span className="text-sm font-medium text-[#1C1C1E] w-24 shrink-0 flex items-center gap-0.5">
+                    First Name<span className="text-[#C03D25] text-xs leading-none">*</span>
+                  </span>
+                  <input type="text" value={clientFirstName} readOnly={!!selectedClientRecord}
+                    onChange={e => setClientFirstName(e.target.value)}
+                    placeholder="e.g. Juan"
+                    className="flex-1 bg-transparent text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC] text-right" />
+                </div>
 
-            {/* Email — read-only, populated from selected client */}
-            <div className={`border-b border-black/[0.06] ${errors.email ? 'bg-red-50/50' : ''}`}>
-              <div className="flex items-center gap-3 py-3 px-1">
-                <span className={`shrink-0 ${errors.email ? 'text-red-400' : 'text-[#C03D25]'}`}><Mail size={16} /></span>
-                <span className="text-[#1C1C1E] text-sm font-medium flex-1 flex items-center gap-0.5">
-                  Email Address
-                  <span className="text-[#C03D25] text-xs leading-none">*</span>
-                </span>
-                <span className={`text-sm text-right truncate max-w-[160px] ${email ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
-                  {email || 'Auto-filled from client'}
-                </span>
-              </div>
-              {errors.email && <p className="text-red-400 text-[11px] px-1 pb-2 -mt-1">{errors.email}</p>}
-            </div>
+                {/* Middle Name */}
+                <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
+                  <span className="text-[#C03D25] shrink-0"><User size={16} /></span>
+                  <span className="text-sm font-medium text-[#1C1C1E] w-24 shrink-0">Middle Name</span>
+                  <input type="text" value={clientMiddleName} readOnly={!!selectedClientRecord}
+                    onChange={e => setClientMiddleName(e.target.value)}
+                    placeholder="e.g. Santos"
+                    className="flex-1 bg-transparent text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC] text-right" />
+                </div>
 
-            {/* Megawide — read-only, populated from selected client */}
-            <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06] last:border-0">
-              <span className="text-[#C03D25] shrink-0"><Briefcase size={16} /></span>
-              <span className="flex-1 text-[#1C1C1E] text-sm font-medium">Megawide Employee</span>
-              <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 ${
-                isMegawide ? 'bg-[#C03D25] border-[#C03D25]' : 'border-[#C7C7CC]'
-              }`}>
-                {isMegawide && <Check size={11} className="text-white" />}
-              </div>
-            </div>
+                {/* Suffix */}
+                <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
+                  <span className="text-[#C03D25] shrink-0"><User size={16} /></span>
+                  <span className="text-sm font-medium text-[#1C1C1E] w-24 shrink-0">Suffix</span>
+                  <input type="text" value={clientSuffix} readOnly={!!selectedClientRecord}
+                    onChange={e => setClientSuffix(e.target.value)}
+                    placeholder="e.g. Jr., Sr."
+                    className="flex-1 bg-transparent text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC] text-right" />
+                </div>
+
+                {/* Mobile Number */}
+                <div className={`border-b border-black/[0.06] ${errors.contact ? 'bg-red-50/50' : ''}`}>
+                  <div className="flex items-center gap-3 py-3 px-1">
+                    <span className={`shrink-0 ${errors.contact ? 'text-red-400' : 'text-[#C03D25]'}`}><Phone size={16} /></span>
+                    <span className="text-sm font-medium text-[#1C1C1E] w-24 shrink-0 flex items-center gap-0.5">
+                      Mobile<span className="text-[#C03D25] text-xs leading-none">*</span>
+                    </span>
+                    <div className="flex-1 flex items-center gap-2 justify-end">
+                      <button type="button"
+                        disabled={!!selectedClientRecord}
+                        onClick={() => { if (!selectedClientRecord) { setClientCountrySearch(''); setClientCountryOpen(true); } }}
+                        className="flex items-center gap-1 text-sm shrink-0">
+                        <span>{selectedMobileCountry.flag}</span>
+                        <span className="font-medium text-[#1C1C1E]">{selectedMobileCountry.dial}</span>
+                        {!selectedClientRecord && <ChevronDown size={11} className="text-[#8E8E93]" />}
+                      </button>
+                      <input type="tel" inputMode="numeric"
+                        value={clientMobileRaw}
+                        readOnly={!!selectedClientRecord}
+                        onChange={e => {
+                          const digits = e.target.value.replace(/\D/g, '');
+                          const max = clientCountryCode === '+63' ? 10 : 15;
+                          setClientMobileRaw(digits.slice(0, max));
+                        }}
+                        placeholder={clientCountryCode === '+63' ? '9171234567' : ''}
+                        className="bg-transparent text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC] text-right w-32" />
+                    </div>
+                  </div>
+                  {errors.contact && <p className="text-red-400 text-[11px] px-1 pb-2">{errors.contact}</p>}
+                </div>
+
+                {/* Email */}
+                <div className={`border-b border-black/[0.06] last:border-0 ${errors.email ? 'bg-red-50/50' : ''}`}>
+                  <div className="flex items-center gap-3 py-3 px-1">
+                    <span className={`shrink-0 ${errors.email ? 'text-red-400' : 'text-[#C03D25]'}`}><Mail size={16} /></span>
+                    <span className="text-sm font-medium text-[#1C1C1E] w-24 shrink-0 flex items-center gap-0.5">
+                      Email<span className="text-[#C03D25] text-xs leading-none">*</span>
+                    </span>
+                    <input type="email" inputMode="email"
+                      value={clientEmailField}
+                      readOnly={!!selectedClientRecord}
+                      onChange={e => setClientEmailField(e.target.value)}
+                      placeholder="juan@email.com"
+                      className="flex-1 bg-transparent text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC] text-right" />
+                  </div>
+                  {errors.email && <p className="text-red-400 text-[11px] px-1 pb-2">{errors.email}</p>}
+                </div>
+
+                {/* Megawide */}
+                <div className="flex items-center gap-3 py-3 px-1">
+                  <span className="text-[#C03D25] shrink-0"><Briefcase size={16} /></span>
+                  <span className="flex-1 text-[#1C1C1E] text-sm font-medium">Megawide Employee</span>
+                  <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 ${
+                    isMegawide ? 'bg-[#C03D25] border-[#C03D25]' : 'border-[#C7C7CC]'
+                  }`}>
+                    {isMegawide && <Check size={11} className="text-white" />}
+                  </div>
+                </div>
+              </>
+            )}
           </GlassCard>
 
           {/* Seller Information */}
@@ -1992,6 +2048,52 @@ export default function NewReservationPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Mobile Country Picker Modal ── */}
+      {clientCountryOpen && (
+        <>
+          <div className="fixed inset-0 z-[55] bg-black/40" onClick={() => setClientCountryOpen(false)} />
+          <div className="fixed inset-x-0 bottom-0 z-[56] bg-white rounded-t-3xl shadow-2xl max-h-[70vh] flex flex-col">
+            <div className="flex justify-center pt-3 pb-1">
+              <div className="w-9 h-1 rounded-full bg-[#D1D1D6]" />
+            </div>
+            <div className="flex items-center justify-between px-5 py-3">
+              <p className="text-base font-bold text-[#1C1C1E]">Select Country Code</p>
+              <button type="button" onClick={() => setClientCountryOpen(false)} className="w-7 h-7 rounded-full bg-[#F2F2F7] flex items-center justify-center">
+                <X size={14} className="text-[#8E8E93]" />
+              </button>
+            </div>
+            <div className="px-5 pb-2">
+              <div className="flex items-center gap-2 px-3 py-2 bg-[#F2F2F7] rounded-xl">
+                <Search size={14} className="text-[#8E8E93] shrink-0" />
+                <input
+                  autoFocus
+                  type="text"
+                  value={clientCountrySearch}
+                  onChange={e => setClientCountrySearch(e.target.value)}
+                  placeholder="Search country or code…"
+                  className="flex-1 bg-transparent text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC]"
+                />
+              </div>
+            </div>
+            <div className="overflow-y-auto pb-8">
+              {filteredMobileCountries.map(c => (
+                <button
+                  key={c.dial + c.name}
+                  type="button"
+                  onClick={() => { setClientCountryCode(c.dial); setClientCountryOpen(false); setClientMobileRaw(''); }}
+                  className={`w-full flex items-center gap-3 px-5 py-3 border-b border-black/[0.05] last:border-0 active:bg-[#F2F2F7] ${clientCountryCode === c.dial ? 'bg-[#FFF5F3]' : ''}`}
+                >
+                  <span className="text-xl">{c.flag}</span>
+                  <span className="flex-1 text-sm text-[#1C1C1E] text-left">{c.name}</span>
+                  <span className="text-sm font-semibold text-[#6C6C70]">{c.dial}</span>
+                  {clientCountryCode === c.dial && <Check size={14} className="text-[#C03D25] shrink-0" />}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
       )}
 
     </PageShell>

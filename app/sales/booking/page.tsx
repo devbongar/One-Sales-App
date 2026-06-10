@@ -79,6 +79,7 @@ export default function BookingPage() {
       .from('reservations')
       .select('seller_name, project')
       .in('status', ['Reserved-paid', 'Approved'])
+      .limit(5000)
       .then(({ data }) => {
         if (!data) return;
         setSellerOptions([...new Set(data.map(r => r.seller_name).filter(Boolean))] as string[]);
@@ -93,7 +94,8 @@ export default function BookingPage() {
       .from('reservations')
       .select('reservation_id, client_name, project, inventory_code, unit_type, status, seller_name, payment_proof_url')
       .in('status', ['Reserved-paid', 'Approved'])
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(5000);
 
     if (sellerFilter)  query = query.eq('seller_name', sellerFilter);
     if (projectFilter) query = query.eq('project', projectFilter);

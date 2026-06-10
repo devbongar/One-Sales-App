@@ -88,8 +88,8 @@ export default function BuyersPaymentPage() {
   useEffect(() => {
     async function loadOptions() {
       const [r1, r2] = await Promise.all([
-        supabase.from('reservations').select('project, seller_name').in('booking_review_status', ['director-approved', 'finance-verified']),
-        supabase.from('reservations').select('project, seller_name').eq('status', 'Pending Review'),
+        supabase.from('reservations').select('project, seller_name').in('booking_review_status', ['director-approved', 'finance-verified']).limit(5000),
+        supabase.from('reservations').select('project, seller_name').eq('status', 'Pending Review').limit(5000),
       ]);
       const rows = [...(r1.data ?? []), ...(r2.data ?? [])];
       setProjectOptions([...new Set(rows.map(r => r.project).filter(Boolean))] as string[]);
@@ -116,13 +116,15 @@ export default function BuyersPaymentPage() {
         .from('reservations')
         .select(SELECT)
         .or('status.eq.Pending Review,booking_review_status.eq.director-approved,booking_review_status.eq.finance-verified')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(5000);
     } else if (statusFilter === 'Pending Review') {
       q = supabase
         .from('reservations')
         .select(SELECT)
         .eq('status', 'Pending Review')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(5000);
     } else {
       const statusValues: Record<string, string[]> = {
         'Pending':  ['director-approved'],
@@ -132,7 +134,8 @@ export default function BuyersPaymentPage() {
         .from('reservations')
         .select(SELECT)
         .in('booking_review_status', statusValues[statusFilter] ?? ['director-approved'])
-        .order('director_reviewed_at', { ascending: false });
+        .order('director_reviewed_at', { ascending: false })
+        .limit(5000);
     }
 
     if (projectFilter) q = q.eq('project',     projectFilter);

@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
 
   // No project selected → return distinct project names (available units only)
   if (!projectName) {
-    const { data, error } = await supabase.from('Inventory').select('"Project Name"').ilike('Status', 'available');
+    const { data, error } = await supabase.from('Inventory').select('"Project Name"').ilike('Status', 'available').limit(10000);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     const projects = [...new Set((data ?? []).map((r) => r['Project Name']).filter(Boolean))].sort();
     return NextResponse.json({ projects });
@@ -44,13 +44,13 @@ export async function GET(req: NextRequest) {
 
   // project + tower → return ALL units (client handles further filtering)
   if (tower) {
-    const { data, error } = await query.eq('Tower', tower);
+    const { data, error } = await query.eq('Tower', tower).limit(10000);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ units: (data ?? []).map(mapRow) });
   }
 
   // project only → distinct towers
-  const { data, error } = await query;
+  const { data, error } = await query.limit(10000);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const towers = [...new Set((data ?? []).map((r) => r['Tower']).filter(Boolean))].sort();
   return NextResponse.json({ towers });

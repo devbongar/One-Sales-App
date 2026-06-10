@@ -64,7 +64,7 @@ export default function ReservedUnitsPage() {
 
   // ── Load dropdown options once ─────────────────────────────
   useEffect(() => {
-    supabase.from('reservations').select('seller_name, project').then(({ data }) => {
+    supabase.from('reservations').select('seller_name, project').limit(5000).then(({ data }) => {
       if (!data) return;
       setSellerOptions([...new Set(data.map(r => r.seller_name).filter(Boolean))] as string[]);
       setProjectOptions([...new Set(data.map(r => r.project).filter(Boolean))] as string[]);
@@ -77,7 +77,8 @@ export default function ReservedUnitsPage() {
     let query = supabase
       .from('reservations')
       .select('reservation_id, client_name, project, inventory_code, unit_type, status, seller_name, payment_proof_url')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(5000);
 
     if (sellerFilter)  query = query.eq('seller_name', sellerFilter);
     if (statusFilter)  query = query.eq('status', statusFilter);

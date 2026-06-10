@@ -160,7 +160,8 @@ export async function fetchAllCommissionScheduleLines(): Promise<CommissionSched
     .select(SCHEDULE_FULL_SELECT)
     .order('seller_name', { ascending: true })
     .order('reservation_id', { ascending: true })
-    .order('tranche',        { ascending: true });
+    .order('tranche',        { ascending: true })
+    .limit(10000);
   if (error) throw error;
   return (data ?? []) as CommissionScheduleFullLine[];
 }
@@ -179,7 +180,8 @@ export async function fetchSellerCommissionLines(sellerName: string): Promise<Co
 export async function fetchAllCollectedByReservation(): Promise<Record<string, number>> {
   const { data, error } = await supabase
     .from('receivables_database')
-    .select('reservation_id, amount_paid');
+    .select('reservation_id, amount_paid')
+    .limit(10000);
   if (error) throw error;
   const map: Record<string, number> = {};
   for (const row of (data ?? []) as { reservation_id: string; amount_paid: number | null }[]) {

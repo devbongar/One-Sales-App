@@ -90,7 +90,7 @@ export default function BuyersVerificationPage() {
   const activeFilterCount = [projectFilter, statusFilter, sellerFilter].filter(Boolean).length;
 
   useEffect(() => {
-    supabase.from('reservations').select('project, seller_name').eq('documents_saved', true)
+    supabase.from('reservations').select('project, seller_name').eq('documents_saved', true).limit(5000)
       .then(({ data }) => {
         if (!data) return;
         setProjectOptions([...new Set(data.map(r => r.project).filter(Boolean))] as string[]);
@@ -120,7 +120,8 @@ export default function BuyersVerificationPage() {
         spouse_id_urls, has_co_ownership, has_atty_in_fact, has_spouse
       `)
       .eq('documents_saved', true)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(5000);
 
     if (!statusFilter) {
       q = q.or('booking_review_status.is.null,booking_review_status.eq.submitted,booking_review_status.eq.director-approved,booking_review_status.eq.director-rejected');
