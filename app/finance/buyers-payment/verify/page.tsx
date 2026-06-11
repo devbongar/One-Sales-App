@@ -7,6 +7,7 @@ import GlassCard from '@/components/ui/GlassCard';
 import { supabase } from '@/lib/supabase';
 import { approvePaymentReview, updateReservationStatus } from '@/lib/reservations';
 import { updateInventoryUnitStatus } from '@/lib/inventory';
+import { generateCommissionSchedule, CommissionGenerateResult } from '@/lib/commission';
 import {
   FileText, FolderOpen, CheckCircle2, XCircle,
   Hash, User, Building2, Tag,
@@ -157,6 +158,7 @@ export default function FinanceVerifyPage() {
   const [rejecting,          setRejecting]          = useState(false);
   const [actionError,        setActionError]        = useState('');
   const [done,               setDone]               = useState<'approved' | 'rejected' | null>(null);
+  const [commissionWarn,     setCommissionWarn]     = useState<CommissionGenerateResult | null>(null);
 
   useEffect(() => {
     const raw = sessionStorage.getItem('financeBooking');
@@ -180,6 +182,12 @@ export default function FinanceVerifyPage() {
     setActionError('');
     try {
       await approvePaymentReview(booking.reservation_id, ackReceiptNo.trim(), salesInvoiceNo.trim(), dateOfResFee);
+      try {
+        const result = await generateCommissionSchedule(booking.reservation_id);
+        if (!result.ok && result.reason !== 'already-exists') setCommissionWarn(result);
+      } catch (e) {
+        console.error('[commission] Failed to generate schedule:', e);
+      }
       const updated = {
         ...booking,
         booking_review_status:      'finance-verified',
@@ -225,10 +233,18 @@ export default function FinanceVerifyPage() {
         await updateInventoryUnitStatus(booking.inventory_code, 'Booked');
       }
 
-      // 3. Post the 1st receivable line (excluding Reservation Fee) as Paid
+      // 3. Generate commission schedule if not yet generated (idempotent)
+      try {
+        const result = await generateCommissionSchedule(booking.reservation_id);
+        if (!result.ok && result.reason !== 'already-exists') setCommissionWarn(result);
+      } catch (e) {
+        console.error('[commission] Failed to generate schedule:', e);
+      }
+
+      // 4. Post the 1st receivable line (excluding Reservation Fee) as Paid
       const { data: lines } = await supabase
         .from('receivables_database')
-        .select('id, type_of_payment')
+        .select('id, type_of_payment, total_amount_due')
         .eq('reservation_id', booking.reservation_id)
         .neq('type_of_payment', 'Reservation Fee')
         .order('due_date', { ascending: true })
@@ -238,6 +254,7 @@ export default function FinanceVerifyPage() {
           .from('receivables_database')
           .update({
             payment_status:             'Paid',
+            amount_paid:                (lines[0] as any).total_amount_due ?? null,
             acknowledgement_receipt_no: dpAckReceiptNo.trim(),
             sales_invoice_number:       dpSalesInvoiceNo.trim(),
             posting_date:              dpDate,
@@ -286,8 +303,8 @@ export default function FinanceVerifyPage() {
 
   const rfVerified  = !!booking?.finance_verified_at;
   const dpVerified  = !!booking?.dp_verified_at;
-  // isDPPending: director has approved, DP not yet finance-verified
-  const isDPPending = booking?.booking_review_status === 'director-approved';
+  // isDPPending: RF is verified (finance-verified) but DP not yet verified
+  const isDPPending = booking?.booking_review_status === 'finance-verified';
   const alreadyVerified = isDPPending ? dpVerified : rfVerified;
 
   const canApproveRF = !rfVerified && ackReceiptNo.trim().length > 0 && salesInvoiceNo.trim().length > 0 && !!dateOfResFee;
@@ -301,19 +318,37 @@ export default function FinanceVerifyPage() {
     const desc  = isDPPending
       ? `The 1st down payment for ${booking?.client_name} has been verified.`
       : `The reservation fee payment for ${booking?.client_name} has been approved.`;
+    const commissionWarnMsg = commissionWarn && !commissionWarn.ok
+      ? commissionWarn.reason === 'no-tranches'
+        ? `Commission schedule could not be generated — no tranching schedule is set up for this project/rank/seller type combination. Please configure it in the commission settings.`
+        : commissionWarn.reason === 'missing-fields'
+        ? `Commission schedule could not be generated — seller position rank, product type, or seller type is missing on this reservation.`
+        : null
+      : null;
     return (
       <PageShell title="Finance Verification" backButton onBack={() => router.push('/finance/buyers-payment')}>
-        <GlassCard className="p-8 flex flex-col items-center gap-4">
-          <CheckCircle2 size={48} className="text-green-500" />
-          <p className="text-base font-bold text-[#1C1C1E]">{title}</p>
-          <p className="text-sm text-[#8E8E93] text-center">{desc}</p>
-          <button
-            onClick={() => router.push('/finance/buyers-payment')}
-            className="mt-2 px-6 py-3 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80"
-          >
-            Back to Queue
-          </button>
-        </GlassCard>
+        <div className="space-y-3">
+          <GlassCard className="p-8 flex flex-col items-center gap-4">
+            <CheckCircle2 size={48} className="text-green-500" />
+            <p className="text-base font-bold text-[#1C1C1E]">{title}</p>
+            <p className="text-sm text-[#8E8E93] text-center">{desc}</p>
+            <button
+              onClick={() => router.push('/finance/buyers-payment')}
+              className="mt-2 px-6 py-3 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80"
+            >
+              Back to Queue
+            </button>
+          </GlassCard>
+          {commissionWarnMsg && (
+            <GlassCard className="px-4 py-4 flex items-start gap-3 bg-amber-50 border border-amber-200">
+              <AlertTriangle size={18} className="text-amber-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-bold text-amber-800">Commission Schedule Not Generated</p>
+                <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">{commissionWarnMsg}</p>
+              </div>
+            </GlassCard>
+          )}
+        </div>
       </PageShell>
     );
   }

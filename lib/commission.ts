@@ -45,17 +45,21 @@ export async function fetchCommissionRecord(reservationId: string): Promise<Comm
   return rows[0] ?? null;
 }
 
-export async function generateCommissionSchedule(reservationId: string): Promise<void> {
+export type CommissionGenerateResult =
+  | { ok: true }
+  | { ok: false; reason: 'already-exists' | 'no-commission-record' | 'missing-fields' | 'no-tranches' };
+
+export async function generateCommissionSchedule(reservationId: string): Promise<CommissionGenerateResult> {
   // Guard: skip if already generated
   const { count } = await supabase
     .from('commission_schedule')
     .select('id', { count: 'exact', head: true })
     .eq('reservation_id', reservationId);
-  if (count && count > 0) return;
+  if (count && count > 0) return { ok: false, reason: 'already-exists' };
 
   // Fetch commission data for this reservation only (targeted RPC — no full-table scan)
   const rec = await fetchCommissionRecord(reservationId);
-  if (!rec) return;
+  if (!rec) return { ok: false, reason: 'no-commission-record' };
 
   // client_id and seller_id are new columns on reservations
   const { data: ids } = await supabase
@@ -68,12 +72,14 @@ export async function generateCommissionSchedule(reservationId: string): Promise
   const seller_id = (ids as any)?.seller_id ?? null;
 
   // Can't build schedule without tranche lookup keys
-  if (!rec.position_rank || !rec.product_type || !rec.seller_type) return;
+  if (!rec.position_rank || !rec.product_type || !rec.seller_type)
+    return { ok: false, reason: 'missing-fields' };
 
   const tranches = await fetchCommissionTranches(
     rec.project, rec.position_rank, rec.product_type, rec.seller_type,
   );
-  if (!tranches || tranches.length === 0) return;
+  if (!tranches || tranches.length === 0)
+    return { ok: false, reason: 'no-tranches' };
 
   const rate = Number(rec.commission_rate) || 0;
   const nlp  = Number(rec.net_list_price)  || 0;
@@ -100,6 +106,7 @@ export async function generateCommissionSchedule(reservationId: string): Promise
     .from('commission_schedule')
     .insert(lines);
   if (insertError) throw insertError;
+  return { ok: true };
 }
 
 export interface CommissionScheduleLine {
@@ -128,10 +135,17 @@ export async function fetchCommissionScheduleLines(reservationId: string): Promi
 export async function fetchReservationCollected(reservationId: string): Promise<number> {
   const { data, error } = await supabase
     .from('receivables_database')
-    .select('amount_paid')
+    .select('amount_paid, total_amount_due, payment_status')
     .eq('reservation_id', reservationId);
   if (error) throw error;
-  return (data ?? []).reduce((sum: number, r: any) => sum + (Number(r.amount_paid) || 0), 0);
+  return (data ?? []).reduce((sum: number, r: any) => {
+    // Paid lines approved via finance verify have payment_status='Paid' but amount_paid=null
+    // Fall back to total_amount_due so the full line value is counted as collected
+    if (r.payment_status === 'Paid' && (r.amount_paid == null || Number(r.amount_paid) === 0)) {
+      return sum + (Number(r.total_amount_due) || 0);
+    }
+    return sum + (Number(r.amount_paid) || 0);
+  }, 0);
 }
 
 export interface CommissionScheduleFullLine {

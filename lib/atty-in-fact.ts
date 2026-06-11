@@ -36,6 +36,11 @@ export async function checkAttyInFactExists(reservationId: string): Promise<bool
   return data as boolean;
 }
 
+export async function deleteAttyInFact(reservationId: string): Promise<void> {
+  const { error } = await supabase.rpc('delete_atty_in_fact', { p_reservation_id: reservationId });
+  if (error) throw error;
+}
+
 export async function saveAttyInFact(payload: AttyInFactPayload): Promise<void> {
   const { error } = await supabase.rpc('save_atty_in_fact', {
     p_reservation_id: payload.reservation_id,

@@ -31,14 +31,14 @@ function getInitials(name: string) {
 function statusLabel(status: string) {
   if (status === 'Reserved-paid')   return 'Paid';
   if (status === 'Reserved-unpaid') return 'Unpaid';
-  if (status === 'Approved')        return 'Approved';
+  if (status === 'Reserved')        return 'Reserved';
   return status;
 }
 
 function statusStyle(status: string): React.CSSProperties {
   if (status === 'Reserved-paid')   return { background: 'rgba(52,199,89,0.12)',  color: '#1A7F37' };
   if (status === 'Reserved-unpaid') return { background: 'rgba(255,159,10,0.12)', color: '#A05A00' };
-  if (status === 'Approved')        return { background: 'rgba(48,176,199,0.12)', color: '#0E6E7E' };
+  if (status === 'Reserved')        return { background: 'rgba(48,176,199,0.12)', color: '#0E6E7E' };
   return { background: 'rgba(142,142,147,0.12)', color: '#6C6C70' };
 }
 
@@ -53,7 +53,7 @@ export default function ReservedUnitsPage() {
   // Filter options (from DB)
   const [sellerOptions,  setSellerOptions]  = useState<string[]>([]);
   const [projectOptions, setProjectOptions] = useState<string[]>([]);
-  const statusOptions = ['Reserved-unpaid', 'Reserved-paid', 'Approved'];
+  const statusOptions = ['Reserved-unpaid', 'Reserved-paid', 'Reserved'];
 
   // Active filters
   const [sellerFilter,  setSellerFilter]  = useState('');

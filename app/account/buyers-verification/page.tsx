@@ -230,11 +230,12 @@ export default function BuyersVerificationPage() {
                     {/* Info */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-semibold text-[#1C1C1E] truncate">{b.client_name}</p>
+                        <p className="text-sm font-bold text-[#1C1C1E] truncate">{b.reservation_id}</p>
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0" style={style}>
                           {label}
                         </span>
                       </div>
+                      <p className="text-xs text-[#6C6C70] truncate mt-0.5">{b.client_name}</p>
                       <div className="flex items-center gap-1.5 mt-0.5">
                         <Building2 size={10} className="text-[#C7C7CC] shrink-0" />
                         <span className="text-xs text-[#6C6C70] truncate">{b.project}</span>
@@ -243,14 +244,9 @@ export default function BuyersVerificationPage() {
                           <span className="text-xs font-medium text-[#6C6C70]">{b.inventory_code}</span></>
                         )}
                       </div>
-                      <div className="flex items-center justify-between mt-0.5">
-                        <p className="text-[10px] text-[#8E8E93]">
-                          {dateLabel}{b.seller_name ? ` · ${b.seller_name}` : ''}
-                        </p>
-                        <span className="text-[10px] font-semibold text-[#C03D25] tracking-wider shrink-0">
-                          #{b.reservation_id}
-                        </span>
-                      </div>
+                      <p className="text-[10px] text-[#8E8E93] mt-0.5">
+                        {dateLabel}{b.seller_name ? ` · ${b.seller_name}` : ''}
+                      </p>
                     </div>
 
                     <ChevronRight size={14} className="text-[#C7C7CC] shrink-0" />

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import { directorReview } from '@/lib/review';
+import { supabase } from '@/lib/supabase';
 import { fetchAllClients, fetchBuyerInfo, BuyerInfoRecord, ClientRecord } from '@/lib/clients';
 import { fetchSpouseInfo, SpouseInfoRecord } from '@/lib/spouse-info';
 import { fetchCoOwner, CoOwnerRecord } from '@/lib/co-owners';
@@ -70,6 +71,23 @@ interface ReviewBooking {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function getInitials(name: string) {
+  const parts = name.trim().split(' ').filter(Boolean);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function statusChip(status: string | null) {
+  switch (status) {
+    case 'submitted':         return { label: 'Under Review',      cls: 'bg-blue-100 text-blue-700' };
+    case 'director-approved': return { label: 'Director Approved', cls: 'bg-green-100 text-green-700' };
+    case 'director-rejected': return { label: 'Rejected',          cls: 'bg-red-100 text-red-700' };
+    case 'finance-verified':  return { label: 'Finance Verified',  cls: 'bg-green-100 text-green-700' };
+    case 'Booked':            return { label: 'Booked',            cls: 'bg-green-100 text-green-700' };
+    default:                  return { label: 'Pending',           cls: 'bg-amber-100 text-amber-700' };
+  }
+}
 
 function parseJson(s: string | null): string[] {
   try { return JSON.parse(s ?? '[]') as string[]; } catch { return []; }
@@ -153,6 +171,62 @@ const PRIVACY_SECTIONS = [
   },
 ];
 
+// ─── Pinch zoom hook ──────────────────────────────────────────────────────────
+
+function usePinchZoom(ref: React.RefObject<HTMLDivElement>, open: boolean) {
+  const [scale, setScale] = useState(1);
+  const scaleRef    = useRef(1);
+  const baseScale   = useRef(1);
+  const lastDist    = useRef<number | null>(null);
+  const lastTap     = useRef(0);
+
+  useEffect(() => {
+    if (!open) { scaleRef.current = 1; setScale(1); return; }
+    const el = ref.current;
+    if (!el) return;
+
+    const dist = (t: TouchList) =>
+      Math.hypot(t[1].clientX - t[0].clientX, t[1].clientY - t[0].clientY);
+
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        lastDist.current  = dist(e.touches);
+        baseScale.current = scaleRef.current;
+      }
+    };
+    const onMove = (e: TouchEvent) => {
+      if (e.touches.length !== 2 || lastDist.current === null) return;
+      e.preventDefault();
+      const s = Math.min(4, Math.max(1, baseScale.current * (dist(e.touches) / lastDist.current)));
+      scaleRef.current = s;
+      setScale(s);
+    };
+    const onEnd = (e: TouchEvent) => {
+      lastDist.current = null;
+      if (e.touches.length !== 0) return;
+      const now = Date.now();
+      if (now - lastTap.current < 280) {
+        scaleRef.current = 1;
+        setScale(1);
+        lastTap.current = 0;
+      } else {
+        lastTap.current = now;
+      }
+    };
+
+    el.addEventListener('touchstart', onStart, { passive: true });
+    el.addEventListener('touchmove',  onMove,  { passive: false });
+    el.addEventListener('touchend',   onEnd,   { passive: true });
+    return () => {
+      el.removeEventListener('touchstart', onStart);
+      el.removeEventListener('touchmove',  onMove);
+      el.removeEventListener('touchend',   onEnd);
+    };
+  }, [open, ref]);
+
+  return scale;
+}
+
 // ─── A4 page wrapper ──────────────────────────────────────────────────────────
 
 function A4Page({ children, pageNum, total, reservationId, title, branded }: {
@@ -160,8 +234,8 @@ function A4Page({ children, pageNum, total, reservationId, title, branded }: {
   reservationId: string | null; title: string; branded?: boolean;
 }) {
   return (
-    <div className="bg-white shadow-[0_4px_24px_rgba(0,0,0,0.28)] flex flex-col"
-      style={{ minHeight: 'calc((100vw - 24px) * 1.4142)' }}>
+    <div className="bg-white shadow-[0_4px_24px_rgba(0,0,0,0.28)] flex flex-col overflow-hidden"
+      style={{ height: 'calc((100vw - 24px) * 1.4142)' }}>
       <div className={`flex items-center justify-between px-5 py-2.5 border-b shrink-0 ${
         branded ? 'bg-[#C03D25] border-[#C03D25]' : 'border-gray-200'
       }`}>
@@ -178,7 +252,7 @@ function A4Page({ children, pageNum, total, reservationId, title, branded }: {
           {reservationId ?? '—'}
         </p>
       </div>
-      <div className="flex-1 px-5 py-5">{children}</div>
+      <div className="flex-1 px-5 py-5 overflow-hidden min-h-0">{children}</div>
       <div className="px-5 py-2 border-t border-gray-100 flex items-center justify-between shrink-0">
         <span className="text-[8px] text-gray-300 uppercase tracking-[0.1em]">PH1 World Developers Inc.</span>
         <span className="text-[8px] text-gray-300">Page {pageNum} of {total}</span>
@@ -191,6 +265,7 @@ function A4Page({ children, pageNum, total, reservationId, title, branded }: {
 
 function AgreementViewer({ open, onClose, b }: { open: boolean; onClose: () => void; b: ReviewBooking }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const scale = usePinchZoom(scrollRef, open);
   useEffect(() => { if (open && scrollRef.current) scrollRef.current.scrollTop = 0; }, [open]);
   if (!open) return null;
   const TOTAL = 4;
@@ -200,13 +275,14 @@ function AgreementViewer({ open, onClose, b }: { open: boolean; onClose: () => v
       <div className="flex items-center justify-between px-4 py-3 bg-[#1C1C1E] shrink-0">
         <div className="min-w-0">
           <p className="text-white text-[13px] font-semibold leading-tight truncate">Reservation Agreement</p>
-          <p className="text-white/40 text-[10px]">{resId} · {TOTAL} pages</p>
+          <p className="text-white/40 text-[10px]">{resId} · {TOTAL} pages{scale > 1.05 ? ` · ${scale.toFixed(1)}×` : ''}</p>
         </div>
         <button onClick={onClose} className="ml-3 p-2 rounded-xl bg-white/10 border border-white/15 text-white active:bg-white/20 transition-colors">
           <X size={18} />
         </button>
       </div>
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+      <div ref={scrollRef} className="flex-1 overflow-auto">
+      <div style={{ zoom: scale }} className="px-3 py-3 space-y-3">
 
         <A4Page pageNum={1} total={TOTAL} reservationId={resId} title="Reservation Agreement">
           <div className="flex items-center justify-between mb-5">
@@ -320,32 +396,24 @@ function AgreementViewer({ open, onClose, b }: { open: boolean; onClose: () => v
 
         <div className="h-4" />
       </div>
+      </div>
     </div>
   );
 }
 
 function AgreementPreviewCard({ b, onClick }: { b: ReviewBooking; onClick: () => void }) {
   return (
-    <button onClick={onClick} className="w-full text-left active:scale-[0.98] transition-transform">
-      <div className="bg-white rounded-2xl shadow-[0_2px_16px_rgba(0,0,0,0.10)] overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.png" alt="PH1" className="h-6 object-contain object-left" />
-          <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[#1C1C1E]">Reservation Agreement</p>
-          <p className="text-[8px] text-gray-400">{b.reservation_id ?? '—'}</p>
+    <button onClick={onClick} className="w-full text-left active:opacity-70 transition-opacity">
+      <GlassCard className="px-4 py-3.5 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-2xl bg-[#C03D25]/10 flex items-center justify-center shrink-0">
+          <FileText size={18} className="text-[#C03D25]" />
         </div>
-        <div className="flex items-center justify-between px-4 py-3 bg-[#F9F9FB]">
-          <div>
-            <p className="text-[11px] font-semibold text-[#1C1C1E]">{b.client_name ?? '—'}</p>
-            <p className="text-[10px] text-gray-400 mt-0.5">{formatDate(b.created_at)} · 4 pages</p>
-          </div>
-          <div className="flex items-center gap-1 bg-[#C03D25] px-3 py-1.5 rounded-full">
-            <FileText size={11} className="text-white" />
-            <span className="text-[10px] font-semibold text-white">View</span>
-            <ChevronRight size={10} className="text-white" />
-          </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-bold text-[#1C1C1E]">Reservation Agreement</p>
+          <p className="text-xs text-[#8E8E93] mt-0.5">{formatDate(b.created_at)} · 4 pages</p>
         </div>
-      </div>
+        <ChevronRight size={16} className="text-[#C7C7CC] shrink-0" />
+      </GlassCard>
     </button>
   );
 }
@@ -354,6 +422,7 @@ function AgreementPreviewCard({ b, onClick }: { b: ReviewBooking; onClick: () =>
 
 function PrivacyViewer({ open, onClose, b }: { open: boolean; onClose: () => void; b: ReviewBooking }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const scale = usePinchZoom(scrollRef, open);
   useEffect(() => { if (open && scrollRef.current) scrollRef.current.scrollTop = 0; }, [open]);
   if (!open) return null;
   const TOTAL = 1;
@@ -363,13 +432,14 @@ function PrivacyViewer({ open, onClose, b }: { open: boolean; onClose: () => voi
       <div className="flex items-center justify-between px-4 py-3 bg-[#1C1C1E] shrink-0">
         <div className="min-w-0">
           <p className="text-white text-[13px] font-semibold leading-tight truncate">Data Privacy Statement</p>
-          <p className="text-white/40 text-[10px]">{resId} · {TOTAL} page</p>
+          <p className="text-white/40 text-[10px]">{resId} · {TOTAL} page{scale > 1.05 ? ` · ${scale.toFixed(1)}×` : ''}</p>
         </div>
         <button onClick={onClose} className="ml-3 p-2 rounded-xl bg-white/10 border border-white/15 text-white active:bg-white/20 transition-colors">
           <X size={18} />
         </button>
       </div>
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+      <div ref={scrollRef} className="flex-1 overflow-auto">
+      <div style={{ zoom: scale }} className="px-3 py-3 space-y-3">
         <A4Page pageNum={1} total={TOTAL} reservationId={resId} title="Data Privacy Statement" branded>
           <div className="flex items-center justify-between mb-4">
             <span className="text-[10px] text-gray-500">Date: <span className="font-semibold text-[#1C1C1E]">{formatDate(b.created_at)}</span></span>
@@ -414,32 +484,24 @@ function PrivacyViewer({ open, onClose, b }: { open: boolean; onClose: () => voi
         </A4Page>
         <div className="h-4" />
       </div>
+      </div>
     </div>
   );
 }
 
 function PrivacyPreviewCard({ b, onClick }: { b: ReviewBooking; onClick: () => void }) {
   return (
-    <button onClick={onClick} className="w-full text-left active:scale-[0.98] transition-transform">
-      <div className="bg-white rounded-2xl shadow-[0_2px_16px_rgba(0,0,0,0.10)] overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.png" alt="PH1" className="h-6 object-contain object-left" />
-          <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[#1C1C1E]">Data Privacy Statement</p>
-          <p className="text-[8px] text-gray-400">{b.reservation_id ?? '—'}</p>
+    <button onClick={onClick} className="w-full text-left active:opacity-70 transition-opacity">
+      <GlassCard className="px-4 py-3.5 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-2xl bg-[#C03D25]/10 flex items-center justify-center shrink-0">
+          <ShieldCheck size={18} className="text-[#C03D25]" />
         </div>
-        <div className="flex items-center justify-between px-4 py-3 bg-[#F9F9FB]">
-          <div>
-            <p className="text-[11px] font-semibold text-[#1C1C1E]">{b.client_name ?? '—'}</p>
-            <p className="text-[10px] text-gray-400 mt-0.5">{formatDate(b.created_at)} · 1 page</p>
-          </div>
-          <div className="flex items-center gap-1 bg-[#C03D25] px-3 py-1.5 rounded-full">
-            <ShieldCheck size={11} className="text-white" />
-            <span className="text-[10px] font-semibold text-white">View</span>
-            <ChevronRight size={10} className="text-white" />
-          </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-bold text-[#1C1C1E]">Data Privacy Statement</p>
+          <p className="text-xs text-[#8E8E93] mt-0.5">{formatDate(b.created_at)} · 1 page</p>
         </div>
-      </div>
+        <ChevronRight size={16} className="text-[#C7C7CC] shrink-0" />
+      </GlassCard>
     </button>
   );
 }
@@ -475,6 +537,7 @@ function AmortRow({ label, value, bold }: { label: string; value: string; bold?:
 
 function TermsViewer({ open, onClose, b }: { open: boolean; onClose: () => void; b: ReviewBooking }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const scale = usePinchZoom(scrollRef, open);
   useEffect(() => { if (open && scrollRef.current) scrollRef.current.scrollTop = 0; }, [open]);
   if (!open) return null;
 
@@ -488,22 +551,23 @@ function TermsViewer({ open, onClose, b }: { open: boolean; onClose: () => void;
       <div className="flex items-center justify-between px-4 py-3 bg-[#1C1C1E] shrink-0">
         <div className="min-w-0">
           <p className="text-white text-[13px] font-semibold leading-tight truncate">Terms of Payment</p>
-          <p className="text-white/40 text-[10px]">{resId} · 1 page</p>
+          <p className="text-white/40 text-[10px]">{resId} · 1 page{scale > 1.05 ? ` · ${scale.toFixed(1)}×` : ''}</p>
         </div>
         <button onClick={onClose} className="ml-3 p-2 rounded-xl bg-white/10 border border-white/15 text-white active:bg-white/20 transition-colors">
           <X size={18} />
         </button>
       </div>
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
-        <div className="bg-white shadow-[0_4px_24px_rgba(0,0,0,0.28)] flex flex-col"
-          style={{ minHeight: 'calc((100vw - 24px) * 1.4142)' }}>
+      <div ref={scrollRef} className="flex-1 overflow-auto">
+      <div style={{ zoom: scale }} className="px-3 py-3 space-y-3">
+        <div className="bg-white shadow-[0_4px_24px_rgba(0,0,0,0.28)] flex flex-col overflow-hidden"
+          style={{ height: 'calc((100vw - 24px) * 1.4142)' }}>
           <div className="bg-[#C03D25] border-b border-[#C03D25] px-5 py-2.5 flex items-center justify-between shrink-0">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/document logo.png" alt="PH1 World Developers" className="h-7 object-contain object-left" />
             <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-center px-2 text-white">Terms of Payment</p>
             <p className="text-[8px] text-right shrink-0 text-white/70">{resId}</p>
           </div>
-          <div className="flex-1 px-3 py-2.5 space-y-2">
+          <div className="flex-1 px-3 py-2.5 space-y-2 overflow-hidden min-h-0">
             <div className="border border-gray-300 overflow-hidden">
               <div className="bg-gray-100 px-2 py-1 border-b border-gray-300">
                 <p className="text-[8px] font-bold uppercase tracking-[0.1em] text-[#1C1C1E]">Property Information</p>
@@ -585,32 +649,24 @@ function TermsViewer({ open, onClose, b }: { open: boolean; onClose: () => void;
         </div>
         <div className="h-4" />
       </div>
+      </div>
     </div>
   );
 }
 
 function TermsPreviewCard({ b, onClick }: { b: ReviewBooking; onClick: () => void }) {
   return (
-    <button onClick={onClick} className="w-full text-left active:scale-[0.98] transition-transform">
-      <div className="bg-white rounded-2xl shadow-[0_2px_16px_rgba(0,0,0,0.10)] overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.png" alt="PH1" className="h-6 object-contain object-left" />
-          <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[#1C1C1E]">Terms of Payment</p>
-          <p className="text-[8px] text-gray-400">{b.reservation_id ?? '—'}</p>
+    <button onClick={onClick} className="w-full text-left active:opacity-70 transition-opacity">
+      <GlassCard className="px-4 py-3.5 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-2xl bg-[#C03D25]/10 flex items-center justify-center shrink-0">
+          <FileText size={18} className="text-[#C03D25]" />
         </div>
-        <div className="flex items-center justify-between px-4 py-3 bg-[#F9F9FB]">
-          <div>
-            <p className="text-[11px] font-semibold text-[#1C1C1E]">{b.client_name ?? '—'}</p>
-            <p className="text-[10px] text-gray-400 mt-0.5">{formatDate(b.created_at)} · 1 page</p>
-          </div>
-          <div className="flex items-center gap-1 bg-[#C03D25] px-3 py-1.5 rounded-full">
-            <FileText size={11} className="text-white" />
-            <span className="text-[10px] font-semibold text-white">View</span>
-            <ChevronRight size={10} className="text-white" />
-          </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-bold text-[#1C1C1E]">Terms of Payment</p>
+          <p className="text-xs text-[#8E8E93] mt-0.5">{formatDate(b.created_at)} · 1 page</p>
         </div>
-      </div>
+        <ChevronRight size={16} className="text-[#C7C7CC] shrink-0" />
+      </GlassCard>
     </button>
   );
 }
@@ -692,6 +748,7 @@ function BuyerInfoViewer({
   atty: AttyInFactRecord | null; loading: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const scale = usePinchZoom(scrollRef, open);
   useEffect(() => { if (open && scrollRef.current) scrollRef.current.scrollTop = 0; }, [open]);
   if (!open) return null;
 
@@ -715,13 +772,14 @@ function BuyerInfoViewer({
       <div className="flex items-center justify-between px-4 py-3 bg-[#1C1C1E] shrink-0">
         <div className="min-w-0">
           <p className="text-white text-[13px] font-semibold leading-tight truncate">{TITLE}</p>
-          <p className="text-white/40 text-[10px]">{resId} · {loading ? '…' : `${total} page${total > 1 ? 's' : ''}`}</p>
+          <p className="text-white/40 text-[10px]">{resId} · {loading ? '…' : `${total} page${total > 1 ? 's' : ''}`}{scale > 1.05 ? ` · ${scale.toFixed(1)}×` : ''}</p>
         </div>
         <button onClick={onClose} className="ml-3 p-2 rounded-xl bg-white/10 border border-white/15 text-white active:bg-white/20 transition-colors">
           <X size={18} />
         </button>
       </div>
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+      <div ref={scrollRef} className="flex-1 overflow-auto">
+      <div style={{ zoom: scale }} className="px-3 py-3 space-y-3">
         {loading ? (
           <A4Page pageNum={1} total={1} reservationId={resId} title={TITLE} branded>
             <div className="flex items-center justify-center py-16">
@@ -889,32 +947,24 @@ function BuyerInfoViewer({
         </>)}
         <div className="h-4" />
       </div>
+      </div>
     </div>
   );
 }
 
 function BuyerInfoPreviewCard({ b, onClick }: { b: ReviewBooking; onClick: () => void }) {
   return (
-    <button onClick={onClick} className="w-full text-left active:scale-[0.98] transition-transform">
-      <div className="bg-white rounded-2xl shadow-[0_2px_16px_rgba(0,0,0,0.10)] overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.png" alt="PH1" className="h-6 object-contain object-left" />
-          <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[#1C1C1E]">Buyer Information Form</p>
-          <p className="text-[8px] text-gray-400">{b.reservation_id ?? '—'}</p>
+    <button onClick={onClick} className="w-full text-left active:opacity-70 transition-opacity">
+      <GlassCard className="px-4 py-3.5 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-2xl bg-[#C03D25]/10 flex items-center justify-center shrink-0">
+          <User size={18} className="text-[#C03D25]" />
         </div>
-        <div className="flex items-center justify-between px-4 py-3 bg-[#F9F9FB]">
-          <div>
-            <p className="text-[11px] font-semibold text-[#1C1C1E]">{b.client_name ?? '—'}</p>
-            <p className="text-[10px] text-gray-400 mt-0.5">{formatDate(b.created_at)}</p>
-          </div>
-          <div className="flex items-center gap-1 bg-[#C03D25] px-3 py-1.5 rounded-full">
-            <User size={11} className="text-white" />
-            <span className="text-[10px] font-semibold text-white">View</span>
-            <ChevronRight size={10} className="text-white" />
-          </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-bold text-[#1C1C1E]">Buyer Information Form</p>
+          <p className="text-xs text-[#8E8E93] mt-0.5">{formatDate(b.created_at)}</p>
         </div>
-      </div>
+        <ChevronRight size={16} className="text-[#C7C7CC] shrink-0" />
+      </GlassCard>
     </button>
   );
 }
@@ -952,12 +1002,18 @@ export default function DirectorReviewPage() {
     async function loadBuyerInfo() {
       setBuyerInfoLoading(true);
       try {
-        const resId      = booking!.reservation_id;
-        const clientName = booking!.client_name ?? '';
-        const allClients = await fetchAllClients().catch(() => []);
-        const match      = allClients.find(c =>
-          [c.first_name, c.last_name, c.suffix].filter(Boolean).join(' ') === clientName
-        );
+        const resId = booking!.reservation_id;
+        const [allClients, { data: resRow }] = await Promise.all([
+          fetchAllClients().catch(() => []),
+          supabase.from('reservations').select('client_id').eq('reservation_id', resId).single(),
+        ]);
+        const clientIdFromRes = (resRow as any)?.client_id ?? null;
+        const match =
+          (clientIdFromRes ? allClients.find(c => c.client_id === clientIdFromRes) : null)
+          ?? allClients.find(c =>
+              [c.first_name, c.last_name, c.suffix].filter(Boolean).join(' ') === (booking!.client_name ?? '')
+            )
+          ?? null;
         if (match) {
           setClientRecord(match);
           const info = await fetchBuyerInfo(match.id).catch(() => null);
@@ -998,7 +1054,8 @@ export default function DirectorReviewPage() {
 
   const alreadyReviewed = booking?.booking_review_status === 'director-approved'
     || booking?.booking_review_status === 'director-rejected'
-    || booking?.booking_review_status === 'finance-verified';
+    || booking?.booking_review_status === 'finance-verified'
+    || booking?.booking_review_status === 'Booked';
 
   if (done) {
     return (
@@ -1055,42 +1112,58 @@ export default function DirectorReviewPage() {
 
   return (
     <PageShell title="Director Review" backButton onBack={() => router.push('/account/buyers-verification')}>
-      <div className="space-y-3 pb-6">
+      <div className="space-y-3 pb-32">
 
         {/* Already reviewed notice */}
         {alreadyReviewed && (
           <GlassCard className={`px-4 py-3 flex items-center gap-3 ${
-            booking.booking_review_status === 'director-approved' ? 'bg-green-50' : 'bg-red-50'
+            booking.booking_review_status === 'director-rejected' ? 'bg-red-50' : 'bg-green-50'
           }`}>
-            {booking.booking_review_status === 'director-approved'
-              ? <CheckCircle2 size={16} className="text-green-600 shrink-0" />
-              : <XCircle size={16} className="text-red-500 shrink-0" />}
+            {booking.booking_review_status === 'director-rejected'
+              ? <XCircle size={16} className="text-red-500 shrink-0" />
+              : <CheckCircle2 size={16} className="text-green-600 shrink-0" />}
             <p className={`text-xs font-semibold ${
-              booking.booking_review_status === 'director-approved' ? 'text-green-700' : 'text-red-700'
+              booking.booking_review_status === 'director-rejected' ? 'text-red-700' : 'text-green-700'
             }`}>
-              {booking.booking_review_status === 'director-approved'
-                ? 'You have already approved this booking.'
-                : booking.booking_review_status === 'finance-verified'
-                ? 'This booking has been finance-verified.'
-                : 'You have already rejected this booking.'}
+              {booking.booking_review_status === 'director-approved'   ? 'You have already approved this booking.'
+              : booking.booking_review_status === 'director-rejected'  ? 'You have already rejected this booking.'
+              : booking.booking_review_status === 'finance-verified'   ? 'This booking has been verified by Finance.'
+              : booking.booking_review_status === 'Booked'             ? 'This booking is fully completed.'
+              : ''}
             </p>
           </GlassCard>
         )}
 
-        {/* Reservation header */}
-        <GlassCard className="px-4 py-1">
-          {([
-            [<Hash size={15} />,      'Reservation ID', booking.reservation_id],
-            [<User size={15} />,      'Client',         booking.client_name],
-            [<Building2 size={15} />, 'Project',        booking.project],
-            [<Tag size={15} />,       'Unit',           [booking.tower, booking.floor, booking.unit_no, booking.inventory_code].filter(Boolean).join(' · ') || '—'],
-          ] as [React.ReactNode, string, string][]).map(([icon, label, value]) => (
-            <div key={label} className="flex items-center gap-3 py-2.5 border-b border-black/[0.06] last:border-0">
-              <span className="text-[#C03D25] shrink-0">{icon}</span>
-              <span className="flex-1 text-sm font-medium text-[#1C1C1E]">{label}</span>
-              <span className="text-xs text-right text-[#6C6C70] max-w-[55%]">{value || '—'}</span>
+        {/* Reservation hero card */}
+        <GlassCard className="overflow-hidden">
+          <div className="px-4 py-4 flex items-center gap-4">
+            <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0"
+              style={{ background: 'linear-gradient(135deg, #E05A3A 0%, #A83020 100%)' }}>
+              <span className="text-lg font-bold text-white">
+                {getInitials(booking.client_name ?? '?')}
+              </span>
             </div>
-          ))}
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wider">Reservation ID</p>
+              <p className="text-lg font-bold text-[#1C1C1E] truncate">{booking.reservation_id}</p>
+              <p className="text-sm text-[#6C6C70] truncate">{booking.client_name ?? '—'}</p>
+            </div>
+            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full shrink-0 ${statusChip(booking.booking_review_status).cls}`}>
+              {statusChip(booking.booking_review_status).label}
+            </span>
+          </div>
+          <div className="border-t border-black/[0.06] px-4 py-2.5 flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <Building2 size={12} className="text-[#C7C7CC]" />
+              <span className="text-xs text-[#6C6C70]">{booking.project ?? '—'}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Tag size={12} className="text-[#C7C7CC]" />
+              <span className="text-xs font-medium text-[#6C6C70]">
+                {[booking.tower, booking.floor, booking.unit_no, booking.inventory_code].filter(Boolean).join(' · ') || '—'}
+              </span>
+            </div>
+          </div>
         </GlassCard>
 
         {/* Reservation Agreement */}
@@ -1125,20 +1198,24 @@ export default function DirectorReviewPage() {
 
         {/* Uploaded documents */}
         <GroupLabel label="Reservation Documents" />
-        <DocSection label="Proof of Payment"  urls={parseJson(booking.payment_proof_url)} />
+        <DocSection label="Proof of Payment"  urls={booking.payment_proof_url ? [booking.payment_proof_url] : []} />
         <DocSection label="Proof of Billing"  urls={parseJson(booking.proof_of_billing_urls)} />
         <DocSection label="Proof of Income"   urls={parseJson(booking.proof_of_income_urls)} />
         <DocSection label="Buyer Valid ID"     urls={parseJson(booking.proof_of_valid_id_urls)} />
 
-        <GroupLabel label="Booking Documents" />
-        {booking.has_co_ownership && (
-          <DocSection label="Co-Owner Valid ID"         urls={booking.co_owner_id_urls ?? []} />
-        )}
-        {booking.has_spouse && (
-          <DocSection label="Spouse Valid ID"           urls={booking.spouse_id_urls ?? []} />
-        )}
-        {booking.has_atty_in_fact && (
-          <DocSection label="Attorney in Fact Valid ID" urls={booking.atty_in_fact_id_urls ?? []} />
+        {(booking.has_co_ownership || booking.has_spouse || booking.has_atty_in_fact) && (
+          <>
+            <GroupLabel label="Booking Documents" />
+            {booking.has_co_ownership && (
+              <DocSection label="Co-Owner Valid ID"         urls={booking.co_owner_id_urls ?? []} />
+            )}
+            {booking.has_spouse && (
+              <DocSection label="Spouse Valid ID"           urls={booking.spouse_id_urls ?? []} />
+            )}
+            {booking.has_atty_in_fact && (
+              <DocSection label="Attorney in Fact Valid ID" urls={booking.atty_in_fact_id_urls ?? []} />
+            )}
+          </>
         )}
 
         {/* Previous rejection notes */}
@@ -1152,62 +1229,48 @@ export default function DirectorReviewPage() {
           </GlassCard>
         )}
 
-        {/* Action buttons */}
-        {!alreadyReviewed && (
-          <>
-            {rejecting && (
-              <GlassCard className="px-4 py-4 space-y-3">
-                <p className="text-xs font-bold text-[#1C1C1E]">Rejection Notes <span className="text-red-500">*</span></p>
-                <textarea
-                  value={rejectNotes}
-                  onChange={e => setRejectNotes(e.target.value)}
-                  placeholder="Describe what needs to be corrected…"
-                  rows={4}
-                  className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/50 focus:bg-white resize-none placeholder:text-[#C7C7CC]"
-                />
-                <div className="flex gap-3">
-                  <button
-                    type="button"
-                    onClick={() => { setRejecting(false); setRejectNotes(''); }}
-                    className="flex-1 py-3 rounded-2xl border border-black/[0.08] text-sm font-semibold text-[#8E8E93] active:bg-black/[0.02]"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleReject}
-                    disabled={saving || !rejectNotes.trim()}
-                    className="flex-1 py-3 rounded-2xl bg-red-500 text-white text-sm font-bold active:opacity-80 disabled:opacity-40"
-                  >
-                    {saving ? 'Rejecting…' : 'Confirm Reject'}
-                  </button>
-                </div>
-              </GlassCard>
-            )}
-
-            {!rejecting && (
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setRejecting(true)}
-                  className="flex-1 py-4 rounded-2xl border-2 border-red-300 text-red-600 text-sm font-bold active:bg-red-50"
-                >
-                  Reject
-                </button>
-                <button
-                  type="button"
-                  onClick={handleApprove}
-                  disabled={saving}
-                  className="flex-1 py-4 rounded-2xl bg-green-500 text-white text-sm font-bold shadow-[0_4px_16px_rgba(34,197,94,0.3)] active:opacity-80 disabled:opacity-40"
-                >
-                  {saving ? 'Approving…' : 'Approve'}
-                </button>
-              </div>
-            )}
-          </>
-        )}
 
       </div>
+      {/* Sticky action bar */}
+      {!alreadyReviewed && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 px-4 pb-8 pt-4 bg-white/80 backdrop-blur-md border-t border-black/[0.06]">
+          {rejecting ? (
+            <div className="space-y-3">
+              <p className="text-xs font-bold text-[#1C1C1E]">Rejection Notes <span className="text-red-500">*</span></p>
+              <textarea
+                value={rejectNotes}
+                onChange={e => setRejectNotes(e.target.value)}
+                placeholder="Describe what needs to be corrected…"
+                rows={3}
+                className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/50 focus:bg-white resize-none placeholder:text-[#C7C7CC]"
+              />
+              <div className="flex gap-3">
+                <button type="button" onClick={() => { setRejecting(false); setRejectNotes(''); }}
+                  className="flex-1 py-3.5 rounded-2xl border border-black/[0.08] text-sm font-semibold text-[#8E8E93] active:bg-black/[0.02]">
+                  Cancel
+                </button>
+                <button type="button" onClick={handleReject}
+                  disabled={saving || !rejectNotes.trim()}
+                  className="flex-1 py-3.5 rounded-2xl bg-red-500 text-white text-sm font-bold active:opacity-80 disabled:opacity-40">
+                  {saving ? 'Rejecting…' : 'Confirm Reject'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setRejecting(true)}
+                className="flex-1 py-4 rounded-2xl border-2 border-red-300 text-red-600 text-sm font-bold active:bg-red-50">
+                Reject
+              </button>
+              <button type="button" onClick={handleApprove} disabled={saving}
+                className="flex-1 py-4 rounded-2xl bg-green-500 text-white text-sm font-bold shadow-[0_4px_16px_rgba(34,197,94,0.3)] active:opacity-80 disabled:opacity-40">
+                {saving ? 'Approving…' : 'Approve'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
     </PageShell>
   );
 }

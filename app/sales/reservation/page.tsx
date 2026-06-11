@@ -27,7 +27,7 @@ interface StatusCounts {
 function statusStyle(status: string): { bg: string; text: string; label: string; Icon: React.ComponentType<{ size?: number; className?: string }> } {
   if (status === 'Reserved-paid')   return { bg: 'rgba(52,199,89,0.12)',  text: '#1A7F37', label: 'Paid',     Icon: CheckCircle2 };
   if (status === 'Reserved-unpaid') return { bg: 'rgba(255,159,10,0.12)', text: '#A05A00', label: 'Unpaid',   Icon: Clock };
-  if (status === 'Approved')        return { bg: 'rgba(48,176,199,0.12)', text: '#0E6E7E', label: 'Approved', Icon: ShieldCheck };
+  if (status === 'Reserved')        return { bg: 'rgba(48,176,199,0.12)', text: '#0E6E7E', label: 'Reserved', Icon: ShieldCheck };
   return                                   { bg: 'rgba(142,142,147,0.12)', text: '#6C6C70', label: status,    Icon: Clock };
 }
 
@@ -54,7 +54,7 @@ export default function ReservationPage() {
         setCounts({
           paid:     data.filter(r => r.status === 'Reserved-paid').length,
           unpaid:   data.filter(r => r.status === 'Reserved-unpaid').length,
-          approved: data.filter(r => r.status === 'Approved').length,
+          approved: data.filter(r => r.status === 'Reserved').length,
         });
         setRecent(data.slice(0, 5) as RecentReservation[]);
       }
@@ -120,7 +120,7 @@ export default function ReservationPage() {
           <GlassCard className="p-3 flex flex-col gap-1">
             <div className="flex items-center gap-1.5">
               <ShieldCheck size={12} style={{ color: '#0E6E7E' }} />
-              <span className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wide">Approved</span>
+              <span className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wide">Reserved</span>
             </div>
             <p className="text-2xl font-bold text-[#1C1C1E] leading-none">
               {loading ? '–' : counts.approved}

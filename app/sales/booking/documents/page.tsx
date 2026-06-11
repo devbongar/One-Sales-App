@@ -150,7 +150,8 @@ export default function BookingDocumentsPage() {
           setHasAttyInFact(p.has_atty_in_fact);
           setHasSpouse(p.has_spouse);
           setCoOwnerIsSpouse(p.co_owner_is_spouse);
-          setIsSaved(p.documents_saved);
+          const lockedStatuses = ['submitted', 'director-approved', 'finance-verified', 'Booked'];
+          setIsSaved(p.documents_saved && lockedStatuses.includes(p.booking_review_status ?? ''));
 
           const docs = await fetchBookingDocuments(r.reservation_id);
           const toDocFile = (url: string): DocFile => ({
@@ -249,7 +250,7 @@ export default function BookingDocumentsPage() {
     && (!needsSpouseId  || spouseFiles.length > 0);
 
   return (
-    <PageShell title="Required Documents" backButton onBack={() => router.push('/account/buyers-verification')}>
+    <PageShell title="Required Documents" backButton onBack={() => router.push('/sales/booking/detail')}>
       <div className="space-y-4 pb-6">
 
         {loading ? (
@@ -357,7 +358,7 @@ export default function BookingDocumentsPage() {
 
             <button type="button"
               onClick={() => {
-                if (isSaved) { router.push('/account/buyers-verification'); return; }
+                if (isSaved) { router.push('/sales/booking/detail'); return; }
                 setShowConfirmModal(true);
               }}
               disabled={isSaving || (!isSaved && !canSave)}
@@ -407,7 +408,7 @@ export default function BookingDocumentsPage() {
         <div className="fixed inset-0 z-50 flex items-end justify-center">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
           <div className="relative w-full bg-white rounded-t-3xl px-6 pt-6 pb-10 space-y-5 animate-slide-up">
-            <button type="button" onClick={() => router.push('/account/buyers-verification')}
+            <button type="button" onClick={() => router.push('/sales/booking/detail')}
               className="absolute top-4 right-4 w-8 h-8 rounded-full bg-[#F2F2F7] flex items-center justify-center active:opacity-70">
               <X size={16} className="text-[#6C6C70]" />
             </button>
@@ -420,7 +421,7 @@ export default function BookingDocumentsPage() {
                 All required documents have been uploaded and saved successfully.
               </p>
             </div>
-            <button type="button" onClick={() => router.push('/account/buyers-verification')}
+            <button type="button" onClick={() => router.push('/sales/booking/detail')}
               className="w-full py-3.5 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80">
               Done
             </button>

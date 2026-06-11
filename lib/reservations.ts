@@ -105,7 +105,7 @@ export async function approvePaymentReview(
   const { error } = await supabase
     .from('reservations')
     .update({
-      status:                     'Approved',
+      status:                     'Reserved',
       booking_review_status:      'finance-verified',
       finance_verified_at:        new Date().toISOString(),
       acknowledgement_receipt_no: acknowledgementReceiptNo,
@@ -117,10 +117,17 @@ export async function approvePaymentReview(
 
   // 2. Mark the Reservation Fee line in receivables_database as Paid
   // Non-fatal — lines may not exist yet if proof was submitted before this build
+  const { data: rfLine } = await supabase
+    .from('receivables_database')
+    .select('total_amount_due')
+    .eq('reservation_id', reservationId)
+    .eq('type_of_payment', 'Reservation Fee')
+    .single();
   await supabase
     .from('receivables_database')
     .update({
       payment_status:             'Paid',
+      amount_paid:                rfLine?.total_amount_due ?? null,
       acknowledgement_receipt_no: acknowledgementReceiptNo,
       sales_invoice_number:       salesInvoiceNo,
       posting_date:               dateOfReservationFee,

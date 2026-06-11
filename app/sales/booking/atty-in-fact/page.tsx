@@ -8,8 +8,8 @@ import { COUNTRY_CODES } from '@/lib/client-form-options';
 import { saveAttyInFact, fetchAttyInFact } from '@/lib/atty-in-fact';
 import { supabase } from '@/lib/supabase';
 import {
-  Hash, Building2, Tag, User, CheckCircle2,
-  Check, ChevronDown, X, Phone, Mail, Search,
+  User, CheckCircle2,
+  ChevronDown, X, Phone, Mail, Search, Loader2,
 } from 'lucide-react';
 
 // ─── Shared UI components ─────────────────────────────────────────────────────
@@ -105,23 +105,14 @@ function PhoneInputField({ code, onCodeChange, number, onNumberChange, disabled 
   );
 }
 
-function ReadOnlyRow({ icon, label, value }: { icon: React.ReactNode; label: string; value?: string | null }) {
-  return (
-    <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06] last:border-0">
-      <span className="text-[#C03D25] shrink-0">{icon}</span>
-      <span className="flex-1 text-sm font-medium text-[#1C1C1E]">{label}</span>
-      <span className="text-sm text-right text-[#6C6C70] max-w-[180px] truncate">{value || '—'}</span>
-    </div>
-  );
-}
-
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function AttyInFactPage() {
   const router = useRouter();
   const [hasCoOwnership, setHasCoOwnership] = useState(false);
+  const [loading,  setLoading]  = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [isSaved, setIsSaved] = useState(false);
+  const [isSaved,  setIsSaved]  = useState(false);
+  const LOCKED_STATUSES = ['submitted', 'director-approved', 'finance-verified', 'Booked'];
   const [showModal, setShowModal] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
@@ -140,28 +131,33 @@ export default function AttyInFactPage() {
   const [email,       setEmail]       = useState('');
 
   useEffect(() => {
-    const raw = sessionStorage.getItem('selectedReservation');
-    if (raw) {
-      const r = JSON.parse(raw);
-      setReservation(r);
-      if (r.reservation_id) {
-        fetchAttyInFact(r.reservation_id).then(info => {
-          if (!info) return;
-          setIsSaved(true);
-          supabase.from('reservations').update({ atty_info_saved: true }).eq('reservation_id', r.reservation_id).then(() => {});
-          setLastName(info.last_name ?? '');
-          setFirstName(info.first_name ?? '');
-          setMiddleName(info.middle_name ?? '');
-          setSuffix(info.suffix ?? '');
-          setMobileCode(info.mobile_code ?? '+63');
-          setMobile(info.mobile ?? '');
-          setLandline(info.landline ?? '');
-          setEmail(info.email ?? '');
-        }).catch(err => { console.error('[atty-in-fact] fetch error:', err); });
-      }
-    }
     const co = sessionStorage.getItem('atty_hasCoOwnership');
     setHasCoOwnership(co === '1');
+
+    const raw = sessionStorage.getItem('selectedReservation');
+    if (!raw) { setLoading(false); return; }
+    const r = JSON.parse(raw);
+    setReservation(r);
+    if (!r.reservation_id) { setLoading(false); return; }
+
+    Promise.all([
+      fetchAttyInFact(r.reservation_id).catch(() => null),
+      supabase.from('reservations').select('booking_review_status').eq('reservation_id', r.reservation_id).single(),
+    ]).then(([info, { data: resRow }]) => {
+      const brs = (resRow as any)?.booking_review_status ?? null;
+      setIsSaved(!!info && LOCKED_STATUSES.includes(brs ?? ''));
+
+      if (!info) return;
+      setLastName(info.last_name ?? '');
+      setFirstName(info.first_name ?? '');
+      setMiddleName(info.middle_name ?? '');
+      setSuffix(info.suffix ?? '');
+      setMobileCode(info.mobile_code ?? '+63');
+      setMobile(info.mobile ?? '');
+      setLandline(info.landline ?? '');
+      setEmail(info.email ?? '');
+    }).catch(err => console.error('[atty-in-fact] load error:', err))
+      .finally(() => setLoading(false));
   }, []);
 
   async function handleSave() {
@@ -188,6 +184,14 @@ export default function AttyInFactPage() {
       setIsSaving(false);
     }
   }
+
+  if (loading) return (
+    <PageShell title="Attorney in Fact" backButton onBack={() => router.push('/sales/booking/detail')}>
+      <div className="flex items-center justify-center py-20">
+        <Loader2 size={28} className="text-[#C03D25] animate-spin" />
+      </div>
+    </PageShell>
+  );
 
   return (
     <PageShell title="Attorney in Fact" backButton onBack={() => router.push('/sales/booking/detail')}>

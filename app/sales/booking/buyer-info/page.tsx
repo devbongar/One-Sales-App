@@ -12,10 +12,23 @@ import {
   Hash, Building2, Tag, User, Users, UserCheck,
   Check, CheckCircle2, ChevronDown, X, Phone, Mail, CreditCard,
   AlertCircle, FileText, Gavel, Globe, Heart, Calendar,
-  Home, MapPin, Search, Briefcase, DollarSign,
+  Home, MapPin, Search, Briefcase, DollarSign, Loader2,
 } from 'lucide-react';
 
 // ─── Shared UI components ─────────────────────────────────────────────────────
+
+function StepIndicator({ current, total }: { current: number; total: number }) {
+  return (
+    <div className="flex items-center justify-center gap-2 pb-1">
+      {Array.from({ length: total }).map((_, i) => (
+        <div key={i} className={`h-1.5 rounded-full transition-all ${
+          i + 1 === current ? 'w-6 bg-[#C03D25]' : i + 1 < current ? 'w-4 bg-green-500' : 'w-4 bg-[#E5E5EA]'
+        }`} />
+      ))}
+      <span className="text-[10px] font-semibold text-[#8E8E93] ml-1">{current} / {total}</span>
+    </div>
+  );
+}
 
 function InputRow({ label, icon, required, children }: {
   label: string; icon: React.ReactNode; required?: boolean; children: React.ReactNode;
@@ -217,25 +230,6 @@ function PhoneInputField({ code, onCodeChange, number, onNumberChange, disabled 
   );
 }
 
-function ReadOnlyRow({ icon, label, value }: { icon: React.ReactNode; label: string; value?: string | null }) {
-  return (
-    <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06] last:border-0">
-      <span className="text-[#C03D25] shrink-0">{icon}</span>
-      <span className="flex-1 text-sm font-medium text-[#1C1C1E]">{label}</span>
-      <span className="text-sm text-right text-[#6C6C70] max-w-[180px] truncate">{value || '—'}</span>
-    </div>
-  );
-}
-
-function NextButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button type="button" onClick={onClick}
-      className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity">
-      Next
-    </button>
-  );
-}
-
 // ─── Constants ────────────────────────────────────────────────────────────────
 const GENDER_OPTIONS           = ['Male', 'Female', 'Non Binary'];
 const CIVIL_STATUS_OPTIONS     = ['Single', 'Married', 'Widowed', 'Separated', 'Annulled'];
@@ -247,11 +241,13 @@ const RANK_OPTS                = ['Executive', 'Managerial', 'Supervisor', 'Rank
 const SALARY_RANGE_OPTS        = ['50,000 and Below', '50,001 to 80,000', '80,001 to 120,000', '120,001 to 150,000', '150,001 to 200,000', '200,001 and Above'];
 const MAILING_OPTS             = ['Home Address', 'Office Address', 'Others'];
 const COUNTRY_OPTIONS          = COUNTRY_CODES.map(c => ({ label: c.name, flag: c.flag }));
+const LOCKED_STATUSES          = ['submitted', 'director-approved', 'finance-verified', 'Booked'];
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function BuyerInfoPage() {
   const router = useRouter();
   const [step, setStep] = useState(0);
+  const [loading, setLoading] = useState(true);
 
   const [reservation, setReservation] = useState<{
     reservation_id?: string; project?: string; inventory_code?: string; client_name?: string;
@@ -263,6 +259,7 @@ export default function BuyerInfoPage() {
   const [showConfirmModal,  setShowConfirmModal]  = useState(false);
   const [hasCoOwnership,    setHasCoOwnership]    = useState(false);
   const [hasAttyInFact,     setHasAttyInFact]     = useState(false);
+  const [step0Error,        setStep0Error]        = useState('');
   const [clientRecord, setClientRecord] = useState<ClientRecord | null>(null);
   const [clientUuid,   setClientUuid]   = useState('');
   const [clientId,    setClientId]    = useState('');
@@ -272,7 +269,8 @@ export default function BuyerInfoPage() {
   const [suffix,      setSuffix]      = useState('');
   const [citizenship, setCitizenship] = useState('');
   const [dateOfBirth, setDateOfBirth] = useState('');
-  const [mobile,      setMobile]      = useState('');
+  const [mobileCode,  setMobileCode]  = useState('+63');
+  const [mobileNumber,setMobileNumber]= useState('');
   const [landline,    setLandline]    = useState('');
   const [email,       setEmail]       = useState('');
   const [gender,      setGender]      = useState('');
@@ -322,16 +320,34 @@ export default function BuyerInfoPage() {
   // Load reservation + auto-fill from client record
   useEffect(() => {
     const raw = sessionStorage.getItem('selectedReservation');
-    if (!raw) return;
+    if (!raw) { setLoading(false); return; }
     const r = JSON.parse(raw);
     setReservation(r);
-    if (r.reservation_id) {
-    }
-    fetchAllClients().then(async clients => {
-      const match = clients.find(c =>
-        [c.first_name, c.last_name, c.suffix].filter(Boolean).join(' ') === r.client_name
-      );
-      if (!match) return;
+
+    if (!r.reservation_id) { setLoading(false); return; }
+
+    // Fetch clients list and reservation row in parallel
+    Promise.all([
+      fetchAllClients().catch(() => [] as ClientRecord[]),
+      supabase
+        .from('reservations')
+        .select('client_id, booking_review_status')
+        .eq('reservation_id', r.reservation_id)
+        .single(),
+    ]).then(async ([clients, { data: resRow }]) => {
+      const clientIdFromRes = (resRow as any)?.client_id ?? null;
+      const brs             = (resRow as any)?.booking_review_status ?? null;
+
+      // Match by display client_id first, fall back to name for legacy records
+      const match: ClientRecord | null =
+        (clientIdFromRes ? clients.find(c => c.client_id === clientIdFromRes) : null)
+        ?? clients.find(c =>
+            [c.first_name, c.last_name, c.suffix].filter(Boolean).join(' ') === r.client_name
+          )
+        ?? null;
+
+      if (!match) return; // client not found — fields stay blank but spinner clears via finally
+
       setClientRecord(match);
       setClientUuid(match.id);
       setClientId(match.client_id ?? '');
@@ -341,28 +357,30 @@ export default function BuyerInfoPage() {
       setSuffix(match.suffix ?? '');
       setCitizenship(match.citizenship ?? '');
       setDateOfBirth(match.date_of_birth ?? '');
-      const cc  = match.country_code ?? '+63';
-      const num = match.mobile_number ?? '';
-      setMobile(num ? `${cc} ${num}` : '');
+      setMobileCode(match.country_code ?? '+63');
+      setMobileNumber(match.mobile_number ?? '');
       setLandline(match.landline_no ?? '');
       setEmail(match.email ?? '');
 
-      // Load previously saved buyer info
+      // Fetch previously saved buyer info
       const info = await fetchBuyerInfo(match.id).catch(() => null);
-      if (!info?.buyer_info_saved) return; // not yet saved
-      setIsSaved(true);
+
+      // Lock address/employment fields only when booking is in a locked review status
+      setIsSaved(LOCKED_STATUSES.includes(brs ?? ''));
+
+      if (!info?.buyer_info_saved) return; // first time filling out — client fields already set above
+
       setHasCoOwnership(info.has_co_ownership ?? false);
       setHasAttyInFact(info.has_atty_in_fact ?? false);
       setGender(info.gender ?? '');
       setCivilStatus(info.civil_status ?? '');
 
       // Sync has_spouse on the reservation so the spouse step stays correct
-      if (r.reservation_id) {
-        await supabase
-          .from('reservations')
-          .update({ has_spouse: info.civil_status === 'Married' })
-          .eq('reservation_id', r.reservation_id);
-      }
+      await supabase
+        .from('reservations')
+        .update({ has_spouse: info.civil_status === 'Married' })
+        .eq('reservation_id', r.reservation_id);
+
       setTin(info.tin ?? '');
       setNoTin(info.no_tin ?? false);
       setHomeOwnership(info.home_ownership ?? '');
@@ -391,14 +409,23 @@ export default function BuyerInfoPage() {
       setWorkBuildingUnit(info.work_building_unit ?? '');
       setMailingType(info.mailing_type ?? '');
       setMailingOther(info.mailing_other ?? '');
-    }).catch(console.error);
+    })
+      .catch(console.error)
+      .finally(() => setLoading(false));
   }, []);
 
-  // ── Save + confirmation flow ──────────────────────────────────────────────
-  function routeAfterSave() {
-    router.push('/sales/booking/detail');
+  // ── Validate Step 0 before advancing ─────────────────────────────────────
+  function handleNextFromStep0() {
+    if (!lastName.trim())  { setStep0Error('Please enter a last name.'); return; }
+    if (!firstName.trim()) { setStep0Error('Please enter a first name.'); return; }
+    if (!gender)           { setStep0Error('Please select a gender.'); return; }
+    if (!civilStatus)      { setStep0Error('Please select civil status.'); return; }
+    if (!noTin && !tin.trim()) { setStep0Error('Please enter a TIN or check "No TIN".'); return; }
+    setStep0Error('');
+    setStep(1);
   }
 
+  // ── Save + confirmation flow ──────────────────────────────────────────────
   async function handleSave() {
     if (!clientUuid) return;
     setIsSaving(true);
@@ -430,8 +457,8 @@ export default function BuyerInfoPage() {
           gender, civil_status: civilStatus,
           date_of_birth: dateOfBirth,
           citizenship,
-          country_code: clientRecord.country_code ?? '+63',
-          mobile_number: clientRecord.mobile_number ?? '',
+          country_code: mobileCode,
+          mobile_number: mobileNumber,
           landline_no: landline,
           email,
           reason_for_buying: clientRecord.reason_for_buying ?? '',
@@ -447,14 +474,15 @@ export default function BuyerInfoPage() {
           broker_network_associate: clientRecord.broker_network_associate ?? undefined,
         });
       }
-      // Sync has_spouse on the reservation so the spouse step shows/hides correctly
+      // Sync reservation: has_spouse + client_name (denormalized — keep in sync with name edits)
       if (reservation?.reservation_id) {
+        const fullName = [firstName.trim(), lastName.trim(), suffix.trim()].filter(Boolean).join(' ');
         await supabase
           .from('reservations')
-          .update({ has_spouse: civilStatus === 'Married' })
+          .update({ has_spouse: civilStatus === 'Married', client_name: fullName })
           .eq('reservation_id', reservation.reservation_id);
       }
-      routeAfterSave();
+      router.push('/sales/booking/detail');
     } catch (err) {
       alert('Failed to save. Please try again.');
       console.error(err);
@@ -463,27 +491,44 @@ export default function BuyerInfoPage() {
     }
   }
 
+  // ── Loading state ─────────────────────────────────────────────────────────
+  if (loading) return (
+    <PageShell title="Buyer Information" backButton onBack={() => router.push('/sales/booking/detail')}>
+      <div className="flex items-center justify-center py-20">
+        <Loader2 size={28} className="text-[#C03D25] animate-spin" />
+      </div>
+    </PageShell>
+  );
 
   // ── Step 0: Personal Information ─────────────────────────────────────────
   if (step === 0) return (
     <PageShell title="Buyer Information" backButton onBack={() => router.push('/sales/booking/detail')}>
       <div className="space-y-4 pb-6">
 
+        <StepIndicator current={1} total={3} />
 
         <GlassCard className="p-4 space-y-4">
           <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Personal Information</p>
 
-          <ReadOnlyField label="Client ID"   icon={<UserCheck size={11} />} value={clientId} />
-          <ReadOnlyField label="Last Name"   icon={<User size={11} />}      value={lastName} />
-          <ReadOnlyField label="First Name"  icon={<User size={11} />}      value={firstName} />
-          <ReadOnlyField label="Middle Name" icon={<User size={11} />}      value={middleName} />
-          <ReadOnlyField label="Suffix"      icon={<User size={11} />}      value={suffix} />
+          <ReadOnlyField label="Client ID" icon={<UserCheck size={11} />} value={clientId} />
+          <InputRow label="Last Name" icon={<User size={11} />} required>
+            <TextInput value={lastName} onChange={setLastName} placeholder="e.g. Santos" />
+          </InputRow>
+          <InputRow label="First Name" icon={<User size={11} />} required>
+            <TextInput value={firstName} onChange={setFirstName} placeholder="e.g. Maria" />
+          </InputRow>
+          <InputRow label="Middle Name" icon={<User size={11} />}>
+            <TextInput value={middleName} onChange={setMiddleName} placeholder="e.g. Cruz" />
+          </InputRow>
+          <InputRow label="Suffix" icon={<User size={11} />}>
+            <TextInput value={suffix} onChange={setSuffix} placeholder="e.g. Jr., Sr., III" />
+          </InputRow>
 
           <InputRow label="Gender" icon={<User size={11} />} required>
-            <SelectInput value={gender} options={GENDER_OPTIONS} onChange={setGender} placeholder="Select gender" />
+            <SelectInput value={gender} options={GENDER_OPTIONS} onChange={v => { setGender(v); setStep0Error(''); }} placeholder="Select gender" />
           </InputRow>
           <InputRow label="Civil Status" icon={<Heart size={11} />} required>
-            <SelectInput value={civilStatus} options={CIVIL_STATUS_OPTIONS} onChange={setCivilStatus} placeholder="Select civil status" />
+            <SelectInput value={civilStatus} options={CIVIL_STATUS_OPTIONS} onChange={v => { setCivilStatus(v); setStep0Error(''); }} placeholder="Select civil status" />
           </InputRow>
 
           <InputRow label="Citizenship" icon={<Globe size={11} />}>
@@ -492,18 +537,22 @@ export default function BuyerInfoPage() {
           <InputRow label="Date of Birth" icon={<Calendar size={11} />}>
             <DatePickerInput value={dateOfBirth} onChange={setDateOfBirth} />
           </InputRow>
-          <ReadOnlyField label="Mobile No."    icon={<Phone size={11} />}  value={mobile} />
+          <InputRow label="Mobile No." icon={<Phone size={11} />} required>
+            <PhoneInputField code={mobileCode} onCodeChange={setMobileCode} number={mobileNumber} onNumberChange={setMobileNumber} />
+          </InputRow>
           <InputRow label="Landline No." icon={<Phone size={11} />}>
             <TextInput value={landline} onChange={setLandline} placeholder="e.g. 028XXXXXXX" />
           </InputRow>
-          <ReadOnlyField label="Email Address" icon={<Mail size={11} />}   value={email} />
+          <InputRow label="Email Address" icon={<Mail size={11} />}>
+            <TextInput value={email} onChange={setEmail} placeholder="e.g. name@email.com" />
+          </InputRow>
 
           <InputRow label="Tax ID No. (TIN)" icon={<CreditCard size={11} />} required={!noTin}>
-            <TextInput value={noTin ? '' : tin} onChange={setTin}
+            <TextInput value={noTin ? '' : tin} onChange={v => { setTin(v); setStep0Error(''); }}
               placeholder={noTin ? 'No TIN' : 'XXX-XXX-XXX'} disabled={noTin} />
           </InputRow>
 
-          <button type="button" onClick={() => { setNoTin(p => !p); if (!noTin) setTin(''); }}
+          <button type="button" onClick={() => { setNoTin(p => !p); if (!noTin) setTin(''); setStep0Error(''); }}
             className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-semibold transition-all ${
               noTin ? 'bg-[#C03D25] border-[#C03D25] text-white' : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
             }`}>
@@ -520,7 +569,17 @@ export default function BuyerInfoPage() {
           )}
         </GlassCard>
 
-        <NextButton onClick={() => setStep(1)} />
+        {step0Error && (
+          <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+            <AlertCircle size={14} className="text-red-500 shrink-0" />
+            <p className="text-xs text-red-700 font-medium">{step0Error}</p>
+          </div>
+        )}
+
+        <button type="button" onClick={handleNextFromStep0}
+          className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity">
+          Next
+        </button>
       </div>
     </PageShell>
   );
@@ -530,6 +589,7 @@ export default function BuyerInfoPage() {
     <PageShell title="Buyer Information" backButton onBack={() => setStep(0)}>
       <div className="space-y-4 pb-6">
 
+        <StepIndicator current={2} total={3} />
 
         <GlassCard className="p-4 space-y-4">
           <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Address Information</p>
@@ -557,7 +617,10 @@ export default function BuyerInfoPage() {
           </InputRow>
         </GlassCard>
 
-        <NextButton onClick={() => setStep(2)} />
+        <button type="button" onClick={() => setStep(2)}
+          className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity">
+          Next
+        </button>
       </div>
     </PageShell>
   );
@@ -567,7 +630,7 @@ export default function BuyerInfoPage() {
     <PageShell title="Buyer Information" backButton onBack={() => setStep(1)}>
       <div className="space-y-4 pb-6">
 
-
+        <StepIndicator current={3} total={3} />
 
         {/* Employment Information */}
         <GlassCard className="p-4 space-y-4">

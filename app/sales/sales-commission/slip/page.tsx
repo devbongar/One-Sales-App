@@ -304,7 +304,8 @@ export default function CommissionSlipPage() {
                               .map(line => ({
                                 ...line,
                                 effectiveStatus:
-                                  line.status === 'Released'   ? 'Released'    :
+                                  line.status === 'Released'    ? 'Released'    :
+                                  line.status === 'Paid'        ? 'Paid'        :
                                   line.status === 'For Release' ? 'For Release' :
                                   pctCollected >= line.percentage_collection ? 'For Release' : 'Pending',
                               }))

@@ -7,11 +7,15 @@ import GlassCard from '@/components/ui/GlassCard';
 import {
   getBookingProgress, saveBookingFlags, savePrivacyConsent, BookingProgress,
 } from '@/lib/booking-progress';
+import { deleteCoOwner } from '@/lib/co-owners';
+import { deleteAttyInFact } from '@/lib/atty-in-fact';
+import { generateCommissionSchedule } from '@/lib/commission';
+import { withdrawSubmission } from '@/lib/review';
 import { supabase } from '@/lib/supabase';
 import {
   Building2, Tag, User, ChevronRight,
   Lock, Check, FileText, Loader2, UserCheck, ShieldCheck, ShieldAlert, Heart,
-  CheckCircle2, XCircle, Send, Clock,
+  CheckCircle2, XCircle, Send, Clock, AlertTriangle,
 } from 'lucide-react';
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -149,7 +153,13 @@ export default function BookingDetailPage() {
   const [hasCoOwnership,  setHasCoOwnership]  = useState(false);
   const [hasAttyInFact,   setHasAttyInFact]   = useState(false);
   const [savingFlags,     setSavingFlags]     = useState(false);
-  const [dpProofUploaded, setDpProofUploaded] = useState(false);
+  const [dpProofUploaded,    setDpProofUploaded]    = useState(false);
+  const [commissionMissing,    setCommissionMissing]    = useState(false);
+  const [generatingCommission, setGeneratingCommission] = useState(false);
+  const [withdrawing,            setWithdrawing]            = useState(false);
+  const [showWithdrawConfirm,    setShowWithdrawConfirm]    = useState(false);
+  const [showRemoveCoOwnerConfirm, setShowRemoveCoOwnerConfirm] = useState(false);
+  const [showRemoveAttyConfirm,    setShowRemoveAttyConfirm]    = useState(false);
 
   // Privacy consent
   const [privacyConsent,  setPrivacyConsent]  = useState(false);
@@ -176,7 +186,7 @@ export default function BookingDetailPage() {
       // Check if 1st DP proof has been uploaded
       supabase
         .from('reservations')
-        .select('proof_of_1st_dp_urls')
+        .select('proof_of_1st_dp_urls, booking_review_status')
         .eq('reservation_id', r.reservation_id)
         .single()
         .then(({ data }) => {
@@ -184,11 +194,47 @@ export default function BookingDetailPage() {
             const urls = JSON.parse(data?.proof_of_1st_dp_urls ?? '[]');
             setDpProofUploaded(Array.isArray(urls) && urls.length > 0);
           } catch { setDpProofUploaded(false); }
+          // Check commission schedule once RF is approved
+          const rs = data?.booking_review_status ?? null;
+          if (rs === 'finance-verified' || rs === 'Booked') {
+            supabase
+              .from('commission_schedule')
+              .select('id', { count: 'exact', head: true })
+              .eq('reservation_id', r.reservation_id)
+              .then(({ count }) => setCommissionMissing(!count || count === 0), () => {});
+          }
         }, () => {});
     } else {
       setLoading(false);
     }
   }, []);
+
+  async function handleGenerateCommission() {
+    if (!reservation?.reservation_id) return;
+    setGeneratingCommission(true);
+    try {
+      const result = await generateCommissionSchedule(reservation.reservation_id);
+      if (result.ok) setCommissionMissing(false);
+    } catch (e) {
+      console.error('[commission] Generate failed:', e);
+    } finally {
+      setGeneratingCommission(false);
+    }
+  }
+
+  async function handleWithdraw() {
+    if (!reservation?.reservation_id) return;
+    setWithdrawing(true);
+    try {
+      await withdrawSubmission(reservation.reservation_id);
+      setProgress(prev => prev ? { ...prev, booking_review_status: null } : prev);
+    } catch (e) {
+      console.error('[withdraw] Failed:', e);
+    } finally {
+      setWithdrawing(false);
+      setShowWithdrawConfirm(false);
+    }
+  }
 
   async function handleConsent() {
     setSavingConsent(true);
@@ -205,6 +251,8 @@ export default function BookingDetailPage() {
 
   async function toggleCoOwner() {
     const next = !hasCoOwnership;
+    // Turning off with saved data → show confirmation first
+    if (!next && progress?.co_owner_saved) { setShowRemoveCoOwnerConfirm(true); return; }
     setSavingFlags(true);
     try {
       await saveBookingFlags(reservation?.reservation_id ?? '', next, hasAttyInFact);
@@ -213,12 +261,40 @@ export default function BookingDetailPage() {
     finally { setSavingFlags(false); }
   }
 
+  async function confirmRemoveCoOwner() {
+    setShowRemoveCoOwnerConfirm(false);
+    setSavingFlags(true);
+    try {
+      await deleteCoOwner(reservation?.reservation_id ?? '');
+      await saveBookingFlags(reservation?.reservation_id ?? '', false, hasAttyInFact);
+      await supabase.from('reservations').update({ co_owner_info_saved: false }).eq('reservation_id', reservation?.reservation_id ?? '');
+      setHasCoOwnership(false);
+      setProgress(prev => prev ? { ...prev, co_owner_saved: false } : prev);
+    } catch (err) { console.error(err); }
+    finally { setSavingFlags(false); }
+  }
+
   async function toggleAttyInFact() {
     const next = !hasAttyInFact;
+    // Turning off with saved data → show confirmation first
+    if (!next && progress?.atty_saved) { setShowRemoveAttyConfirm(true); return; }
     setSavingFlags(true);
     try {
       await saveBookingFlags(reservation?.reservation_id ?? '', hasCoOwnership, next);
       setHasAttyInFact(next);
+    } catch (err) { console.error(err); }
+    finally { setSavingFlags(false); }
+  }
+
+  async function confirmRemoveAtty() {
+    setShowRemoveAttyConfirm(false);
+    setSavingFlags(true);
+    try {
+      await deleteAttyInFact(reservation?.reservation_id ?? '');
+      await saveBookingFlags(reservation?.reservation_id ?? '', hasCoOwnership, false);
+      await supabase.from('reservations').update({ atty_info_saved: false }).eq('reservation_id', reservation?.reservation_id ?? '');
+      setHasAttyInFact(false);
+      setProgress(prev => prev ? { ...prev, atty_saved: false } : prev);
     } catch (err) { console.error(err); }
     finally { setSavingFlags(false); }
   }
@@ -232,9 +308,12 @@ export default function BookingDetailPage() {
 
   const rs          = progress?.booking_review_status ?? null;
   const docsReady   = progress?.documents_saved ?? false;
-  const dirApproved = docsReady && (rs === 'director-approved' || rs === 'finance-verified' || rs === 'Booked');
-  const finVerified = docsReady && (rs === 'finance-verified' || rs === 'Booked');
-  const currentStage = !stage1Complete ? 1 : !docsReady ? 2 : !dirApproved ? 3 : 4;
+  const dirApproved   = docsReady && (rs === 'director-approved' || rs === 'finance-verified' || rs === 'Booked');
+  const rfVerified    = docsReady && (rs === 'finance-verified' || rs === 'Booked');
+  const isBooked      = docsReady && rs === 'Booked';
+  const stage1Locked   = rs === 'submitted' || dirApproved;
+  const stage2Complete = docsReady && stage1Locked;
+  const currentStage   = !stage1Complete ? 1 : !stage2Complete ? 2 : !dirApproved ? 3 : 4;
 
   function goToBuyerInfo() { router.push('/sales/booking/buyer-info'); }
   function goToSpouse()    { router.push('/sales/booking/spouse'); }
@@ -254,7 +333,7 @@ export default function BookingDetailPage() {
         {/* Reservation hero card */}
         <GlassCard className="overflow-hidden">
           <div className="px-4 py-4 flex items-center gap-4 relative">
-            {finVerified && privacyConsent && (
+            {isBooked && privacyConsent && (
               <div className="absolute top-1 right-2 pointer-events-none select-none" style={{ transform: 'rotate(-8deg)' }}>
                 <svg width="72" height="72" viewBox="0 0 72 80" fill="none" xmlns="http://www.w3.org/2000/svg">
                   {/* Ring */}
@@ -389,9 +468,9 @@ export default function BookingDetailPage() {
                 <div className="absolute left-4 right-4 top-4 h-0.5 bg-[#E5E5EA]" />
                 {[
                   { label: 'Buyer Info', done: stage1Complete },
-                  { label: 'Documents',  done: docsReady },
+                  { label: 'Documents',  done: stage2Complete },
                   { label: 'Director',   done: dirApproved },
-                  { label: 'Finance',    done: finVerified },
+                  { label: 'Finance',    done: isBooked },
                 ].map((s, i) => {
                   const isActive = currentStage === i + 1;
                   return (
@@ -413,13 +492,13 @@ export default function BookingDetailPage() {
             </GlassCard>
 
             {/* Stage 1 — Buyer's Information */}
-            <StageCard number={1} title="Buyer's Information" complete={stage1Complete}>
+            <StageCard number={1} title="Buyer's Information" complete={stage1Complete} locked={stage1Locked}>
               <ToggleRow
                 icon={<UserCheck size={15} />}
                 label="Has Co-Owner?"
                 value={hasCoOwnership}
                 onToggle={toggleCoOwner}
-                locked={progress?.co_owner_saved}
+                locked={stage1Locked}
                 saving={savingFlags}
               />
               <ToggleRow
@@ -427,7 +506,7 @@ export default function BookingDetailPage() {
                 label="Has Attorney in Fact?"
                 value={hasAttyInFact}
                 onToggle={toggleAttyInFact}
-                locked={progress?.atty_saved}
+                locked={stage1Locked}
                 saving={savingFlags}
               />
               <div className="h-px bg-black/[0.06]" />
@@ -435,6 +514,7 @@ export default function BookingDetailPage() {
                 icon={<User size={14} />}
                 label="Personal Information"
                 done={progress?.buyer_info_saved ?? false}
+                locked={stage1Locked}
                 onTap={goToBuyerInfo}
               />
               {progress?.has_spouse && (
@@ -442,6 +522,7 @@ export default function BookingDetailPage() {
                   icon={<Heart size={14} />}
                   label="Spouse Information"
                   done={progress?.spouse_saved ?? false}
+                  locked={stage1Locked}
                   onTap={goToSpouse}
                 />
               )}
@@ -450,6 +531,7 @@ export default function BookingDetailPage() {
                   icon={<UserCheck size={14} />}
                   label="Co-Owner Information"
                   done={progress?.co_owner_saved ?? false}
+                  locked={stage1Locked}
                   onTap={goToCoOwner}
                 />
               )}
@@ -458,18 +540,19 @@ export default function BookingDetailPage() {
                   icon={<ShieldCheck size={14} />}
                   label="Attorney in Fact"
                   done={progress?.atty_saved ?? false}
+                  locked={stage1Locked}
                   onTap={goToAttyInFact}
                 />
               )}
             </StageCard>
 
             {/* Stage 2 — Required Documents */}
-            <StageCard number={2} title="Required Documents" complete={progress?.documents_saved ?? false} locked={!stage1Complete}>
+            <StageCard number={2} title="Required Documents" complete={stage2Complete} locked={!stage1Complete || stage1Locked}>
               <StageRow
                 icon={<FileText size={14} />}
                 label="Upload Documents"
-                done={progress?.documents_saved ?? false}
-                locked={!stage1Complete}
+                done={stage2Complete}
+                locked={!stage1Complete || stage1Locked}
                 onTap={() => router.push('/sales/booking/documents')}
               />
             </StageCard>
@@ -504,9 +587,22 @@ export default function BookingDetailPage() {
                       </div>
                     )}
                     {rs === 'submitted' && (
-                      <div className="px-4 py-3 flex items-center gap-3">
-                        <Clock size={13} className="text-blue-500" />
-                        <p className="text-xs font-medium text-blue-600">Under review by Sales Director</p>
+                      <div className="px-4 py-3 space-y-2.5">
+                        <div className="flex items-center gap-3">
+                          <Clock size={13} className="text-blue-500" />
+                          <p className="text-xs font-medium text-blue-600">Under review by Sales Director</p>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={withdrawing}
+                          onClick={() => setShowWithdrawConfirm(true)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-100 text-amber-700 text-xs font-semibold active:opacity-70 disabled:opacity-50"
+                        >
+                          {withdrawing
+                            ? <><Loader2 size={11} className="animate-spin" /> Withdrawing...</>
+                            : 'Withdraw Submission'
+                          }
+                        </button>
                       </div>
                     )}
                     {rs === 'director-rejected' && (
@@ -534,12 +630,13 @@ export default function BookingDetailPage() {
                   <StageCard
                     number={4}
                     title="Finance Verification"
-                    complete={finVerified}
+                    complete={isBooked}
                     locked={!dirApproved}
                     badge={
-                      !dirApproved  ? <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-[#F2F2F7] text-[#8E8E93]">Locked</span>
-                      : finVerified ? <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-green-100 text-green-700">Verified</span>
-                      :               <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-amber-100 text-amber-700">Pending</span>
+                      !dirApproved ? <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-[#F2F2F7] text-[#8E8E93]">Locked</span>
+                      : isBooked   ? <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-green-100 text-green-700">Verified</span>
+                      : rfVerified ? <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-blue-100 text-blue-700">RF Verified</span>
+                      :              <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-amber-100 text-amber-700">Pending</span>
                     }
                   >
                     {!dirApproved && (
@@ -547,7 +644,7 @@ export default function BookingDetailPage() {
                         <p className="text-xs text-[#C7C7CC]">Awaiting director approval</p>
                       </div>
                     )}
-                    {dirApproved && !finVerified && (
+                    {rfVerified && !isBooked && (
                       <StageRow
                         icon={<FileText size={14} />}
                         label="Upload 1st DP Proof"
@@ -555,13 +652,13 @@ export default function BookingDetailPage() {
                         onTap={() => router.push('/sales/booking/dp-proof')}
                       />
                     )}
-                    {dirApproved && !finVerified && dpProofUploaded && (
+                    {rfVerified && !isBooked && dpProofUploaded && (
                       <div className="px-4 py-3 flex items-center gap-3">
                         <Clock size={13} className="text-amber-500" />
                         <p className="text-xs font-medium text-amber-600">Awaiting 1st DP verification by Finance</p>
                       </div>
                     )}
-                    {finVerified && (
+                    {isBooked && (
                       <div className="px-4 py-3 flex items-center gap-2">
                         <CheckCircle2 size={13} className="text-green-600" />
                         <p className="text-xs font-semibold text-green-700">1st DP verified by Finance</p>
@@ -571,7 +668,7 @@ export default function BookingDetailPage() {
 
 
                   {/* Booking complete banner */}
-                  {finVerified && (
+                  {isBooked && (
                     <GlassCard className="px-4 py-4 flex items-center gap-3 bg-green-500/[0.07] border border-green-500/20">
                       <div className="w-10 h-10 rounded-2xl bg-green-500 flex items-center justify-center shrink-0">
                         <Check size={18} className="text-white" />
@@ -582,6 +679,30 @@ export default function BookingDetailPage() {
                       </div>
                     </GlassCard>
                   )}
+
+                  {/* Commission schedule missing warning */}
+                  {commissionMissing && (
+                    <GlassCard className="px-4 py-4 flex items-start gap-3 bg-amber-50 border border-amber-200">
+                      <AlertTriangle size={18} className="text-amber-500 shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <p className="text-sm font-bold text-amber-800">Commission Schedule Not Generated</p>
+                        <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">
+                          No commission tranching schedule is configured for this project and seller type. Contact admin to set it up, then tap Generate.
+                        </p>
+                        <button
+                          type="button"
+                          disabled={generatingCommission}
+                          onClick={handleGenerateCommission}
+                          className="mt-2.5 px-3 py-1.5 rounded-xl bg-amber-500 text-white text-xs font-bold active:opacity-80 disabled:opacity-50 flex items-center gap-1.5"
+                        >
+                          {generatingCommission
+                            ? <><Loader2 size={11} className="animate-spin" /> Generating...</>
+                            : 'Generate Now'
+                          }
+                        </button>
+                      </div>
+                    </GlassCard>
+                  )}
                 </>
               );
             })()}
@@ -589,6 +710,98 @@ export default function BookingDetailPage() {
         )}
 
       </div>
+
+      {/* Remove Co-Owner Confirmation Modal */}
+      {showRemoveCoOwnerConfirm && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center"
+          style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}>
+          <div className="w-full bg-white rounded-t-3xl px-6 pt-6 pb-10 space-y-5">
+            <div className="flex flex-col items-center gap-2 text-center">
+              <div className="w-12 h-12 rounded-2xl bg-red-50 flex items-center justify-center">
+                <AlertTriangle size={24} className="text-red-500" />
+              </div>
+              <p className="text-base font-bold text-[#1C1C1E]">Remove Co-Owner?</p>
+              <p className="text-sm text-[#6C6C70] leading-relaxed">
+                This will discard all saved co-owner information. This action cannot be undone.
+              </p>
+            </div>
+            <button type="button" onClick={confirmRemoveCoOwner}
+              className="w-full py-3.5 rounded-2xl bg-red-500 text-white text-sm font-bold active:opacity-80">
+              Yes, Remove Co-Owner
+            </button>
+            <button type="button" onClick={() => setShowRemoveCoOwnerConfirm(false)}
+              className="w-full py-3.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-70">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Remove Attorney in Fact Confirmation Modal */}
+      {showRemoveAttyConfirm && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center"
+          style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}>
+          <div className="w-full bg-white rounded-t-3xl px-6 pt-6 pb-10 space-y-5">
+            <div className="flex flex-col items-center gap-2 text-center">
+              <div className="w-12 h-12 rounded-2xl bg-red-50 flex items-center justify-center">
+                <AlertTriangle size={24} className="text-red-500" />
+              </div>
+              <p className="text-base font-bold text-[#1C1C1E]">Remove Attorney in Fact?</p>
+              <p className="text-sm text-[#6C6C70] leading-relaxed">
+                This will discard all saved attorney in fact information. This action cannot be undone.
+              </p>
+            </div>
+            <button type="button" onClick={confirmRemoveAtty}
+              className="w-full py-3.5 rounded-2xl bg-red-500 text-white text-sm font-bold active:opacity-80">
+              Yes, Remove Attorney in Fact
+            </button>
+            <button type="button" onClick={() => setShowRemoveAttyConfirm(false)}
+              className="w-full py-3.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-70">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Withdraw Confirmation Modal */}
+      {showWithdrawConfirm && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center px-4 pb-8"
+          style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}>
+          <div className="w-full max-w-sm bg-white rounded-3xl overflow-hidden shadow-2xl">
+            <div className="flex flex-col items-center px-6 pt-7 pb-4 border-b border-black/[0.06]">
+              <div className="w-12 h-12 rounded-full bg-amber-50 flex items-center justify-center mb-3">
+                <AlertTriangle size={24} className="text-amber-500" />
+              </div>
+              <p className="text-base font-bold text-[#1C1C1E] text-center">Withdraw Submission?</p>
+              <p className="text-sm text-[#8E8E93] mt-1 text-center leading-relaxed">
+                This will recall the submission from the director's queue. You can then edit buyer information and resubmit.
+              </p>
+            </div>
+            <div className="px-6 pb-7 pt-4 flex flex-col gap-2.5">
+              <button
+                type="button"
+                disabled={withdrawing}
+                onClick={handleWithdraw}
+                className="w-full py-3.5 rounded-2xl bg-amber-500 text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60 active:opacity-80"
+              >
+                {withdrawing
+                  ? <><Loader2 size={15} className="animate-spin" /> Withdrawing...</>
+                  : 'Yes, Withdraw'
+                }
+              </button>
+              <button
+                type="button"
+                disabled={withdrawing}
+                onClick={() => setShowWithdrawConfirm(false)}
+                className="w-full py-3.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-70"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </PageShell>
   );
 }

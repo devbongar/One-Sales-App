@@ -137,9 +137,9 @@ export default function ProofOfPaymentPage() {
   const cameraScanRef  = useRef<HTMLInputElement>(null);
   const galleryRef     = useRef<HTMLInputElement>(null);
 
-  const PAID_STATUSES = ['Reserved-paid', 'Pending Review', 'Approved'];
+  const PAID_STATUSES = ['Reserved-paid', 'Pending Review', 'Reserved'];
   const alreadyPaid = PAID_STATUSES.includes(reservation?.status ?? '');
-  const isApproved = reservation?.status === 'Approved';
+  const isApproved = reservation?.status === 'Reserved';
 
   useEffect(() => {
     const id  = sessionStorage.getItem('currentReservationId');
@@ -329,6 +329,7 @@ export default function ProofOfPaymentPage() {
       }
       try {
         await generateCommissionSchedule(reservationId);
+        // Warning shown to Finance on approval if tranches are missing — silent here
       } catch (e) {
         console.error('[commission] Failed to generate schedule:', e);
       }

@@ -6,6 +6,8 @@ import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import { fetchProjects, fetchTowers, fetchFloorsByCategory, fetchUnitTypes, fetchInventoryUnits, InventoryUnit } from '@/lib/inventory';
 import { fetchAllPayterms, PaytermRecord } from '@/lib/paytems';
+import { fetchAllClients, ClientRecord } from '@/lib/clients';
+import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
 import { fetchReservationFee, fetchVatThreshold, computeVat, fetchHicTarget } from '@/lib/admin';
 import { supabase } from '@/lib/supabase';
 import {
@@ -13,7 +15,7 @@ import {
   Building2, Layers, Home, Car, Bike, LayoutGrid,
   BarChart3, Grid3X3,
   Banknote, Clock, CreditCard, CalendarRange, Plus, Ruler, X, GitCompare, AlertTriangle,
-  User, Mail, Phone, Search,
+  User, UserCheck, UserCog, Users, UserPlus, Mail, Phone, Search,
 } from 'lucide-react';
 import { COUNTRY_CODES } from '@/lib/client-form-options';
 
@@ -280,6 +282,15 @@ export default function SampleComputationPage() {
   const [clientCountryCode,     setClientCountryCode]     = useState('+63');
   const [clientCountryPickerOpen, setClientCountryPickerOpen] = useState(false);
   const [clientCountrySearch,   setClientCountrySearch]   = useState('');
+  const [allClients,            setAllClients]            = useState<ClientRecord[]>([]);
+  const [selectedClientRecord,  setSelectedClientRecord]  = useState<ClientRecord | null>(null);
+  const [clientSuggestionsOpen, setClientSuggestionsOpen] = useState(false);
+
+  // Seller
+  const [allSalespersons,    setAllSalespersons]    = useState<SalespersonRecord[]>([]);
+  const [sellerRecord,       setSellerRecord]       = useState<SalespersonRecord | null>(null);
+  const [sellerSearch,       setSellerSearch]       = useState('');
+  const [sellerDropdownOpen, setSellerDropdownOpen] = useState(false);
 
   // undefined = not yet fetched, null = not configured (error), number = ok
   const [vatThreshold, setVatThreshold] = useState<number | null | undefined>(undefined);
@@ -290,6 +301,40 @@ export default function SampleComputationPage() {
         c.name.toLowerCase().includes(clientCountrySearch.toLowerCase()) ||
         c.dial.includes(clientCountrySearch))
     : COUNTRY_CODES;
+
+  const clientSuggestions = (!selectedClientRecord && clientLastName.trim().length >= 2)
+    ? allClients
+        .filter(c => c.last_name.toLowerCase().startsWith(clientLastName.trim().toLowerCase()))
+        .slice(0, 8)
+    : [];
+
+  function formatClientFullName(c: ClientRecord) {
+    return [c.first_name, c.middle_name, c.last_name, c.suffix].filter(Boolean).join(' ');
+  }
+
+  function handleSelectClient(c: ClientRecord) {
+    setSelectedClientRecord(c);
+    setClientLastName(c.last_name);
+    setClientFirstName(c.first_name);
+    setClientMiddleName(c.middle_name ?? '');
+    setClientSuffix(c.suffix ?? '');
+    setClientMobile(c.mobile_number ?? '');
+    setClientCountryCode(c.country_code ?? '+63');
+    setClientEmail(c.email ?? '');
+    setClientSuggestionsOpen(false);
+    setErrors(p => ({ ...p, clientLastName: '', clientFirstName: '', clientMobile: '' }));
+  }
+
+  function handleClearClient() {
+    setSelectedClientRecord(null);
+    setClientLastName('');
+    setClientFirstName('');
+    setClientMiddleName('');
+    setClientSuffix('');
+    setClientMobile('');
+    setClientCountryCode('+63');
+    setClientEmail('');
+  }
 
   const compHeaderRefs = useRef<(HTMLDivElement | null)[]>([]);
 
@@ -313,27 +358,40 @@ export default function SampleComputationPage() {
     const dateStr = now.toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
     const timeStr = now.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
 
-    // Read seller from session
+    // Read seller — prefer selected sellerRecord, fall back to session
     let sellerName = '';
     let sellerContact = '';
     let sellerMobile = '';
-    try {
-      const raw = typeof window !== 'undefined' ? localStorage.getItem('osa_session') : null;
-      if (raw) {
-        const s = JSON.parse(raw);
-        sellerName    = s.full_name ?? '';
-        sellerContact = s.email     ?? '';
-      }
-    } catch {}
-    if (sellerContact) {
+    if (sellerRecord) {
+      sellerName = sellerRecord.seller_name;
       try {
         const { data } = await supabase
           .from('Salesperson')
-          .select('"Mobile Number"')
-          .eq('Email Address', sellerContact)
+          .select('"Mobile Number", "Email Address"')
+          .eq('Seller Name', sellerRecord.seller_name)
           .maybeSingle();
-        sellerMobile = (data as any)?.['Mobile Number'] ?? '';
+        sellerMobile  = (data as any)?.['Mobile Number']  ?? '';
+        sellerContact = (data as any)?.['Email Address']  ?? '';
       } catch {}
+    } else {
+      try {
+        const raw = typeof window !== 'undefined' ? localStorage.getItem('osa_session') : null;
+        if (raw) {
+          const s = JSON.parse(raw);
+          sellerName    = s.full_name ?? '';
+          sellerContact = s.email     ?? '';
+        }
+      } catch {}
+      if (sellerContact) {
+        try {
+          const { data } = await supabase
+            .from('Salesperson')
+            .select('"Mobile Number"')
+            .eq('Email Address', sellerContact)
+            .maybeSingle();
+          sellerMobile = (data as any)?.['Mobile Number'] ?? '';
+        } catch {}
+      }
     }
 
     // Load logo once
@@ -576,6 +634,11 @@ export default function SampleComputationPage() {
   }, [project, tower]);
 
   useEffect(() => {
+    fetchAllClients().then(setAllClients).catch(console.error);
+    fetchAllSalespersons().then(setAllSalespersons).catch(console.error);
+  }, []);
+
+  useEffect(() => {
     try {
       const raw = localStorage.getItem('osa_session');
       if (raw) setUserRole(JSON.parse(raw)?.role ?? '');
@@ -715,83 +778,233 @@ export default function SampleComputationPage() {
       {step === 0 && (
         <>
           <GlassCard className="px-4 py-1">
-            <InputRow
-              label="Last Name"
-              value={clientLastName}
-              onChange={v => { setClientLastName(v); setErrors(p => ({ ...p, clientLastName: '' })); }}
-              icon={<User size={16} />}
-              required
-              error={errors.clientLastName}
-            />
-            <InputRow
-              label="First Name"
-              value={clientFirstName}
-              onChange={v => { setClientFirstName(v); setErrors(p => ({ ...p, clientFirstName: '' })); }}
-              icon={<User size={16} />}
-              required
-              error={errors.clientFirstName}
-            />
-            <InputRow
-              label="Middle Name"
-              value={clientMiddleName}
-              onChange={setClientMiddleName}
-              icon={<User size={16} />}
-            />
-            <InputRow
-              label="Suffix"
-              value={clientSuffix}
-              onChange={setClientSuffix}
-              icon={<User size={16} />}
-              placeholder="Jr., Sr., II, III…"
-            />
+
+            {/* Last Name — always shown first */}
+            <div className="relative border-b border-black/[0.06]">
+              <div className={`flex items-center gap-3 py-3 px-1 ${errors.clientLastName ? 'bg-red-50/50 rounded-t-xl' : ''}`}>
+                <span className={`shrink-0 ${errors.clientLastName ? 'text-red-400' : 'text-[#C03D25]'}`}><User size={16} /></span>
+                <span className="text-sm font-medium text-[#1C1C1E] w-24 shrink-0 flex items-center gap-0.5">
+                  Last Name<span className="text-[#C03D25] text-xs leading-none">*</span>
+                </span>
+                <input
+                  type="text"
+                  value={clientLastName}
+                  readOnly={!!selectedClientRecord}
+                  onChange={e => { setClientLastName(e.target.value); setClientSuggestionsOpen(true); setErrors(p => ({ ...p, clientLastName: '' })); }}
+                  onFocus={() => setClientSuggestionsOpen(true)}
+                  placeholder="e.g. Dela Cruz"
+                  className="flex-1 bg-transparent text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC] text-right"
+                />
+                {selectedClientRecord && (
+                  <button type="button" onMouseDown={e => { e.preventDefault(); handleClearClient(); }}>
+                    <X size={14} className="text-[#C7C7CC] shrink-0" />
+                  </button>
+                )}
+              </div>
+              {/* Suggestions dropdown */}
+              {clientSuggestionsOpen && clientSuggestions.length > 0 && !selectedClientRecord && (
+                <div className="absolute left-0 right-0 top-full z-20 bg-white rounded-2xl shadow-xl border border-black/[0.08] overflow-hidden">
+                  {clientSuggestions.map(c => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onMouseDown={e => { e.preventDefault(); handleSelectClient(c); }}
+                      className="w-full flex items-center justify-between px-4 py-3 border-b border-black/[0.05] last:border-0 active:bg-[#F2F2F7] text-left"
+                    >
+                      <div>
+                        <p className="text-sm font-semibold text-[#1C1C1E]">{c.last_name}, {c.first_name}{c.suffix ? ` ${c.suffix}` : ''}</p>
+                        <p className="text-xs text-[#8E8E93]">{c.email ?? c.mobile_number ?? '—'}</p>
+                      </div>
+                      <span className="text-[10px] font-mono text-[#8E8E93] shrink-0 ml-2">{c.client_id ?? ''}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {errors.clientLastName && <p className="text-red-400 text-[11px] px-1 pb-2">{errors.clientLastName}</p>}
+            </div>
+
+            {/* Rest of fields — revealed once last name is entered */}
+            {clientLastName.trim().length > 0 && (
+              <>
+                {/* Existing client badge */}
+                {selectedClientRecord && (
+                  <div className="flex items-center gap-2 py-2 px-1 border-b border-black/[0.06] bg-green-50/50">
+                    <UserCheck size={14} className="text-green-600 shrink-0" />
+                    <span className="text-xs font-semibold text-green-700 flex-1">Existing client</span>
+                    <span className="text-[10px] font-mono text-[#8E8E93]">{selectedClientRecord.client_id ?? ''}</span>
+                  </div>
+                )}
+
+                {/* First Name */}
+                <div className={`flex items-center gap-3 py-3 px-1 border-b border-black/[0.06] ${errors.clientFirstName ? 'bg-red-50/50' : ''}`}>
+                  <span className={`shrink-0 ${errors.clientFirstName ? 'text-red-400' : 'text-[#C03D25]'}`}><User size={16} /></span>
+                  <span className="text-sm font-medium text-[#1C1C1E] w-24 shrink-0 flex items-center gap-0.5">
+                    First Name<span className="text-[#C03D25] text-xs leading-none">*</span>
+                  </span>
+                  <input type="text" value={clientFirstName} readOnly={!!selectedClientRecord}
+                    onChange={e => { setClientFirstName(e.target.value); setErrors(p => ({ ...p, clientFirstName: '' })); }}
+                    placeholder="e.g. Juan"
+                    className="flex-1 bg-transparent text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC] text-right" />
+                  {errors.clientFirstName && <p className="text-red-400 text-[11px] px-1 pb-2">{errors.clientFirstName}</p>}
+                </div>
+
+                {/* Middle Name */}
+                <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
+                  <span className="text-[#C03D25] shrink-0"><User size={16} /></span>
+                  <span className="text-sm font-medium text-[#1C1C1E] w-24 shrink-0">Middle Name</span>
+                  <input type="text" value={clientMiddleName} readOnly={!!selectedClientRecord}
+                    onChange={e => setClientMiddleName(e.target.value)}
+                    placeholder="e.g. Santos"
+                    className="flex-1 bg-transparent text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC] text-right" />
+                </div>
+
+                {/* Suffix */}
+                <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
+                  <span className="text-[#C03D25] shrink-0"><User size={16} /></span>
+                  <span className="text-sm font-medium text-[#1C1C1E] w-24 shrink-0">Suffix</span>
+                  <input type="text" value={clientSuffix} readOnly={!!selectedClientRecord}
+                    onChange={e => setClientSuffix(e.target.value)}
+                    placeholder="e.g. Jr., Sr."
+                    className="flex-1 bg-transparent text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC] text-right" />
+                </div>
+
+                {/* Mobile Number */}
+                <div className={`border-b border-black/[0.06] ${errors.clientMobile ? 'bg-red-50/50' : ''}`}>
+                  <div className="flex items-center gap-3 py-3 px-1">
+                    <span className={`shrink-0 ${errors.clientMobile ? 'text-red-400' : 'text-[#C03D25]'}`}><Phone size={16} /></span>
+                    <span className="text-sm font-medium text-[#1C1C1E] w-24 shrink-0 flex items-center gap-0.5">
+                      Mobile<span className="text-[#C03D25] text-xs leading-none">*</span>
+                    </span>
+                    <div className="flex items-center gap-2 ml-auto">
+                      <button type="button"
+                        disabled={!!selectedClientRecord}
+                        onClick={() => { if (!selectedClientRecord) { setClientCountrySearch(''); setClientCountryPickerOpen(true); } }}
+                        className="flex items-center gap-1 px-2 py-1.5 rounded-xl border border-black/[0.08] bg-[#F2F2F7] shrink-0">
+                        <span className="text-base leading-none">{selectedMobileCountry.flag}</span>
+                        <span className="text-xs font-medium text-[#1C1C1E]">{selectedMobileCountry.dial}</span>
+                        {!selectedClientRecord && <ChevronDown size={11} className="text-[#C7C7CC]" />}
+                      </button>
+                      <input type="tel" inputMode="numeric"
+                        value={clientMobile}
+                        readOnly={!!selectedClientRecord}
+                        onChange={e => {
+                          const digits = e.target.value.replace(/\D/g, '');
+                          const max = clientCountryCode === '+63' ? 10 : 15;
+                          setClientMobile(digits.slice(0, max));
+                          setErrors(p => ({ ...p, clientMobile: '' }));
+                        }}
+                        placeholder={clientCountryCode === '+63' ? '9171234567' : ''}
+                        className="text-sm text-[#1C1C1E] outline-none bg-transparent placeholder:text-[#C7C7CC] text-right w-28" />
+                    </div>
+                  </div>
+                  {errors.clientMobile && <p className="text-red-400 text-[11px] px-1 pb-2">{errors.clientMobile}</p>}
+                </div>
+
+                {/* Email */}
+                <div className="flex items-center gap-3 py-3 px-1">
+                  <span className="text-[#C03D25] shrink-0"><Mail size={16} /></span>
+                  <span className="text-sm font-medium text-[#1C1C1E] w-24 shrink-0">Email</span>
+                  <input type="email" inputMode="email"
+                    value={clientEmail}
+                    readOnly={!!selectedClientRecord}
+                    onChange={e => setClientEmail(e.target.value)}
+                    placeholder="juan@email.com"
+                    className="flex-1 bg-transparent text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC] text-right" />
+                </div>
+              </>
+            )}
           </GlassCard>
 
+          {/* Seller Selection */}
           <GlassCard className="px-4 py-1">
-            {/* Mobile Number with country code */}
-            <div className={`border-b border-black/[0.06] ${errors.clientMobile ? 'bg-red-50/50' : ''}`}>
-              <div className="flex items-center gap-3 py-3 px-1">
-                <span className={`shrink-0 ${errors.clientMobile ? 'text-red-400' : 'text-[#C03D25]'}`}>
-                  <Phone size={16} />
+            <div className="border-b border-black/[0.06] last:border-0">
+              <button
+                type="button"
+                onClick={() => { setSellerDropdownOpen(p => !p); setSellerSearch(''); }}
+                className="w-full flex items-center gap-3 py-3 px-1"
+              >
+                <span className="text-[#C03D25] shrink-0"><UserPlus size={16} /></span>
+                <span className="text-sm font-medium text-[#1C1C1E] flex-1 text-left">Seller</span>
+                <span className={`text-sm text-right truncate max-w-[160px] ${sellerRecord ? 'text-[#1C1C1E]' : 'text-[#8E8E93]'}`}>
+                  {sellerRecord ? sellerRecord.seller_name : 'Search name'}
                 </span>
-                <span className="text-[#1C1C1E] text-sm font-medium flex items-center gap-0.5">
-                  Mobile Number
-                  <span className="text-[#C03D25] text-xs leading-none ml-0.5">*</span>
-                </span>
-                <div className="flex items-center gap-1.5 ml-auto">
-                  <button
-                    type="button"
-                    onClick={() => { setClientCountrySearch(''); setClientCountryPickerOpen(true); }}
-                    className="flex items-center gap-1 px-2 py-1.5 rounded-xl border border-black/[0.08] bg-[#F2F2F7] shrink-0"
-                  >
-                    <span className="text-base leading-none">{selectedMobileCountry.flag}</span>
-                    <span className="text-xs font-medium text-[#1C1C1E]">{selectedMobileCountry.dial}</span>
-                    <ChevronDown size={11} className="text-[#C7C7CC]" />
-                  </button>
-                  <input
-                    type="tel"
-                    inputMode="numeric"
-                    value={clientMobile}
-                    onChange={e => {
-                      const digits = e.target.value.replace(/\D/g, '');
-                      const max = clientCountryCode === '+63' ? 10 : 15;
-                      setClientMobile(digits.slice(0, max));
-                      setErrors(p => ({ ...p, clientMobile: '' }));
-                    }}
-                    placeholder={clientCountryCode === '+63' ? '9171234567' : ''}
-                    className="text-sm text-[#1C1C1E] outline-none bg-transparent placeholder:text-[#C7C7CC] text-right w-28"
-                  />
+                {sellerRecord
+                  ? <X size={14} className="text-[#C7C7CC] shrink-0" onClickCapture={e => { e.stopPropagation(); setSellerRecord(null); setSellerDropdownOpen(false); }} />
+                  : <ChevronDown size={14} className={`text-[#C7C7CC] shrink-0 transition-transform duration-200 ${sellerDropdownOpen ? 'rotate-180' : ''}`} />
+                }
+              </button>
+              {sellerDropdownOpen && (
+                <div className="pb-2">
+                  <div className="flex items-center gap-2 mx-1 mb-2 px-3 py-2 bg-[#F2F2F7] rounded-xl">
+                    <input
+                      autoFocus
+                      type="text"
+                      value={sellerSearch}
+                      onChange={e => setSellerSearch(e.target.value)}
+                      placeholder="Type to search..."
+                      className="flex-1 text-sm bg-transparent outline-none text-[#1C1C1E] placeholder:text-[#C7C7CC]"
+                    />
+                    {sellerSearch && (
+                      <button type="button" onClick={() => setSellerSearch('')}>
+                        <X size={12} className="text-[#C7C7CC]" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="max-h-48 overflow-y-auto space-y-0.5">
+                    {(() => {
+                      const q = sellerSearch.trim().toLowerCase();
+                      const filtered = q.length === 0
+                        ? allSalespersons
+                        : allSalespersons.filter(s => s.seller_name.toLowerCase().includes(q));
+                      return filtered.length > 0
+                        ? filtered.map(s => (
+                            <button
+                              key={s.seller_name}
+                              type="button"
+                              onClick={() => { setSellerRecord(s); setSellerSearch(''); setSellerDropdownOpen(false); }}
+                              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm active:bg-gray-100"
+                            >
+                              <span className="font-medium text-[#1C1C1E] text-left">{s.seller_name}</span>
+                              <span className="text-[#8E8E93] text-xs shrink-0 ml-2">{s.position_code}</span>
+                            </button>
+                          ))
+                        : <p className="text-center text-xs text-[#8E8E93] py-3">No results found</p>;
+                    })()}
+                  </div>
                 </div>
-              </div>
-              {errors.clientMobile && <p className="text-red-400 text-[11px] px-1 pb-2 -mt-1">{errors.clientMobile}</p>}
+              )}
             </div>
-            <InputRow
-              label="Email Address"
-              value={clientEmail}
-              onChange={setClientEmail}
-              icon={<Mail size={16} />}
-              type="email"
-              placeholder="email@example.com"
-            />
+
+            {sellerRecord && (
+              <>
+                <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
+                  <span className="text-[#C03D25] shrink-0"><UserCog size={16} /></span>
+                  <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Position</span>
+                  <span className="text-sm text-right text-[#8E8E93]">{sellerRecord.position_code}</span>
+                </div>
+                {sellerRecord.position_code === 'Property Specialist' && sellerRecord.sales_manager && (
+                  <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
+                    <span className="text-[#C03D25] shrink-0"><UserCheck size={16} /></span>
+                    <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Sales Manager</span>
+                    <span className="text-sm text-right text-[#8E8E93]">{sellerRecord.sales_manager}</span>
+                  </div>
+                )}
+                {['Property Specialist', 'Sales Manager'].includes(sellerRecord.position_code) && sellerRecord.sales_director && (
+                  <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
+                    <span className="text-[#C03D25] shrink-0"><UserCog size={16} /></span>
+                    <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Sales Director</span>
+                    <span className="text-sm text-right text-[#8E8E93]">{sellerRecord.sales_director}</span>
+                  </div>
+                )}
+                {['Property Specialist', 'Sales Manager', 'Sales Director'].includes(sellerRecord.position_code) && sellerRecord.sales_division_head && (
+                  <div className="flex items-center gap-3 py-3 px-1">
+                    <span className="text-[#C03D25] shrink-0"><Users size={16} /></span>
+                    <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Division Head</span>
+                    <span className="text-sm text-right text-[#8E8E93]">{sellerRecord.sales_division_head}</span>
+                  </div>
+                )}
+              </>
+            )}
           </GlassCard>
 
           <button

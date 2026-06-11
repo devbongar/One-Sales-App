@@ -107,6 +107,11 @@ export async function checkCoOwnerExists(reservationId: string): Promise<boolean
   return data as boolean;
 }
 
+export async function deleteCoOwner(reservationId: string): Promise<void> {
+  const { error } = await supabase.rpc('delete_co_owner', { p_reservation_id: reservationId });
+  if (error) throw error;
+}
+
 export async function saveCoOwner(payload: CoOwnerPayload): Promise<void> {
   const { error } = await supabase.rpc('save_co_owner', {
     p_reservation_id:         payload.reservation_id,

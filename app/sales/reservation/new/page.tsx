@@ -7,7 +7,7 @@ import GlassCard from '@/components/ui/GlassCard';
 import GlassButton from '@/components/ui/GlassButton';
 import { fetchProjects, fetchTowers, fetchFloors, fetchFloorsByCategory, fetchUnitTypes, fetchInventoryUnits, InventoryUnit } from '@/lib/inventory';
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
-import { fetchAllClients, ClientRecord } from '@/lib/clients';
+import { fetchAllClients, ClientRecord, saveClient } from '@/lib/clients';
 import { fetchAllPayterms, PaytermRecord } from '@/lib/paytems';
 import { fetchReservationFee, fetchVatThreshold, computeVat, fetchHicTarget } from '@/lib/admin';
 import {
@@ -17,7 +17,7 @@ import {
   Building2, Layers, Home, Car, Bike, LayoutGrid,
   BarChart3, Grid3X3,
   Banknote, Clock, CreditCard, CalendarRange, Plus, Ruler, X, GitCompare, AlertTriangle,
-  Search, ChevronLeft,
+  Search, ChevronLeft, Loader2,
 } from 'lucide-react';
 import { COUNTRY_CODES } from '@/lib/client-form-options';
 
@@ -261,11 +261,11 @@ function CheckRow({ label, checked, onChange, icon }: {
   );
 }
 
-function InlineSelect({ label, value, options, onChange, placeholder = 'Select', disabled = false, icon, required, error }: {
+function InlineSelect({ label, value, options, onChange, placeholder = 'Select', disabled = false, icon, required, error, formatDisplay }: {
   label: string; value: string;
   options: string[]; onChange: (v: string) => void;
   placeholder?: string; disabled?: boolean; icon?: React.ReactNode;
-  required?: boolean; error?: string;
+  required?: boolean; error?: string; formatDisplay?: (v: string) => string;
 }) {
   const [open, setOpen] = useState(false);
   const selectedRef = useRef<HTMLButtonElement>(null);
@@ -292,7 +292,7 @@ function InlineSelect({ label, value, options, onChange, placeholder = 'Select',
           {required && <span className="text-[#C03D25] text-xs leading-none">*</span>}
         </span>
         <span className={`text-right text-sm truncate max-w-[140px] ${value ? 'text-[#1C1C1E]' : 'text-[#8E8E93]'}`}>
-          {value || placeholder}
+          {value ? (formatDisplay ? formatDisplay(value) : value) : placeholder}
         </span>
         <ChevronDown size={14} className={`text-[#C7C7CC] shrink-0 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
       </button>
@@ -310,7 +310,7 @@ function InlineSelect({ label, value, options, onChange, placeholder = 'Select',
                   : 'text-[#1C1C1E] hover:bg-gray-50 active:bg-gray-100'
               }`}
             >
-              {o}
+              {formatDisplay ? formatDisplay(o) : o}
               {o === value && <Check size={14} />}
             </button>
           ))}
@@ -366,6 +366,7 @@ export default function NewReservationPage() {
   const [clientCountrySearch,   setClientCountrySearch]   = useState('');
   const [clientEmailField,      setClientEmailField]      = useState('');
   const [clientSuggestionsOpen, setClientSuggestionsOpen] = useState(false);
+  const [savingClient,          setSavingClient]          = useState(false);
 
   // Seller Info
   const [sellerSearch,       setSellerSearch]       = useState('');
@@ -558,7 +559,6 @@ export default function NewReservationPage() {
     setFullName(formatClientFullName(c));
     setContact(digits ? `${cc}${digits}` : '');
     setEmail(c.email ?? '');
-    setIsMegawide(c.is_megawide_employee ?? false);
     setErrors(prev => ({ ...prev, fullName: '', contact: '', email: '' }));
   }
 
@@ -593,8 +593,35 @@ export default function NewReservationPage() {
     document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  function handleContinue() {
-    if (validateStep0()) goToStep(1);
+  async function handleContinue() {
+    if (!validateStep0()) return;
+    if (selectedClientRecord) { goToStep(1); return; }
+
+    // New client — save to DB first
+    setSavingClient(true);
+    try {
+      await saveClient({
+        client_type:              'Individual',
+        last_name:                clientLastName.trim(),
+        first_name:               clientFirstName.trim(),
+        middle_name:              clientMiddleName.trim(),
+        suffix:                   clientSuffix.trim(),
+        country_code:             clientCountryCode,
+        mobile_number:            clientMobileRaw,
+        email:                    clientEmailField.trim(),
+        date_of_birth:            '',
+        citizenship:              '',
+        landline_no:              '',
+        reason_for_buying:        '',
+        source_of_sale:           '',
+        monthly_household_income: '',
+      });
+      goToStep(1);
+    } catch (err: any) {
+      setErrors(p => ({ ...p, fullName: err?.message ?? 'Failed to save client. Please try again.' }));
+    } finally {
+      setSavingClient(false);
+    }
   }
 
   function handleContinueInventory() {
@@ -860,7 +887,6 @@ export default function NewReservationPage() {
                 {/* Megawide */}
                 <button
                   type="button"
-                  disabled={!!selectedClientRecord}
                   onClick={() => setIsMegawide(p => !p)}
                   className="w-full flex items-center gap-3 py-3 px-1 text-left active:opacity-70"
                 >
@@ -972,8 +998,11 @@ export default function NewReservationPage() {
           </GlassCard>
 
           {/* Actions */}
-          <GlassButton variant="primary" size="lg" onClick={handleContinue}>
-            Continue to Inventory
+          <GlassButton variant="primary" size="lg" onClick={handleContinue} disabled={savingClient}>
+            {savingClient
+              ? <span className="flex items-center justify-center gap-2"><Loader2 size={16} className="animate-spin" />Saving client…</span>
+              : 'Continue to Inventory'
+            }
           </GlassButton>
           <GlassButton variant="ghost" size="lg" onClick={handleClearForm}>
             Clear Form
@@ -1485,6 +1514,7 @@ export default function NewReservationPage() {
                     onChange={setDpRate}
                     placeholder="Select DP rate"
                     icon={<CreditCard size={16} />}
+                    formatDisplay={v => `${v}%`}
                   />
                 </div>
               )}
@@ -1503,16 +1533,10 @@ export default function NewReservationPage() {
 
               {/* HIC Checkbox — Sales Director + Residential only */}
               {showHIC && (
-                <button
-                  type="button"
-                  onClick={() => setUseHIC(p => !p)}
-                  className={`w-full flex items-center gap-3 p-3 rounded-2xl border-2 transition-all ${
-                    useHIC
-                      ? 'border-[#5E5CE6] bg-[#5E5CE6]/10'
-                      : 'border-[#E5E5EA] bg-white'
-                  }`}
-                >
-                  <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
+                <div className={`w-full flex items-center gap-3 p-3 rounded-2xl border-2 ${
+                  useHIC ? 'border-[#5E5CE6] bg-[#5E5CE6]/10' : 'border-[#E5E5EA] bg-white'
+                }`}>
+                  <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 ${
                     useHIC ? 'border-[#5E5CE6] bg-[#5E5CE6]' : 'border-[#C7C7CC]'
                   }`}>
                     {useHIC && <Check size={12} className="text-white" />}
@@ -1523,7 +1547,7 @@ export default function NewReservationPage() {
                     </p>
                     <p className="text-[10px] text-[#8E8E93]">Adjusts Net List Price to ₱{hicTarget != null ? hicTarget.toLocaleString() : '—'}</p>
                   </div>
-                </button>
+                </div>
               )}
 
               {/* Computation breakdown */}
@@ -1629,14 +1653,6 @@ export default function NewReservationPage() {
                         <span className="text-sm text-[#1C1C1E]">Balance for Financing</span>
                         <span className="text-sm font-semibold text-[#1C1C1E]">₱{balanceForFinancing.toLocaleString()}</span>
                       </div>
-                      <div className="flex items-center justify-between pt-1 border-t border-black/[0.06]">
-                        <span className="text-sm text-[#1C1C1E]">Monthly Due (From)</span>
-                        <span className="text-sm font-semibold text-[#C03D25]">{monthlyDueFrom}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-[#1C1C1E]">Monthly Due (To)</span>
-                        <span className="text-sm font-semibold text-[#C03D25]">{new Date(nextYear, nextMonth + stretchedTermMonths, dueDayOfMonth).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                      </div>
                     </div>
                     <div className="px-4 pt-3 pb-4 space-y-2.5">
                       <p className="text-[#8E8E93] text-[10px] font-semibold uppercase tracking-wider">Indicative Financing Options</p>
@@ -1669,10 +1685,6 @@ export default function NewReservationPage() {
                         <span className="text-sm text-[#1C1C1E]">Balance for Financing</span>
                         <span className="text-sm font-semibold text-[#1C1C1E]">₱{balanceForFinancing.toLocaleString()}</span>
                       </div>
-                      <div className="flex items-center justify-between pt-1 border-t border-black/[0.06]">
-                        <span className="text-sm text-[#1C1C1E]">DP Due Date</span>
-                        <span className="text-sm font-semibold text-[#C03D25]">{spotCashDueDate}</span>
-                      </div>
                     </div>
                     <div className="px-4 pt-3 pb-4 space-y-2.5">
                       <p className="text-[#8E8E93] text-[10px] font-semibold uppercase tracking-wider">Indicative Financing Options</p>
@@ -1697,25 +1709,9 @@ export default function NewReservationPage() {
                       <span className="text-sm font-semibold text-[#1C1C1E]">₱{netAmount.toLocaleString()}</span>
                     </div>
                     {paymentScheme === 'deferred_cash' && (
-                      <>
-                        <div className="flex items-center justify-between pt-1">
-                          <span className="text-sm font-bold text-[#1C1C1E]">Monthly Deferred ({termMonths} mo)</span>
-                          <span className="text-sm font-bold text-[#C03D25]">₱{monthlyDeferred.toLocaleString()}</span>
-                        </div>
-                        <div className="flex items-center justify-between pt-1 border-t border-black/[0.06]">
-                          <span className="text-sm text-[#1C1C1E]">Monthly Due (From)</span>
-                          <span className="text-sm font-semibold text-[#C03D25]">{monthlyDueFrom}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-[#1C1C1E]">Monthly Due (To)</span>
-                          <span className="text-sm font-semibold text-[#C03D25]">{monthlyDueTo}</span>
-                        </div>
-                      </>
-                    )}
-                    {paymentScheme === 'spot_cash' && (
-                      <div className="flex items-center justify-between pt-1 border-t border-black/[0.06]">
-                        <span className="text-sm text-[#1C1C1E]">Due Date</span>
-                        <span className="text-sm font-semibold text-[#C03D25]">{spotCashDueDate}</span>
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="text-sm font-bold text-[#1C1C1E]">Monthly Deferred ({termMonths} mo)</span>
+                        <span className="text-sm font-bold text-[#C03D25]">₱{monthlyDeferred.toLocaleString()}</span>
                       </div>
                     )}
                   </div>

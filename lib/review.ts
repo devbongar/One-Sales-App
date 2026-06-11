@@ -1,5 +1,13 @@
 import { supabase } from '@/lib/supabase';
 
+export async function withdrawSubmission(reservationId: string): Promise<void> {
+  const { error } = await supabase
+    .from('reservations')
+    .update({ booking_review_status: null })
+    .eq('reservation_id', reservationId);
+  if (error) throw error;
+}
+
 export async function submitForReview(reservationId: string): Promise<void> {
   const { error } = await supabase.rpc('submit_for_review', {
     p_reservation_id: reservationId,

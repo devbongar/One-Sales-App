@@ -8,11 +8,12 @@ import { COUNTRY_CODES } from '@/lib/client-form-options';
 import { saveCoOwner, fetchCoOwner } from '@/lib/co-owners';
 import { supabase } from '@/lib/supabase';
 import { fetchSpouseInfo, SpouseInfoRecord } from '@/lib/spouse-info';
+import DatePickerInput from '@/components/ui/DatePickerInput';
 import {
-  Hash, Building2, Tag, User,
+  Building2, User,
   Check, ChevronDown, X, Phone, Mail, CreditCard,
-  AlertCircle, FileText, Gavel, Globe, Heart, Calendar,
-  Home, MapPin, Search, Briefcase, DollarSign, CheckCircle2,
+  AlertCircle, FileText, Globe, Heart, Calendar,
+  Home, MapPin, Search, Briefcase, DollarSign, CheckCircle2, Loader2,
 } from 'lucide-react';
 
 // ─── Shared UI components ─────────────────────────────────────────────────────
@@ -202,12 +203,15 @@ function PhoneInputField({ code, onCodeChange, number, onNumberChange, disabled 
   );
 }
 
-function ReadOnlyRow({ icon, label, value }: { icon: React.ReactNode; label: string; value?: string | null }) {
+function StepIndicator({ current, total }: { current: number; total: number }) {
   return (
-    <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06] last:border-0">
-      <span className="text-[#C03D25] shrink-0">{icon}</span>
-      <span className="flex-1 text-sm font-medium text-[#1C1C1E]">{label}</span>
-      <span className="text-sm text-right text-[#6C6C70] max-w-[180px] truncate">{value || '—'}</span>
+    <div className="flex items-center justify-center gap-2 pb-1">
+      {Array.from({ length: total }).map((_, i) => (
+        <div key={i} className={`h-1.5 rounded-full transition-all ${
+          i + 1 === current ? 'w-6 bg-[#C03D25]' : i + 1 < current ? 'w-4 bg-green-500' : 'w-4 bg-[#E5E5EA]'
+        }`} />
+      ))}
+      <span className="text-[10px] font-semibold text-[#8E8E93] ml-1">{current} / {total}</span>
     </div>
   );
 }
@@ -232,11 +236,13 @@ const RANK_OPTS                = ['Executive', 'Managerial', 'Supervisor', 'Rank
 const SALARY_RANGE_OPTS        = ['50,000 and Below', '50,001 to 80,000', '80,001 to 120,000', '120,001 to 150,000', '150,001 to 200,000', '200,001 and Above'];
 const MAILING_OPTS             = ['Home Address', 'Office Address', 'Others'];
 const COUNTRY_OPTIONS          = COUNTRY_CODES.map(c => ({ label: c.name, flag: c.flag }));
+const LOCKED_STATUSES          = ['submitted', 'director-approved', 'finance-verified', 'Booked'];
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function CoOwnerPage() {
   const router = useRouter();
-  const [step, setStep] = useState(0);
+  const [step, setStep]   = useState(0);
+  const [loading, setLoading]     = useState(true);
   const [isSaving,         setIsSaving]         = useState(false);
   const [isSaved,          setIsSaved]          = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -305,64 +311,68 @@ export default function CoOwnerPage() {
 
   // Load reservation, existing co-owner data, and atty-in-fact flag
   useEffect(() => {
-    const raw = sessionStorage.getItem('selectedReservation');
-    if (raw) {
-      const r = JSON.parse(raw);
-      setReservation(r);
-      if (r.reservation_id) {
-        fetchSpouseInfo(r.reservation_id)
-          .then(s => { if (s) setSpouseInfo(s); })
-          .catch(() => {});
-        fetchCoOwner(r.reservation_id).then(info => {
-          console.log('[co-owner] fetchCoOwner result:', info);
-          if (!info) { console.log('[co-owner] no data returned'); return; }
-          setIsSaved(true);
-          supabase.from('reservations').update({ co_owner_info_saved: true }).eq('reservation_id', r.reservation_id).then(() => {});
-          setLastName(info.last_name ?? '');
-          setFirstName(info.first_name ?? '');
-          setMiddleName(info.middle_name ?? '');
-          setSuffix(info.suffix ?? '');
-          setGender(info.gender ?? '');
-          setCivilStatus(info.civil_status ?? '');
-          setCitizenship(info.citizenship ?? '');
-          setDateOfBirth(info.date_of_birth ?? '');
-          setMobileCode(info.mobile_code ?? '+63');
-          setMobile(info.mobile ?? '');
-          setLandline(info.landline ?? '');
-          setEmail(info.email ?? '');
-          setTin(info.tin ?? '');
-          setNoTin(info.no_tin ?? false);
-          setHomeOwnership(info.home_ownership ?? '');
-          setCountry(info.home_country ?? 'Philippines');
-          setRegionProvince(info.home_region_province ?? '');
-          setCityMunicipality(info.home_city_municipality ?? '');
-          setBarangayLine1(info.home_barangay ?? '');
-          setStreetLine2(info.home_street ?? '');
-          setUnitNo(info.home_unit ?? '');
-          setEmployer(info.employer ?? '');
-          setNatureOfBusiness(info.nature_of_business ?? '');
-          setEmploymentSector(info.employment_sector ?? '');
-          setEmploymentStatus(info.employment_status ?? '');
-          setJobTitle(info.job_title ?? '');
-          setRank(info.rank ?? '');
-          setSalaryRange(info.salary_range ?? '');
-          setWorkMobileCode(info.work_mobile_code ?? '+63');
-          setWorkMobile(info.work_mobile ?? '');
-          setWorkLandline(info.work_landline ?? '');
-          setWorkEmail(info.work_email ?? '');
-          setWorkCountry(info.work_country ?? 'Philippines');
-          setWorkRegionProvince(info.work_region_province ?? '');
-          setWorkCityMunicipality(info.work_city_municipality ?? '');
-          setWorkBarangay(info.work_barangay ?? '');
-          setWorkStreet(info.work_street ?? '');
-          setWorkBuildingUnit(info.work_building_unit ?? '');
-          setMailingType(info.mailing_type ?? '');
-          setMailingOther(info.mailing_other ?? '');
-        }).catch(err => { console.error('[co-owner] fetchCoOwner error:', err); });
-      }
-    }
     const atty = sessionStorage.getItem('coowner_hasAttyInFact');
     setHasAttyInFact(atty === '1');
+
+    const raw = sessionStorage.getItem('selectedReservation');
+    if (!raw) { setLoading(false); return; }
+    const r = JSON.parse(raw);
+    setReservation(r);
+    if (!r.reservation_id) { setLoading(false); return; }
+
+    Promise.all([
+      fetchSpouseInfo(r.reservation_id).catch(() => null),
+      fetchCoOwner(r.reservation_id).catch(() => null),
+      supabase.from('reservations').select('booking_review_status').eq('reservation_id', r.reservation_id).single(),
+    ]).then(([spouse, info, { data: resRow }]) => {
+      if (spouse) setSpouseInfo(spouse);
+      const brs = (resRow as any)?.booking_review_status ?? null;
+      // Lock fields only when booking is in a locked review status
+      setIsSaved(!!info && LOCKED_STATUSES.includes(brs ?? ''));
+
+      if (!info) return;
+      setLastName(info.last_name ?? '');
+      setFirstName(info.first_name ?? '');
+      setMiddleName(info.middle_name ?? '');
+      setSuffix(info.suffix ?? '');
+      setGender(info.gender ?? '');
+      setCivilStatus(info.civil_status ?? '');
+      setCitizenship(info.citizenship ?? '');
+      setDateOfBirth(info.date_of_birth ?? '');
+      setMobileCode(info.mobile_code ?? '+63');
+      setMobile(info.mobile ?? '');
+      setLandline(info.landline ?? '');
+      setEmail(info.email ?? '');
+      setTin(info.tin ?? '');
+      setNoTin(info.no_tin ?? false);
+      setHomeOwnership(info.home_ownership ?? '');
+      setCountry(info.home_country ?? 'Philippines');
+      setRegionProvince(info.home_region_province ?? '');
+      setCityMunicipality(info.home_city_municipality ?? '');
+      setBarangayLine1(info.home_barangay ?? '');
+      setStreetLine2(info.home_street ?? '');
+      setUnitNo(info.home_unit ?? '');
+      setEmployer(info.employer ?? '');
+      setNatureOfBusiness(info.nature_of_business ?? '');
+      setEmploymentSector(info.employment_sector ?? '');
+      setEmploymentStatus(info.employment_status ?? '');
+      setJobTitle(info.job_title ?? '');
+      setRank(info.rank ?? '');
+      setSalaryRange(info.salary_range ?? '');
+      setWorkMobileCode(info.work_mobile_code ?? '+63');
+      setWorkMobile(info.work_mobile ?? '');
+      setWorkLandline(info.work_landline ?? '');
+      setWorkEmail(info.work_email ?? '');
+      setWorkCountry(info.work_country ?? 'Philippines');
+      setWorkRegionProvince(info.work_region_province ?? '');
+      setWorkCityMunicipality(info.work_city_municipality ?? '');
+      setWorkBarangay(info.work_barangay ?? '');
+      setWorkStreet(info.work_street ?? '');
+      setWorkBuildingUnit(info.work_building_unit ?? '');
+      setMailingType(info.mailing_type ?? '');
+      setMailingOther(info.mailing_other ?? '');
+    }).catch(err => console.error('[co-owner] load error:', err))
+      .finally(() => setLoading(false));
   }, []);
 
   // ── Copy spouse fields into co-owner form ────────────────────────────────
@@ -452,10 +462,20 @@ export default function CoOwnerPage() {
   }
 
 
+  // ── Loading state ─────────────────────────────────────────────────────────
+  if (loading) return (
+    <PageShell title="Co-Owner Information" backButton onBack={() => router.push('/sales/booking/detail')}>
+      <div className="flex items-center justify-center py-20">
+        <Loader2 size={28} className="text-[#C03D25] animate-spin" />
+      </div>
+    </PageShell>
+  );
+
   // ── Step 0: Personal Information ─────────────────────────────────────────
   if (step === 0) return (
     <PageShell title="Co-Owner Information" backButton onBack={() => router.push('/sales/booking/detail')}>
       <div className="space-y-4 pb-6">
+        <StepIndicator current={1} total={3} />
 
         {/* Same as Spouse checkbox — only shown when spouse info exists and form not yet saved */}
         {spouseInfo && !isSaved && (
@@ -499,14 +519,10 @@ export default function CoOwnerPage() {
           </InputRow>
 
           <InputRow label="Citizenship" icon={<Globe size={11} />}>
-            <TextInput value={citizenship} onChange={setCitizenship} placeholder="e.g. Filipino" disabled={isSaved || sameAsSpouse} />
+            <SearchableSelect value={citizenship} options={COUNTRY_OPTIONS} onChange={setCitizenship} placeholder="Select citizenship" disabled={isSaved || sameAsSpouse} />
           </InputRow>
           <InputRow label="Date of Birth" icon={<Calendar size={11} />}>
-            <div className={`w-full flex items-center px-3 py-2.5 rounded-xl border overflow-hidden transition-colors ${isSaved ? 'border-black/[0.06] bg-[#F2F2F7]/50' : 'border-black/[0.1] bg-[#F2F2F7] focus-within:border-[#C03D25]/50 focus-within:bg-white'}`}>
-              <input type="date" value={dateOfBirth} onChange={e => !isSaved && !sameAsSpouse && setDateOfBirth(e.target.value)}
-                disabled={isSaved || sameAsSpouse}
-                className="w-full min-w-0 bg-transparent text-sm text-[#1C1C1E] outline-none disabled:text-[#6C6C70]" />
-            </div>
+            <DatePickerInput value={dateOfBirth} onChange={setDateOfBirth} disabled={isSaved || sameAsSpouse} />
           </InputRow>
           <InputRow label="Mobile No." icon={<Phone size={11} />}>
             <PhoneInputField code={mobileCode} onCodeChange={setMobileCode} number={mobile} onNumberChange={setMobile} disabled={isSaved || sameAsSpouse} />
@@ -561,6 +577,7 @@ export default function CoOwnerPage() {
   if (step === 1) return (
     <PageShell title="Co-Owner Information" backButton onBack={() => setStep(0)}>
       <div className="space-y-4 pb-6">
+        <StepIndicator current={2} total={3} />
         <GlassCard className="p-4 space-y-4">
           <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Address Information</p>
 
@@ -596,6 +613,7 @@ export default function CoOwnerPage() {
   return (
     <PageShell title="Co-Owner Information" backButton onBack={() => setStep(1)}>
       <div className="space-y-4 pb-6">
+        <StepIndicator current={3} total={3} />
 
         {/* Employment Information */}
         <GlassCard className="p-4 space-y-4">

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
+import DatePickerInput from '@/components/ui/DatePickerInput';
 import { COUNTRY_CODES } from '@/lib/client-form-options';
 import { saveSpouseInfo, fetchSpouseInfo } from '@/lib/spouse-info';
 import { supabase } from '@/lib/supabase';
@@ -11,10 +12,23 @@ import {
   Building2, User,
   Check, ChevronDown, X, Phone, Mail, CreditCard,
   AlertCircle, FileText, Globe, Heart, Calendar,
-  Home, MapPin, Search, Briefcase, DollarSign, CheckCircle2,
+  Home, MapPin, Search, Briefcase, DollarSign, CheckCircle2, Loader2,
 } from 'lucide-react';
 
 // ─── Shared UI components ─────────────────────────────────────────────────────
+
+function StepIndicator({ current, total }: { current: number; total: number }) {
+  return (
+    <div className="flex items-center justify-center gap-2 pb-1">
+      {Array.from({ length: total }).map((_, i) => (
+        <div key={i} className={`h-1.5 rounded-full transition-all ${
+          i + 1 === current ? 'w-6 bg-[#C03D25]' : i + 1 < current ? 'w-4 bg-green-500' : 'w-4 bg-[#E5E5EA]'
+        }`} />
+      ))}
+      <span className="text-[10px] font-semibold text-[#8E8E93] ml-1">{current} / {total}</span>
+    </div>
+  );
+}
 
 function InputRow({ label, icon, required, children }: {
   label: string; icon: React.ReactNode; required?: boolean; children: React.ReactNode;
@@ -193,38 +207,29 @@ function PhoneInputField({ code, onCodeChange, number, onNumberChange, disabled 
   );
 }
 
-function NextButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button type="button" onClick={onClick}
-      className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity">
-      Next
-    </button>
-  );
-}
-
 // ─── Constants ────────────────────────────────────────────────────────────────
-const GENDER_OPTIONS           = ['Male', 'Female', 'Non Binary'];
-const CIVIL_STATUS_OPTIONS     = ['Single', 'Married', 'Widowed', 'Separated', 'Annulled'];
-const HOME_OWNERSHIP_OPTIONS   = ['Owned', 'Rented', 'Living with Parents', 'Others'];
-const NATURE_OF_BUSINESS_OPTS  = ['Media & Entertainment', 'Hospitality', 'IT / Technology', 'Healthcare', 'Real Estate', 'Retail', 'Construction', 'Others'];
-const EMPLOYMENT_SECTOR_OPTS   = ['Not Applicable', 'Private', 'Public'];
-const EMPLOYMENT_STATUS_OPTS   = ['Employee', 'Self Employed', 'Student', 'Unemployed', 'Others'];
-const RANK_OPTS                = ['Executive', 'Managerial', 'Supervisor', 'Rank & File'];
-const SALARY_RANGE_OPTS        = ['50,000 and Below', '50,001 to 80,000', '80,001 to 120,000', '120,001 to 150,000', '150,001 to 200,000', '200,001 and Above'];
-const MAILING_OPTS             = ['Home Address', 'Office Address', 'Others'];
-const COUNTRY_OPTIONS          = COUNTRY_CODES.map(c => ({ label: c.name, flag: c.flag }));
+const GENDER_OPTIONS          = ['Male', 'Female', 'Non Binary'];
+const CIVIL_STATUS_OPTIONS    = ['Single', 'Married', 'Widowed', 'Separated', 'Annulled'];
+const HOME_OWNERSHIP_OPTIONS  = ['Owned', 'Rented', 'Living with Parents', 'Others'];
+const NATURE_OF_BUSINESS_OPTS = ['Media & Entertainment', 'Hospitality', 'IT / Technology', 'Healthcare', 'Real Estate', 'Retail', 'Construction', 'Others'];
+const EMPLOYMENT_SECTOR_OPTS  = ['Not Applicable', 'Private', 'Public'];
+const EMPLOYMENT_STATUS_OPTS  = ['Employee', 'Self Employed', 'Student', 'Unemployed', 'Others'];
+const RANK_OPTS               = ['Executive', 'Managerial', 'Supervisor', 'Rank & File'];
+const SALARY_RANGE_OPTS       = ['50,000 and Below', '50,001 to 80,000', '80,001 to 120,000', '120,001 to 150,000', '150,001 to 200,000', '200,001 and Above'];
+const MAILING_OPTS            = ['Home Address', 'Office Address', 'Others'];
+const COUNTRY_OPTIONS         = COUNTRY_CODES.map(c => ({ label: c.name, flag: c.flag }));
+const LOCKED_STATUSES         = ['submitted', 'director-approved', 'finance-verified', 'Booked'];
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function SpousePage() {
   const router = useRouter();
-  const [step, setStep] = useState(0);
-  const [isSaving,         setIsSaving]         = useState(false);
-  const [isSaved,          setIsSaved]          = useState(false);
+  const [step, setStep]           = useState(0);
+  const [loading, setLoading]     = useState(true);
+  const [isSaving, setIsSaving]   = useState(false);
+  const [isSaved, setIsSaved]     = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
-  const [reservation, setReservation] = useState<{
-    reservation_id?: string;
-  } | null>(null);
+  const [reservation, setReservation] = useState<{ reservation_id?: string } | null>(null);
 
   // ── Personal Information state ──
   const [lastName,    setLastName]    = useState('');
@@ -282,57 +287,62 @@ export default function SpousePage() {
 
   useEffect(() => {
     const raw = sessionStorage.getItem('selectedReservation');
-    if (raw) {
-      const r = JSON.parse(raw);
-      setReservation(r);
-      if (r.reservation_id) {
-        fetchSpouseInfo(r.reservation_id).then(info => {
-          if (!info) return;
-          setIsSaved(true);
-          supabase.from('reservations').update({ spouse_info_saved: true }).eq('reservation_id', r.reservation_id).then(() => {});
-          setLastName(info.last_name ?? '');
-          setFirstName(info.first_name ?? '');
-          setMiddleName(info.middle_name ?? '');
-          setSuffix(info.suffix ?? '');
-          setGender(info.gender ?? '');
-          setCivilStatus(info.civil_status ?? '');
-          setCitizenship(info.citizenship ?? '');
-          setDateOfBirth(info.date_of_birth ?? '');
-          setMobileCode(info.mobile_code ?? '+63');
-          setMobile(info.mobile ?? '');
-          setLandline(info.landline ?? '');
-          setEmail(info.email ?? '');
-          setTin(info.tin ?? '');
-          setNoTin(info.no_tin ?? false);
-          setHomeOwnership(info.home_ownership ?? '');
-          setCountry(info.home_country ?? 'Philippines');
-          setRegionProvince(info.home_region_province ?? '');
-          setCityMunicipality(info.home_city_municipality ?? '');
-          setBarangayLine1(info.home_barangay ?? '');
-          setStreetLine2(info.home_street ?? '');
-          setUnitNo(info.home_unit ?? '');
-          setEmployer(info.employer ?? '');
-          setNatureOfBusiness(info.nature_of_business ?? '');
-          setEmploymentSector(info.employment_sector ?? '');
-          setEmploymentStatus(info.employment_status ?? '');
-          setJobTitle(info.job_title ?? '');
-          setRank(info.rank ?? '');
-          setSalaryRange(info.salary_range ?? '');
-          setWorkMobileCode(info.work_mobile_code ?? '+63');
-          setWorkMobile(info.work_mobile ?? '');
-          setWorkLandline(info.work_landline ?? '');
-          setWorkEmail(info.work_email ?? '');
-          setWorkCountry(info.work_country ?? 'Philippines');
-          setWorkRegionProvince(info.work_region_province ?? '');
-          setWorkCityMunicipality(info.work_city_municipality ?? '');
-          setWorkBarangay(info.work_barangay ?? '');
-          setWorkStreet(info.work_street ?? '');
-          setWorkBuildingUnit(info.work_building_unit ?? '');
-          setMailingType(info.mailing_type ?? '');
-          setMailingOther(info.mailing_other ?? '');
-        }).catch(err => console.error('[spouse] fetchSpouseInfo error:', err));
-      }
-    }
+    if (!raw) { setLoading(false); return; }
+    const r = JSON.parse(raw);
+    setReservation(r);
+    if (!r.reservation_id) { setLoading(false); return; }
+
+    Promise.all([
+      fetchSpouseInfo(r.reservation_id).catch(() => null),
+      supabase.from('reservations').select('booking_review_status').eq('reservation_id', r.reservation_id).single(),
+    ]).then(([info, { data: resRow }]) => {
+      const brs = (resRow as any)?.booking_review_status ?? null;
+      // Lock fields only when booking is in a locked review status
+      setIsSaved(!!info && LOCKED_STATUSES.includes(brs ?? ''));
+
+      if (!info) return;
+      setLastName(info.last_name ?? '');
+      setFirstName(info.first_name ?? '');
+      setMiddleName(info.middle_name ?? '');
+      setSuffix(info.suffix ?? '');
+      setGender(info.gender ?? '');
+      setCivilStatus(info.civil_status ?? '');
+      setCitizenship(info.citizenship ?? '');
+      setDateOfBirth(info.date_of_birth ?? '');
+      setMobileCode(info.mobile_code ?? '+63');
+      setMobile(info.mobile ?? '');
+      setLandline(info.landline ?? '');
+      setEmail(info.email ?? '');
+      setTin(info.tin ?? '');
+      setNoTin(info.no_tin ?? false);
+      setHomeOwnership(info.home_ownership ?? '');
+      setCountry(info.home_country ?? 'Philippines');
+      setRegionProvince(info.home_region_province ?? '');
+      setCityMunicipality(info.home_city_municipality ?? '');
+      setBarangayLine1(info.home_barangay ?? '');
+      setStreetLine2(info.home_street ?? '');
+      setUnitNo(info.home_unit ?? '');
+      setEmployer(info.employer ?? '');
+      setNatureOfBusiness(info.nature_of_business ?? '');
+      setEmploymentSector(info.employment_sector ?? '');
+      setEmploymentStatus(info.employment_status ?? '');
+      setJobTitle(info.job_title ?? '');
+      setRank(info.rank ?? '');
+      setSalaryRange(info.salary_range ?? '');
+      setWorkMobileCode(info.work_mobile_code ?? '+63');
+      setWorkMobile(info.work_mobile ?? '');
+      setWorkLandline(info.work_landline ?? '');
+      setWorkEmail(info.work_email ?? '');
+      setWorkCountry(info.work_country ?? 'Philippines');
+      setWorkRegionProvince(info.work_region_province ?? '');
+      setWorkCityMunicipality(info.work_city_municipality ?? '');
+      setWorkBarangay(info.work_barangay ?? '');
+      setWorkStreet(info.work_street ?? '');
+      setWorkBuildingUnit(info.work_building_unit ?? '');
+      setMailingType(info.mailing_type ?? '');
+      setMailingOther(info.mailing_other ?? '');
+    }).catch(err => console.error('[spouse] load error:', err))
+      .finally(() => setLoading(false));
   }, []);
 
   async function handleSave() {
@@ -373,10 +383,21 @@ export default function SpousePage() {
     }
   }
 
+  // ── Loading state ─────────────────────────────────────────────────────────
+  if (loading) return (
+    <PageShell title="Spouse Information" backButton onBack={() => router.push('/sales/booking/detail')}>
+      <div className="flex items-center justify-center py-20">
+        <Loader2 size={28} className="text-[#C03D25] animate-spin" />
+      </div>
+    </PageShell>
+  );
+
   // ── Step 0: Personal Information ─────────────────────────────────────────
   if (step === 0) return (
     <PageShell title="Spouse Information" backButton onBack={() => router.push('/sales/booking/detail')}>
       <div className="space-y-4 pb-6">
+        <StepIndicator current={1} total={3} />
+
         <GlassCard className="p-4 space-y-4">
           <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Personal Information</p>
 
@@ -399,14 +420,10 @@ export default function SpousePage() {
             <SelectInput value={civilStatus} options={CIVIL_STATUS_OPTIONS} onChange={setCivilStatus} placeholder="Select civil status" disabled={isSaved} />
           </InputRow>
           <InputRow label="Citizenship" icon={<Globe size={11} />}>
-            <TextInput value={citizenship} onChange={setCitizenship} placeholder="e.g. Filipino" disabled={isSaved} />
+            <SearchableSelect value={citizenship} options={COUNTRY_OPTIONS} onChange={setCitizenship} placeholder="Select citizenship" disabled={isSaved} />
           </InputRow>
           <InputRow label="Date of Birth" icon={<Calendar size={11} />}>
-            <div className={`w-full flex items-center px-3 py-2.5 rounded-xl border overflow-hidden transition-colors ${isSaved ? 'border-black/[0.06] bg-[#F2F2F7]/50' : 'border-black/[0.1] bg-[#F2F2F7] focus-within:border-[#C03D25]/50 focus-within:bg-white'}`}>
-              <input type="date" value={dateOfBirth} onChange={e => !isSaved && setDateOfBirth(e.target.value)}
-                disabled={isSaved}
-                className="w-full min-w-0 bg-transparent text-sm text-[#1C1C1E] outline-none disabled:text-[#6C6C70]" />
-            </div>
+            <DatePickerInput value={dateOfBirth} onChange={setDateOfBirth} disabled={isSaved} />
           </InputRow>
           <InputRow label="Mobile No." icon={<Phone size={11} />}>
             <PhoneInputField code={mobileCode} onCodeChange={setMobileCode} number={mobile} onNumberChange={setMobile} disabled={isSaved} />
@@ -448,7 +465,10 @@ export default function SpousePage() {
           )}
         </GlassCard>
 
-        <NextButton onClick={() => setStep(1)} />
+        <button type="button" onClick={() => setStep(1)}
+          className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity">
+          Next
+        </button>
       </div>
     </PageShell>
   );
@@ -457,6 +477,8 @@ export default function SpousePage() {
   if (step === 1) return (
     <PageShell title="Spouse Information" backButton onBack={() => setStep(0)}>
       <div className="space-y-4 pb-6">
+        <StepIndicator current={2} total={3} />
+
         <GlassCard className="p-4 space-y-4">
           <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Address Information</p>
 
@@ -483,7 +505,10 @@ export default function SpousePage() {
           </InputRow>
         </GlassCard>
 
-        <NextButton onClick={() => setStep(2)} />
+        <button type="button" onClick={() => setStep(2)}
+          className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity">
+          Next
+        </button>
       </div>
     </PageShell>
   );
@@ -492,6 +517,7 @@ export default function SpousePage() {
   return (
     <PageShell title="Spouse Information" backButton onBack={() => setStep(1)}>
       <div className="space-y-4 pb-6">
+        <StepIndicator current={3} total={3} />
 
         <GlassCard className="p-4 space-y-4">
           <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Employment Information</p>
@@ -587,7 +613,6 @@ export default function SpousePage() {
           className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity disabled:opacity-60">
           {isSaving ? 'Saving...' : isSaved ? 'Done' : 'Save'}
         </button>
-
       </div>
 
       {/* ── Confirm save modal ── */}
@@ -619,7 +644,6 @@ export default function SpousePage() {
           </div>
         </div>
       )}
-
     </PageShell>
   );
 }

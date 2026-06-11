@@ -1340,12 +1340,18 @@ export default function BuyersFolderDetailPage() {
     async function loadBuyerInfo() {
       setBuyerInfoLoading(true);
       try {
-        const resId      = data!.reservation_id!;
-        const clientName = data!.client_name ?? '';
-        const allClients = await fetchAllClients().catch(() => []);
-        const match      = allClients.find(c =>
-          [c.first_name, c.last_name, c.suffix].filter(Boolean).join(' ') === clientName
-        );
+        const resId = data!.reservation_id!;
+        const [allClients, { data: resRow }] = await Promise.all([
+          fetchAllClients().catch(() => []),
+          supabase.from('reservations').select('client_id').eq('reservation_id', resId).single(),
+        ]);
+        const clientIdFromRes = (resRow as any)?.client_id ?? null;
+        const match =
+          (clientIdFromRes ? allClients.find(c => c.client_id === clientIdFromRes) : null)
+          ?? allClients.find(c =>
+              [c.first_name, c.last_name, c.suffix].filter(Boolean).join(' ') === (data!.client_name ?? '')
+            )
+          ?? null;
         if (match) {
           setClientRecord(match);
           const info = await fetchBuyerInfo(match.id).catch(() => null);
