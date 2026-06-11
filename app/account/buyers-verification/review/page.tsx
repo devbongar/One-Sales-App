@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
@@ -171,71 +172,21 @@ const PRIVACY_SECTIONS = [
   },
 ];
 
-// ─── Pinch zoom hook ──────────────────────────────────────────────────────────
-
-function usePinchZoom(ref: React.RefObject<HTMLDivElement | null>, open: boolean) {
-  const [scale, setScale] = useState(1);
-  const scaleRef    = useRef(1);
-  const baseScale   = useRef(1);
-  const lastDist    = useRef<number | null>(null);
-  const lastTap     = useRef(0);
-
-  useEffect(() => {
-    if (!open) { scaleRef.current = 1; setScale(1); return; }
-    const el = ref.current;
-    if (!el) return;
-
-    const dist = (t: TouchList) =>
-      Math.hypot(t[1].clientX - t[0].clientX, t[1].clientY - t[0].clientY);
-
-    const onStart = (e: TouchEvent) => {
-      if (e.touches.length === 2) {
-        lastDist.current  = dist(e.touches);
-        baseScale.current = scaleRef.current;
-      }
-    };
-    const onMove = (e: TouchEvent) => {
-      if (e.touches.length !== 2 || lastDist.current === null) return;
-      e.preventDefault();
-      const s = Math.min(4, Math.max(1, baseScale.current * (dist(e.touches) / lastDist.current)));
-      scaleRef.current = s;
-      setScale(s);
-    };
-    const onEnd = (e: TouchEvent) => {
-      lastDist.current = null;
-      if (e.touches.length !== 0) return;
-      const now = Date.now();
-      if (now - lastTap.current < 280) {
-        scaleRef.current = 1;
-        setScale(1);
-        lastTap.current = 0;
-      } else {
-        lastTap.current = now;
-      }
-    };
-
-    el.addEventListener('touchstart', onStart, { passive: true });
-    el.addEventListener('touchmove',  onMove,  { passive: false });
-    el.addEventListener('touchend',   onEnd,   { passive: true });
-    return () => {
-      el.removeEventListener('touchstart', onStart);
-      el.removeEventListener('touchmove',  onMove);
-      el.removeEventListener('touchend',   onEnd);
-    };
-  }, [open, ref]);
-
-  return scale;
-}
 
 // ─── A4 page wrapper ──────────────────────────────────────────────────────────
+
+// Reference design: 366px wide × 518px tall (A4 ratio at 390px viewport)
+const DOC_REF_W = 366;
+const DOC_REF_H = Math.round(DOC_REF_W * 1.4142); // 518
 
 function A4Page({ children, pageNum, total, reservationId, title, branded }: {
   children: React.ReactNode; pageNum: number; total: number;
   reservationId: string | null; title: string; branded?: boolean;
 }) {
+  const zoom = (window.innerWidth - 24) / DOC_REF_W;
   return (
     <div className="bg-white shadow-[0_4px_24px_rgba(0,0,0,0.28)] flex flex-col overflow-hidden"
-      style={{ height: 'calc((100vw - 24px) * 1.4142)' }}>
+      style={{ width: DOC_REF_W, height: DOC_REF_H, zoom }}>
       <div className={`flex items-center justify-between px-5 py-2.5 border-b shrink-0 ${
         branded ? 'bg-[#C03D25] border-[#C03D25]' : 'border-gray-200'
       }`}>
@@ -243,19 +194,19 @@ function A4Page({ children, pageNum, total, reservationId, title, branded }: {
         <img
           src={branded ? '/document logo.png' : '/logo.png'}
           alt="PH1 World Developers"
-          className="h-7 object-contain object-left"
+          className="h-5 object-contain object-left"
         />
-        <p className={`text-[9px] font-bold uppercase tracking-[0.14em] text-center px-2 ${
+        <p className={`text-[6px] font-bold uppercase tracking-[0.14em] text-center px-2 ${
           branded ? 'text-white' : 'text-[#1C1C1E]'
         }`}>{title}</p>
-        <p className={`text-[8px] text-right shrink-0 ${branded ? 'text-white/70' : 'text-gray-400'}`}>
+        <p className={`text-[5.5px] text-right shrink-0 ${branded ? 'text-white/70' : 'text-gray-400'}`}>
           {reservationId ?? '—'}
         </p>
       </div>
       <div className="flex-1 px-5 py-5 overflow-hidden min-h-0">{children}</div>
       <div className="px-5 py-2 border-t border-gray-100 flex items-center justify-between shrink-0">
-        <span className="text-[8px] text-gray-300 uppercase tracking-[0.1em]">PH1 World Developers Inc.</span>
-        <span className="text-[8px] text-gray-300">Page {pageNum} of {total}</span>
+        <span className="text-[5.5px] text-gray-300 uppercase tracking-[0.1em]">PH1 World Developers Inc.</span>
+        <span className="text-[5.5px] text-gray-300">Page {pageNum} of {total}</span>
       </div>
     </div>
   );
@@ -264,9 +215,6 @@ function A4Page({ children, pageNum, total, reservationId, title, branded }: {
 // ─── Agreement viewer ─────────────────────────────────────────────────────────
 
 function AgreementViewer({ open, onClose, b }: { open: boolean; onClose: () => void; b: ReviewBooking }) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const scale = usePinchZoom(scrollRef, open);
-  useEffect(() => { if (open && scrollRef.current) scrollRef.current.scrollTop = 0; }, [open]);
   if (!open) return null;
   const TOTAL = 4;
   const resId = b.reservation_id ?? '—';
@@ -275,26 +223,28 @@ function AgreementViewer({ open, onClose, b }: { open: boolean; onClose: () => v
       <div className="flex items-center justify-between px-4 py-3 bg-[#1C1C1E] shrink-0">
         <div className="min-w-0">
           <p className="text-white text-[13px] font-semibold leading-tight truncate">Reservation Agreement</p>
-          <p className="text-white/40 text-[10px]">{resId} · {TOTAL} pages{scale > 1.05 ? ` · ${scale.toFixed(1)}×` : ''}</p>
+          <p className="text-white/40 text-[10px]">{resId} · {TOTAL} pages · double-tap to reset</p>
         </div>
         <button onClick={onClose} className="ml-3 p-2 rounded-xl bg-white/10 border border-white/15 text-white active:bg-white/20 transition-colors">
           <X size={18} />
         </button>
       </div>
-      <div ref={scrollRef} className="flex-1 overflow-auto">
-      <div style={{ zoom: scale }} className="px-3 py-3 space-y-3">
+      <div className="flex-1 min-h-0 overflow-hidden">
+      <TransformWrapper minScale={1} maxScale={4} initialScale={1} centerOnInit={false}doubleClick={{ mode: 'reset', animationTime: 200 }}>
+      <TransformComponent wrapperStyle={{ width: '100%', height: '100%' }}>
+      <div style={{ width: '100vw' }} className="py-3 space-y-3 flex flex-col items-center">
 
         <A4Page pageNum={1} total={TOTAL} reservationId={resId} title="Reservation Agreement">
           <div className="flex items-center justify-between mb-5">
-            <span className="text-[10px] text-gray-500">Date: <span className="font-semibold text-[#1C1C1E]">{formatDate(b.created_at)}</span></span>
-            <span className="text-[10px] text-gray-500">Res. No.: <span className="font-semibold text-[#1C1C1E]">{resId}</span></span>
+            <span className="text-[7px] text-gray-500">Date: <span className="font-semibold text-[#1C1C1E]">{formatDate(b.created_at)}</span></span>
+            <span className="text-[7px] text-gray-500">Res. No.: <span className="font-semibold text-[#1C1C1E]">{resId}</span></span>
           </div>
-          <p className="text-[11px] leading-[1.85] text-[#3A3A3C] text-justify mb-6">
+          <p className="text-[7.5px] leading-[1.85] text-[#3A3A3C] text-justify mb-6">
             I, <span className="font-bold text-[#1C1C1E] uppercase">{b.client_name ?? '___________________________'}</span>, Filipino, of legal age, hereby agree to purchase the Property described below from <span className="font-semibold text-[#1C1C1E]">PH1 WORLD DEVELOPERS INC.</span> ("the Company"), subject to the following Terms and Conditions:
           </p>
           <div className="border border-gray-200 overflow-hidden">
             <div className="bg-gray-50 px-3 py-2 border-b border-gray-200">
-              <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-gray-500">Property Details</p>
+              <p className="text-[6px] font-bold uppercase tracking-[0.14em] text-gray-500">Property Details</p>
             </div>
             <div className="divide-y divide-gray-100">
               {([
@@ -307,8 +257,8 @@ function AgreementViewer({ open, onClose, b }: { open: boolean; onClose: () => v
                 ['Unit Area',        b.unit_area != null ? `${b.unit_area} sqm` : '—'],
               ] as [string, string | null][]).map(([label, value]) => (
                 <div key={label} className="flex items-center justify-between px-3 py-2">
-                  <span className="text-[10px] text-gray-500 shrink-0">{label}</span>
-                  <span className="text-[10px] font-semibold text-[#1C1C1E] text-right ml-3">{value ?? '—'}</span>
+                  <span className="text-[7px] text-gray-500 shrink-0">{label}</span>
+                  <span className="text-[7px] font-semibold text-[#1C1C1E] text-right ml-3">{value ?? '—'}</span>
                 </div>
               ))}
             </div>
@@ -319,11 +269,11 @@ function AgreementViewer({ open, onClose, b }: { open: boolean; onClose: () => v
           <div className="space-y-5">
             {TERMS.slice(0, 2).map(({ title, items }) => (
               <div key={title} className="space-y-3">
-                <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-[#1C1C1E] border-b border-gray-200 pb-1.5">{title}</p>
+                <p className="text-[6px] font-bold uppercase tracking-[0.14em] text-[#1C1C1E] border-b border-gray-200 pb-1.5">{title}</p>
                 {items.map((item, i) => (
                   <div key={i}>
                     {item.split('\n\n').map((para, j) => (
-                      <p key={j} className="text-[10.5px] text-[#3A3A3C] leading-[1.85] text-justify whitespace-pre-line mb-2 last:mb-0">{para.trim()}</p>
+                      <p key={j} className="text-[7px] text-[#3A3A3C] leading-[1.85] text-justify whitespace-pre-line mb-2 last:mb-0">{para.trim()}</p>
                     ))}
                   </div>
                 ))}
@@ -336,11 +286,11 @@ function AgreementViewer({ open, onClose, b }: { open: boolean; onClose: () => v
           <div className="space-y-5">
             {TERMS.slice(2).map(({ title, items }) => (
               <div key={title} className="space-y-3">
-                <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-[#1C1C1E] border-b border-gray-200 pb-1.5">{title}</p>
+                <p className="text-[6px] font-bold uppercase tracking-[0.14em] text-[#1C1C1E] border-b border-gray-200 pb-1.5">{title}</p>
                 {items.map((item, i) => (
                   <div key={i}>
                     {item.split('\n\n').map((para, j) => (
-                      <p key={j} className="text-[10.5px] text-[#3A3A3C] leading-[1.85] text-justify whitespace-pre-line mb-2 last:mb-0">{para.trim()}</p>
+                      <p key={j} className="text-[7px] text-[#3A3A3C] leading-[1.85] text-justify whitespace-pre-line mb-2 last:mb-0">{para.trim()}</p>
                     ))}
                   </div>
                 ))}
@@ -351,7 +301,7 @@ function AgreementViewer({ open, onClose, b }: { open: boolean; onClose: () => v
 
         <A4Page pageNum={4} total={TOTAL} reservationId={resId} title="Reservation Agreement">
           <div className="space-y-3 mb-8">
-            <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-[#1C1C1E] border-b border-gray-200 pb-1.5">Annex A — Terms of Payment</p>
+            <p className="text-[6px] font-bold uppercase tracking-[0.14em] text-[#1C1C1E] border-b border-gray-200 pb-1.5">Annex A — Terms of Payment</p>
             <div className="border border-gray-200 overflow-hidden">
               {([
                 ['Net Selling Price',     fmt(b.net_list_price)],
@@ -359,13 +309,13 @@ function AgreementViewer({ open, onClose, b }: { open: boolean; onClose: () => v
                 ['Other Charges',         fmt(b.other_charges)],
               ] as [string, string][]).map(([label, value]) => (
                 <div key={label} className="flex items-center justify-between px-3 py-2.5 border-b border-gray-100">
-                  <span className="text-[10px] text-gray-500">{label}</span>
-                  <span className="text-[10px] text-[#1C1C1E] font-medium">{value}</span>
+                  <span className="text-[7px] text-gray-500">{label}</span>
+                  <span className="text-[7px] text-[#1C1C1E] font-medium">{value}</span>
                 </div>
               ))}
               <div className="flex items-center justify-between px-3 py-3 bg-[#1C1C1E]">
-                <span className="text-[10px] font-bold text-white uppercase tracking-wide">Total Contract Price</span>
-                <span className="text-[10px] font-bold text-white">{fmt(b.total_contract_price)}</span>
+                <span className="text-[7px] font-bold text-white uppercase tracking-wide">Total Contract Price</span>
+                <span className="text-[7px] font-bold text-white">{fmt(b.total_contract_price)}</span>
               </div>
               {([
                 ['Payment Scheme', b.scheme_name  ?? '—'],
@@ -373,29 +323,31 @@ function AgreementViewer({ open, onClose, b }: { open: boolean; onClose: () => v
                 ['Reservation Fee', '₱ 10,000.00'],
               ] as [string, string][]).map(([label, value]) => (
                 <div key={label} className="flex items-center justify-between px-3 py-2.5 border-t border-gray-100">
-                  <span className="text-[10px] text-gray-500 shrink-0">{label}</span>
-                  <span className="text-[10px] text-[#1C1C1E] font-medium text-right ml-3">{value}</span>
+                  <span className="text-[7px] text-gray-500 shrink-0">{label}</span>
+                  <span className="text-[7px] text-[#1C1C1E] font-medium text-right ml-3">{value}</span>
                 </div>
               ))}
             </div>
           </div>
-          <p className="text-[10px] text-[#3A3A3C] leading-[1.85] text-justify mb-8">
+          <p className="text-[7px] text-[#3A3A3C] leading-[1.85] text-justify mb-8">
             IN WITNESS WHEREOF, I have hereunto set my hand this <span className="font-semibold text-[#1C1C1E]">{formatDate(b.created_at)}</span> at Metro Manila, Philippines.
           </p>
           <div className="space-y-2">
-            <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-gray-500">Buyer&apos;s Signature</p>
+            <p className="text-[6px] font-bold uppercase tracking-[0.14em] text-gray-500">Buyer&apos;s Signature</p>
             <div className="h-24 border-b-2 border-gray-400 flex items-end pb-1 overflow-hidden">
               {b.signature_base64
                 ? <img src={b.signature_base64} alt="Signature" className="max-h-full object-contain" /> // eslint-disable-line @next/next/no-img-element
-                : <p className="text-[10px] text-gray-300 italic w-full text-center mb-4">No signature on file</p>}
+                : <p className="text-[7px] text-gray-300 italic w-full text-center mb-4">No signature on file</p>}
             </div>
-            <p className="text-[11px] font-bold text-[#1C1C1E] uppercase tracking-wide pt-1">{b.client_name ?? '—'}</p>
-            <p className="text-[10px] text-gray-400">Buyer</p>
+            <p className="text-[7.5px] font-bold text-[#1C1C1E] uppercase tracking-wide pt-1">{b.client_name ?? '—'}</p>
+            <p className="text-[7px] text-gray-400">Buyer</p>
           </div>
         </A4Page>
 
         <div className="h-4" />
       </div>
+      </TransformComponent>
+      </TransformWrapper>
       </div>
     </div>
   );
@@ -421,9 +373,6 @@ function AgreementPreviewCard({ b, onClick }: { b: ReviewBooking; onClick: () =>
 // ─── Privacy viewer ───────────────────────────────────────────────────────────
 
 function PrivacyViewer({ open, onClose, b }: { open: boolean; onClose: () => void; b: ReviewBooking }) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const scale = usePinchZoom(scrollRef, open);
-  useEffect(() => { if (open && scrollRef.current) scrollRef.current.scrollTop = 0; }, [open]);
   if (!open) return null;
   const TOTAL = 1;
   const resId = b.reservation_id ?? '—';
@@ -432,28 +381,30 @@ function PrivacyViewer({ open, onClose, b }: { open: boolean; onClose: () => voi
       <div className="flex items-center justify-between px-4 py-3 bg-[#1C1C1E] shrink-0">
         <div className="min-w-0">
           <p className="text-white text-[13px] font-semibold leading-tight truncate">Data Privacy Statement</p>
-          <p className="text-white/40 text-[10px]">{resId} · {TOTAL} page{scale > 1.05 ? ` · ${scale.toFixed(1)}×` : ''}</p>
+          <p className="text-white/40 text-[10px]">{resId} · {TOTAL} page · double-tap to reset</p>
         </div>
         <button onClick={onClose} className="ml-3 p-2 rounded-xl bg-white/10 border border-white/15 text-white active:bg-white/20 transition-colors">
           <X size={18} />
         </button>
       </div>
-      <div ref={scrollRef} className="flex-1 overflow-auto">
-      <div style={{ zoom: scale }} className="px-3 py-3 space-y-3">
+      <div className="flex-1 min-h-0 overflow-hidden">
+      <TransformWrapper minScale={1} maxScale={4} initialScale={1} centerOnInit={false}doubleClick={{ mode: 'reset', animationTime: 200 }}>
+      <TransformComponent wrapperStyle={{ width: '100%', height: '100%' }}>
+      <div style={{ width: '100vw' }} className="py-3 space-y-3 flex flex-col items-center">
         <A4Page pageNum={1} total={TOTAL} reservationId={resId} title="Data Privacy Statement" branded>
           <div className="flex items-center justify-between mb-4">
-            <span className="text-[10px] text-gray-500">Date: <span className="font-semibold text-[#1C1C1E]">{formatDate(b.created_at)}</span></span>
-            <span className="text-[10px] text-gray-500">Res. No.: <span className="font-semibold text-[#1C1C1E]">{resId}</span></span>
+            <span className="text-[7px] text-gray-500">Date: <span className="font-semibold text-[#1C1C1E]">{formatDate(b.created_at)}</span></span>
+            <span className="text-[7px] text-gray-500">Res. No.: <span className="font-semibold text-[#1C1C1E]">{resId}</span></span>
           </div>
           <div className="space-y-4 mb-5">
             {PRIVACY_SECTIONS.map(({ title, body }) => (
               <div key={title} className="space-y-1.5">
-                <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-[#1C1C1E] border-b border-gray-200 pb-1">{title}</p>
-                <p className="text-[10.5px] text-[#3A3A3C] leading-[1.75] text-justify">{body}</p>
+                <p className="text-[6px] font-bold uppercase tracking-[0.14em] text-[#1C1C1E] border-b border-gray-200 pb-1">{title}</p>
+                <p className="text-[7px] text-[#3A3A3C] leading-[1.75] text-justify">{body}</p>
               </div>
             ))}
           </div>
-          <p className="text-[10px] text-[#3A3A3C] leading-[1.75] text-justify mb-4">
+          <p className="text-[7px] text-[#3A3A3C] leading-[1.75] text-justify mb-4">
             IN WITNESS WHEREOF, I have hereunto set my hand this <span className="font-semibold text-[#1C1C1E]">{formatDate(b.created_at)}</span> at Metro Manila, Philippines, signifying my full understanding and consent to the foregoing Data Privacy Statement.
           </p>
           <div className="space-y-2.5 mb-5">
@@ -467,23 +418,25 @@ function PrivacyViewer({ open, onClose, b }: { open: boolean; onClose: () => voi
                     <path d="M1 3.5L3.2 5.5L8 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                 </div>
-                <p className="text-[10px] text-[#1C1C1E] leading-[1.65]">{label}</p>
+                <p className="text-[7px] text-[#1C1C1E] leading-[1.65]">{label}</p>
               </div>
             ))}
           </div>
           <div className="space-y-1.5">
-            <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-gray-500">Buyer&apos;s Signature</p>
+            <p className="text-[6px] font-bold uppercase tracking-[0.14em] text-gray-500">Buyer&apos;s Signature</p>
             <div className="h-20 border-b-2 border-gray-400 flex items-end pb-1 overflow-hidden">
               {b.signature_base64
                 ? <img src={b.signature_base64} alt="Signature" className="max-h-full object-contain" /> // eslint-disable-line @next/next/no-img-element
-                : <p className="text-[10px] text-gray-300 italic w-full text-center mb-3">No signature on file</p>}
+                : <p className="text-[7px] text-gray-300 italic w-full text-center mb-3">No signature on file</p>}
             </div>
-            <p className="text-[11px] font-bold text-[#1C1C1E] uppercase tracking-wide pt-1">{b.client_name ?? '—'}</p>
-            <p className="text-[10px] text-gray-400">Buyer</p>
+            <p className="text-[7.5px] font-bold text-[#1C1C1E] uppercase tracking-wide pt-1">{b.client_name ?? '—'}</p>
+            <p className="text-[7px] text-gray-400">Buyer</p>
           </div>
         </A4Page>
         <div className="h-4" />
       </div>
+      </TransformComponent>
+      </TransformWrapper>
       </div>
     </div>
   );
@@ -513,32 +466,29 @@ function PrivacyPreviewCard({ b, onClick }: { b: ReviewBooking; onClick: () => v
 function PriceRow({ label, value, indent }: { label: string; value: string; indent?: boolean }) {
   return (
     <div className="flex items-start justify-between py-[2px]">
-      <span className={`text-[8px] leading-tight flex-1 ${indent ? 'pl-2 text-gray-500' : 'text-[#3A3A3C]'}`}>{label}</span>
-      <span className="text-[8px] text-[#3A3A3C] ml-1 text-right shrink-0">{value}</span>
+      <span className={`text-[5.5px] leading-tight flex-1 ${indent ? 'pl-2 text-gray-500' : 'text-[#3A3A3C]'}`}>{label}</span>
+      <span className="text-[5.5px] text-[#3A3A3C] ml-1 text-right shrink-0">{value}</span>
     </div>
   );
 }
 function PriceRowBold({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between bg-[#3A3A3C] px-1.5 py-1 mt-0.5 mb-0.5">
-      <span className="text-[8px] font-bold text-white uppercase tracking-wide flex-1 leading-tight">{label}</span>
-      <span className="text-[8px] font-bold text-white ml-1 shrink-0">{value}</span>
+      <span className="text-[5.5px] font-bold text-white uppercase tracking-wide flex-1 leading-tight">{label}</span>
+      <span className="text-[5.5px] font-bold text-white ml-1 shrink-0">{value}</span>
     </div>
   );
 }
 function AmortRow({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
   return (
     <div className="flex items-center justify-between px-1.5 py-1 border-b border-gray-100 last:border-0">
-      <span className={`text-[7.5px] leading-tight flex-1 ${bold ? 'font-bold text-[#1C1C1E]' : 'text-gray-500'}`}>{label}</span>
-      <span className={`text-[7.5px] ml-1 shrink-0 ${bold ? 'font-bold text-[#1C1C1E]' : 'text-[#3A3A3C]'}`}>{value}</span>
+      <span className={`text-[5px] leading-tight flex-1 ${bold ? 'font-bold text-[#1C1C1E]' : 'text-gray-500'}`}>{label}</span>
+      <span className={`text-[5px] ml-1 shrink-0 ${bold ? 'font-bold text-[#1C1C1E]' : 'text-[#3A3A3C]'}`}>{value}</span>
     </div>
   );
 }
 
 function TermsViewer({ open, onClose, b }: { open: boolean; onClose: () => void; b: ReviewBooking }) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const scale = usePinchZoom(scrollRef, open);
-  useEffect(() => { if (open && scrollRef.current) scrollRef.current.scrollTop = 0; }, [open]);
   if (!open) return null;
 
   const resId  = b.reservation_id ?? '—';
@@ -551,45 +501,47 @@ function TermsViewer({ open, onClose, b }: { open: boolean; onClose: () => void;
       <div className="flex items-center justify-between px-4 py-3 bg-[#1C1C1E] shrink-0">
         <div className="min-w-0">
           <p className="text-white text-[13px] font-semibold leading-tight truncate">Terms of Payment</p>
-          <p className="text-white/40 text-[10px]">{resId} · 1 page{scale > 1.05 ? ` · ${scale.toFixed(1)}×` : ''}</p>
+          <p className="text-white/40 text-[10px]">{resId} · 1 page · double-tap to reset</p>
         </div>
         <button onClick={onClose} className="ml-3 p-2 rounded-xl bg-white/10 border border-white/15 text-white active:bg-white/20 transition-colors">
           <X size={18} />
         </button>
       </div>
-      <div ref={scrollRef} className="flex-1 overflow-auto">
-      <div style={{ zoom: scale }} className="px-3 py-3 space-y-3">
+      <div className="flex-1 min-h-0 overflow-hidden">
+      <TransformWrapper minScale={1} maxScale={4} initialScale={1} centerOnInit={false}doubleClick={{ mode: 'reset', animationTime: 200 }}>
+      <TransformComponent wrapperStyle={{ width: '100%', height: '100%' }}>
+      <div style={{ width: '100vw' }} className="py-3 space-y-3 flex flex-col items-center">
         <div className="bg-white shadow-[0_4px_24px_rgba(0,0,0,0.28)] flex flex-col overflow-hidden"
-          style={{ height: 'calc((100vw - 24px) * 1.4142)' }}>
+          style={{ width: DOC_REF_W, height: DOC_REF_H, zoom: (window.innerWidth - 24) / DOC_REF_W }}>
           <div className="bg-[#C03D25] border-b border-[#C03D25] px-5 py-2.5 flex items-center justify-between shrink-0">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/document logo.png" alt="PH1 World Developers" className="h-7 object-contain object-left" />
-            <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-center px-2 text-white">Terms of Payment</p>
-            <p className="text-[8px] text-right shrink-0 text-white/70">{resId}</p>
+            <img src="/document logo.png" alt="PH1 World Developers" className="h-5 object-contain object-left" />
+            <p className="text-[6px] font-bold uppercase tracking-[0.14em] text-center px-2 text-white">Terms of Payment</p>
+            <p className="text-[5.5px] text-right shrink-0 text-white/70">{resId}</p>
           </div>
           <div className="flex-1 px-3 py-2.5 space-y-2 overflow-hidden min-h-0">
             <div className="border border-gray-300 overflow-hidden">
               <div className="bg-gray-100 px-2 py-1 border-b border-gray-300">
-                <p className="text-[8px] font-bold uppercase tracking-[0.1em] text-[#1C1C1E]">Property Information</p>
+                <p className="text-[5.5px] font-bold uppercase tracking-[0.1em] text-[#1C1C1E]">Property Information</p>
               </div>
               <div className="grid grid-cols-5 divide-x divide-gray-200">
                 {([['Project', b.project], ['Tower / House No.', b.tower], ['Unit Number', b.unit_no], ['Unit Type', b.unit_type], ['Unit Area', b.unit_area != null ? `${b.unit_area}` : '—']] as [string, string | null][]).map(([lbl, val]) => (
                   <div key={lbl} className="px-1.5 py-1.5">
-                    <p className="text-[6.5px] text-gray-500 uppercase tracking-wide leading-tight">{lbl}</p>
-                    <p className="text-[8px] font-semibold text-[#1C1C1E] mt-0.5">{val ?? '—'}</p>
+                    <p className="text-[4.5px] text-gray-500 uppercase tracking-wide leading-tight">{lbl}</p>
+                    <p className="text-[5.5px] font-semibold text-[#1C1C1E] mt-0.5">{val ?? '—'}</p>
                   </div>
                 ))}
               </div>
             </div>
             <div className="border border-gray-300 overflow-hidden">
               <div className="bg-gray-100 px-2 py-1 border-b border-gray-300">
-                <p className="text-[8px] font-bold uppercase tracking-[0.1em] text-[#1C1C1E]">Purchase Price Computation</p>
+                <p className="text-[5.5px] font-bold uppercase tracking-[0.1em] text-[#1C1C1E]">Purchase Price Computation</p>
               </div>
               <div className="grid grid-cols-5 divide-x divide-gray-200">
                 {([['Payment Scheme', b.scheme_name], ['Term', b.term_months != null ? `${b.term_months}` : '—'], ['Downpayment (%)', b.dp_rate != null ? `${b.dp_rate}%` : '—'], ['Due From', b.due_from ?? '—'], ['Due To', b.due_to ?? '—']] as [string, string | null][]).map(([lbl, val]) => (
                   <div key={lbl} className="px-1.5 py-1.5">
-                    <p className="text-[6.5px] text-gray-500 uppercase tracking-wide leading-tight">{lbl}</p>
-                    <p className="text-[8px] font-semibold text-[#1C1C1E] mt-0.5">{val ?? '—'}</p>
+                    <p className="text-[4.5px] text-gray-500 uppercase tracking-wide leading-tight">{lbl}</p>
+                    <p className="text-[5.5px] font-semibold text-[#1C1C1E] mt-0.5">{val ?? '—'}</p>
                   </div>
                 ))}
               </div>
@@ -597,7 +549,7 @@ function TermsViewer({ open, onClose, b }: { open: boolean; onClose: () => void;
             <div className="flex gap-2">
               <div className="flex-1 min-w-0">
                 <div className="bg-[#1C1C1E] px-2 py-1 mb-1">
-                  <p className="text-[7.5px] font-bold text-white uppercase tracking-wide">
+                  <p className="text-[5px] font-bold text-white uppercase tracking-wide">
                     {fmtPct(b.dp_rate)} DP{finPct != null ? `, ${finPct}% END-USER FINANCING` : ''}
                   </p>
                 </div>
@@ -621,7 +573,7 @@ function TermsViewer({ open, onClose, b }: { open: boolean; onClose: () => void;
               <div className="w-[42%] shrink-0 space-y-2">
                 <div className="border border-gray-300 overflow-hidden">
                   <div className="bg-[#C03D25] px-2 py-1 text-center">
-                    <p className="text-[7.5px] font-bold text-white uppercase tracking-wide">Bank Amortization</p>
+                    <p className="text-[5px] font-bold text-white uppercase tracking-wide">Bank Amortization</p>
                   </div>
                   <AmortRow label="Balance for end-user financing" value={fmtN(b.balance_for_financing)} />
                   <AmortRow label="Indicative Interest Rate" value="—" />
@@ -630,7 +582,7 @@ function TermsViewer({ open, onClose, b }: { open: boolean; onClose: () => void;
                 </div>
                 <div className="border border-gray-300 overflow-hidden">
                   <div className="bg-[#C03D25] px-2 py-1 text-center">
-                    <p className="text-[7.5px] font-bold text-white uppercase tracking-wide">HDMF Amortization</p>
+                    <p className="text-[5px] font-bold text-white uppercase tracking-wide">HDMF Amortization</p>
                   </div>
                   <AmortRow label="Balance for end-user financing" value={fmtN(b.balance_for_financing)} />
                   <AmortRow label="Indicative Interest Rate" value="—" />
@@ -641,14 +593,16 @@ function TermsViewer({ open, onClose, b }: { open: boolean; onClose: () => void;
             </div>
           </div>
           <div className="px-4 py-2.5 border-t border-gray-100 text-center shrink-0">
-            <p className="text-[7.5px] text-gray-500 italic leading-relaxed">
+            <p className="text-[5px] text-gray-500 italic leading-relaxed">
               **This auto-generated Terms of Payment is valid only if unaltered and shall serve as the official payment schedule based on the terms and conditions of the Reservation Agreement.**
             </p>
-            <p className="text-[7px] text-gray-400 mt-1">Date Generated: {new Date().toLocaleString('en-US')}</p>
+            <p className="text-[4.5px] text-gray-400 mt-1">Date Generated: {new Date().toLocaleString('en-US')}</p>
           </div>
         </div>
         <div className="h-4" />
       </div>
+      </TransformComponent>
+      </TransformWrapper>
       </div>
     </div>
   );
@@ -723,20 +677,20 @@ function GroupLabel({ label }: { label: string }) {
 function InfoField({ label, value }: { label: string; value: string | null | undefined }) {
   return (
     <div>
-      <p className="text-[6px] text-[#8E8E93] uppercase tracking-wide font-semibold leading-tight">{label}</p>
-      <p className="text-[7.5px] text-[#1C1C1E] font-medium mt-0.5 border-b border-gray-200 pb-0.5 min-h-[13px] break-words">{value || '—'}</p>
+      <p className="text-[4px] text-[#8E8E93] uppercase tracking-wide font-semibold leading-tight">{label}</p>
+      <p className="text-[5px] text-[#1C1C1E] font-medium mt-0.5 border-b border-gray-200 pb-0.5 min-h-[13px] break-words">{value || '—'}</p>
     </div>
   );
 }
 function BIFSection({ title }: { title: string }) {
   return (
     <div className="bg-gray-100 -mx-5 px-5 py-1.5 mt-2 first:mt-0">
-      <p className="text-[7.5px] font-bold uppercase tracking-[0.1em] text-[#1C1C1E]">{title}</p>
+      <p className="text-[5px] font-bold uppercase tracking-[0.1em] text-[#1C1C1E]">{title}</p>
     </div>
   );
 }
 function BIFSubLabel({ label }: { label: string }) {
-  return <p className="text-[6.5px] font-bold uppercase tracking-[0.08em] text-[#8E8E93] mt-2 mb-0.5">{label}</p>;
+  return <p className="text-[4.5px] font-bold uppercase tracking-[0.08em] text-[#8E8E93] mt-2 mb-0.5">{label}</p>;
 }
 
 function BuyerInfoViewer({
@@ -747,9 +701,6 @@ function BuyerInfoViewer({
   spouse: SpouseInfoRecord | null; coOwner: CoOwnerRecord | null;
   atty: AttyInFactRecord | null; loading: boolean;
 }) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const scale = usePinchZoom(scrollRef, open);
-  useEffect(() => { if (open && scrollRef.current) scrollRef.current.scrollTop = 0; }, [open]);
   if (!open) return null;
 
   const resId      = b.reservation_id ?? '—';
@@ -772,14 +723,16 @@ function BuyerInfoViewer({
       <div className="flex items-center justify-between px-4 py-3 bg-[#1C1C1E] shrink-0">
         <div className="min-w-0">
           <p className="text-white text-[13px] font-semibold leading-tight truncate">{TITLE}</p>
-          <p className="text-white/40 text-[10px]">{resId} · {loading ? '…' : `${total} page${total > 1 ? 's' : ''}`}{scale > 1.05 ? ` · ${scale.toFixed(1)}×` : ''}</p>
+          <p className="text-white/40 text-[10px]">{resId} · {loading ? '…' : `${total} page${total > 1 ? 's' : ''}`} · double-tap to reset</p>
         </div>
         <button onClick={onClose} className="ml-3 p-2 rounded-xl bg-white/10 border border-white/15 text-white active:bg-white/20 transition-colors">
           <X size={18} />
         </button>
       </div>
-      <div ref={scrollRef} className="flex-1 overflow-auto">
-      <div style={{ zoom: scale }} className="px-3 py-3 space-y-3">
+      <div className="flex-1 min-h-0 overflow-hidden">
+      <TransformWrapper minScale={1} maxScale={4} initialScale={1} centerOnInit={false}doubleClick={{ mode: 'reset', animationTime: 200 }}>
+      <TransformComponent wrapperStyle={{ width: '100%', height: '100%' }}>
+      <div style={{ width: '100vw' }} className="py-3 space-y-3 flex flex-col items-center">
         {loading ? (
           <A4Page pageNum={1} total={1} reservationId={resId} title={TITLE} branded>
             <div className="flex items-center justify-center py-16">
@@ -947,6 +900,8 @@ function BuyerInfoViewer({
         </>)}
         <div className="h-4" />
       </div>
+      </TransformComponent>
+      </TransformWrapper>
       </div>
     </div>
   );
