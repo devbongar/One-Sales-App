@@ -146,8 +146,10 @@ export default function DpProofPage() {
       const { error } = await supabase
         .from('reservations')
         .update({
-          proof_of_1st_dp_urls: JSON.stringify(merged),
-          date_of_1st_dp:       paymentDate,
+          proof_of_1st_dp_urls:  JSON.stringify(merged),
+          date_of_1st_dp:        paymentDate,
+          booking_review_status: 'submitted',
+          submitted_at:          new Date().toISOString(),
         })
         .eq('reservation_id', reservationId);
       if (error) throw error;
@@ -201,7 +203,7 @@ export default function DpProofPage() {
           </div>
         )}
         <p className="text-xs text-[#8E8E93] leading-relaxed">
-          Upload proof of your 1st down payment. This will be reviewed by Finance for verification.
+          Upload proof of your 1st down payment. This will be submitted for director review, then routed to Finance for verification.
         </p>
       </GlassCard>
 
@@ -321,7 +323,7 @@ export default function DpProofPage() {
               </div>
               <p className="text-base font-bold text-[#1C1C1E] text-center">Save 1st DP Proof?</p>
               <p className="text-sm text-[#8E8E93] mt-1 text-center leading-relaxed">
-                Your proof of 1st down payment will be saved and sent to Finance for verification.
+                Your proof of 1st down payment will be saved and submitted for director review.
               </p>
             </div>
             <div className="px-6 py-3 border-b border-black/[0.06] space-y-1.5">

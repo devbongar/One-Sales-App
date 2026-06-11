@@ -303,8 +303,10 @@ export default function FinanceVerifyPage() {
 
   const rfVerified  = !!booking?.finance_verified_at;
   const dpVerified  = !!booking?.dp_verified_at;
-  // isDPPending: RF is verified (finance-verified) but DP not yet verified
-  const isDPPending = booking?.booking_review_status === 'finance-verified';
+  // isDPPending: RF done and DP not yet verified — handles both finance-verified and
+  // director-approved (re-approved after seller uploaded 1st DP proof)
+  const isDPPending = booking?.booking_review_status === 'finance-verified'
+    || (booking?.booking_review_status === 'director-approved' && rfVerified);
   const alreadyVerified = isDPPending ? dpVerified : rfVerified;
 
   const canApproveRF = !rfVerified && ackReceiptNo.trim().length > 0 && salesInvoiceNo.trim().length > 0 && !!dateOfResFee;
