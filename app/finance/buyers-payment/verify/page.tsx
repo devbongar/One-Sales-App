@@ -299,7 +299,6 @@ export default function FinanceVerifyPage() {
 
   const proofUrls    = parseJson(booking?.payment_proof_url ?? null);
   const validIdUrls  = parseJson(booking?.proof_of_valid_id_urls ?? null);
-  const dpProofUrls  = parseJson(booking?.proof_of_1st_dp_urls ?? null);
 
   const rfVerified  = !!booking?.finance_verified_at;
   const dpVerified  = !!booking?.dp_verified_at;
@@ -505,27 +504,6 @@ export default function FinanceVerifyPage() {
         {/* ── 1st DP Section (shown when pending or already verified) ── */}
         {(isDPPending || dpVerified) && (
           <>
-            <GlassCard className="px-4 py-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-bold text-[#1C1C1E] uppercase tracking-wider">Proof of 1st Down Payment</p>
-                {dpProofUrls.length > 0 && (
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">
-                    {dpProofUrls.length} file{dpProofUrls.length > 1 ? 's' : ''}
-                  </span>
-                )}
-              </div>
-              {dpProofUrls.length === 0 ? (
-                <div className="py-7 flex flex-col items-center gap-2">
-                  <FolderOpen size={22} className="text-[#C7C7CC]" />
-                  <p className="text-xs text-[#C7C7CC]">No proof uploaded yet</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-3 gap-2">
-                  {dpProofUrls.map(url => <FileTile key={url} url={url} />)}
-                </div>
-              )}
-            </GlassCard>
-
             <GlassCard className="px-4 py-1">
               <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider py-2.5 border-b border-black/[0.06]">
                 1st Down Payment Details
