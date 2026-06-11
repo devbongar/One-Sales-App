@@ -173,7 +173,7 @@ const PRIVACY_SECTIONS = [
 
 // ─── Pinch zoom hook ──────────────────────────────────────────────────────────
 
-function usePinchZoom(ref: React.RefObject<HTMLDivElement>, open: boolean) {
+function usePinchZoom(ref: React.RefObject<HTMLDivElement | null>, open: boolean) {
   const [scale, setScale] = useState(1);
   const scaleRef    = useRef(1);
   const baseScale   = useRef(1);
