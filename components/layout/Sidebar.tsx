@@ -29,7 +29,7 @@ const NAV: NavGroup[] = [
     items: [
       { label: "Buyer's Verification", href: '/account/buyers-verification', icon: 'ShieldCheck' },
       { label: "Buyer's Foldering",    href: '/account/buyers-foldering',    icon: 'FolderOpen' },
-      { label: 'Request and Inquiry',  href: '/account/request-inquiry',     icon: 'MessageSquare', comingSoon: true },
+      { label: 'Request and Inquiry',  href: '/account/request-inquiry',     icon: 'MessageSquare' },
       { label: 'Billing and Collection', href: '/account/billing-collection', icon: 'Receipt' },
       { label: 'End-Use Financing',    href: '/account/end-use-financing',   icon: 'CreditCard',    comingSoon: true },
     ],
