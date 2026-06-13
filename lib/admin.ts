@@ -318,3 +318,86 @@ export async function saveDueDateAssignments(
     if (error) throw error;
   }
 }
+
+/* ─── Access Roles ───────────────────────────────────────────────────────── */
+
+/*
+  Required Supabase migration (run once):
+
+  create table if not exists public.access_roles (
+    id          serial primary key,
+    role_name   text not null,
+    description text,
+    color       text not null default '#C7C7CC',
+    sort_order  int  not null default 0
+  );
+
+  insert into public.access_roles (role_name, description, color, sort_order) values
+    ('Sales Manager',        'Front-line sales lead. Registers clients and handles reservations. Can view their team''s sales commission.',                                          '#3B82F6', 1),
+    ('Sales Director',       'Senior sales role. Everything a Sales Manager does, plus Booking approval and HIC discount rights.',                                                  '#6366F1', 2),
+    ('Seller Recruitment',   'Manages onboarding of new sellers. Also sees the Seller Organization Chart in the Vibe app.',                                                         '#10B981', 3),
+    ('Finance Verification', 'Finance & accounting. Verifies payments, posts collections, runs payouts, aging and delinquency.',                                                    '#F59E0B', 4),
+    ('Broker Network',       'External broker channel. Registers clients & reservations, broker accreditation. Flagged for Canvas Admin User.',                                     '#8B5CF6', 5),
+    ('Account Management',   'Post-sale account handling: buyer verification, foldering, billing, delinquency.',                                                                    '#14B8A6', 6),
+    ('PD Access',            'Project Development. Manages inventory and monitors reservations, delinquency and the seller org chart.',                                             '#F97316', 7),
+    ('All Access',           'Admin-level. Full access to every feature in both apps, including Admin User.',                                                                       '#C03D25', 8);
+*/
+
+export interface AccessRoleRecord {
+  id:          number;
+  role_name:   string;
+  description: string | null;
+  color:       string;
+  sort_order:  number;
+}
+
+export async function fetchAccessRoles(): Promise<AccessRoleRecord[]> {
+  const { data, error } = await supabase
+    .from('access_roles')
+    .select('id, role_name, description, color, sort_order')
+    .order('sort_order')
+    .order('id');
+  if (error) throw error;
+  return (data ?? []) as AccessRoleRecord[];
+}
+
+export async function saveAccessRole(
+  record: Omit<AccessRoleRecord, 'id'> & { id?: number }
+): Promise<AccessRoleRecord> {
+  if (record.id) {
+    const { data, error } = await supabase
+      .from('access_roles')
+      .update({
+        role_name:   record.role_name,
+        description: record.description,
+        color:       record.color,
+        sort_order:  record.sort_order,
+      })
+      .eq('id', record.id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as AccessRoleRecord;
+  } else {
+    const { data, error } = await supabase
+      .from('access_roles')
+      .insert({
+        role_name:   record.role_name,
+        description: record.description ?? '',
+        color:       record.color,
+        sort_order:  record.sort_order,
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    return data as AccessRoleRecord;
+  }
+}
+
+export async function deleteAccessRole(id: number): Promise<void> {
+  const { error } = await supabase
+    .from('access_roles')
+    .delete()
+    .eq('id', id);
+  if (error) throw error;
+}

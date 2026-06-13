@@ -8,6 +8,8 @@ import { supabase } from '@/lib/supabase';
 import { approvePaymentReview, updateReservationStatus } from '@/lib/reservations';
 import { updateInventoryUnitStatus } from '@/lib/inventory';
 import { generateCommissionSchedule, CommissionGenerateResult } from '@/lib/commission';
+import { addActivityLog } from '@/lib/activity-log';
+import { getSession } from '@/lib/auth';
 import {
   FileText, FolderOpen, CheckCircle2, XCircle,
   Hash, User, Building2, Tag,
@@ -151,6 +153,8 @@ export default function FinanceVerifyPage() {
   const [dpSalesInvoiceNo, setDpSalesInvoiceNo] = useState('');
   const [dpDate,           setDpDate]           = useState(todayIso());
 
+  const [displayName, setDisplayName] = useState<string | null>(null);
+
   // Modal states
   const [showApproveConfirm, setShowApproveConfirm] = useState(false);
   const [showRejectConfirm,  setShowRejectConfirm]  = useState(false);
@@ -161,6 +165,7 @@ export default function FinanceVerifyPage() {
   const [commissionWarn,     setCommissionWarn]     = useState<CommissionGenerateResult | null>(null);
 
   useEffect(() => {
+    getSession().then(s => setDisplayName(s?.display_name || s?.full_name || null));
     const raw = sessionStorage.getItem('financeBooking');
     if (!raw) { router.replace('/finance/buyers-payment'); return; }
     const b = JSON.parse(raw) as FinanceBooking;
@@ -227,6 +232,8 @@ export default function FinanceVerifyPage() {
         })
         .eq('reservation_id', booking.reservation_id);
       if (error) throw new Error(error.message);
+
+      await addActivityLog(booking.reservation_id, 'dp-verified', displayName).catch(e => console.error('[activity-log]', e));
 
       // 2. Update inventory unit status to Booked
       if (booking.inventory_code) {
@@ -302,10 +309,7 @@ export default function FinanceVerifyPage() {
 
   const rfVerified  = !!booking?.finance_verified_at;
   const dpVerified  = !!booking?.dp_verified_at;
-  // isDPPending: RF done and DP not yet verified — handles both finance-verified and
-  // director-approved (re-approved after seller uploaded 1st DP proof)
-  const isDPPending = booking?.booking_review_status === 'finance-verified'
-    || (booking?.booking_review_status === 'director-approved' && rfVerified);
+  const isDPPending = rfVerified && !dpVerified;
   const alreadyVerified = isDPPending ? dpVerified : rfVerified;
 
   const canApproveRF = !rfVerified && ackReceiptNo.trim().length > 0 && salesInvoiceNo.trim().length > 0 && !!dateOfResFee;

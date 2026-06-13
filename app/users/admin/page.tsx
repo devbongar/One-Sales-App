@@ -1,7 +1,16 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { ChevronLeft, ChevronRight, DollarSign, CalendarDays, Loader2, Save, Plus, Trash2, Eraser, Building2, Layers, Percent, Home } from 'lucide-react';
+import { ChevronLeft, ChevronRight, DollarSign, CalendarDays, Loader2, Save, Plus, Trash2, Eraser, Building2, Layers, Percent, Home, ShieldCheck, GripVertical, Users, Crown, UserPlus, Network, FileCheck, Eye, KeyRound, Briefcase, Globe, Check } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import {
+  DndContext, closestCenter, PointerSensor, TouchSensor,
+  useSensor, useSensors, DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext, useSortable, verticalListSortingStrategy, arrayMove,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import PageShell from '@/components/layout/PageShell';
 import {
   fetchReservationFees,
@@ -24,14 +33,19 @@ import {
   fetchHicSettings,
   saveHicSettings,
   deleteHicSettings,
+  fetchAccessRoles,
+  saveAccessRole,
+  deleteAccessRole,
   ReservationFeeRecord,
   SalesPositionRecord,
   DueDateAssignment,
   ProjectTowerRecord,
   VatSettingRecord,
   HicSettingRecord,
+  AccessRoleRecord,
 } from '@/lib/admin';
 import { fetchProjects, fetchTowers } from '@/lib/inventory';
+import { supabase } from '@/lib/supabase';
 
 /* ─── Design tokens ───────────────────────────────────────────────────── */
 const overlayInputCls =
@@ -82,6 +96,18 @@ const SETUP_ITEMS: SetupItem[] = [
     label: 'HIC Settings',
     description: 'Set HIC target amount per product type',
     icon: <Home size={22} />,
+  },
+  {
+    id: 'access-rights',
+    label: 'Access Rights',
+    description: 'View role definitions and feature permissions',
+    icon: <ShieldCheck size={22} />,
+  },
+  {
+    id: 'user-management',
+    label: 'User Management',
+    description: 'Create accounts and assign roles to users',
+    icon: <Users size={22} />,
   },
 ];
 
@@ -218,10 +244,12 @@ function DueDateSettingsOverlay({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const originalDays = useRef<Set<number>>(new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError('');
     try {
       const assignments = await fetchDueDateAssignments();
       // Group by (due_date, same_month) → reconstruct rules
@@ -249,7 +277,7 @@ function DueDateSettingsOverlay({ onClose }: { onClose: () => void }) {
       originalDays.current = new Set(assignments.map(a => a.day));
       setActiveTool(null);
       setSelectedRuleKey(null);
-    } catch (e) { console.error(e); }
+    } catch (e: any) { console.error('[due-date] load error:', e); setLoadError(e?.message ?? 'Failed to load due date settings.'); }
     finally { setLoading(false); }
   }, []);
 
@@ -336,6 +364,11 @@ function DueDateSettingsOverlay({ onClose }: { onClose: () => void }) {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-4 py-4 pb-10 space-y-4">
+        {loadError && (
+          <div className="rounded-2xl px-4 py-3 text-xs text-[#FF3B30] font-medium" style={{ background: 'rgba(255,59,48,0.08)', border: '1px solid rgba(255,59,48,0.2)' }}>
+            Load error: {loadError}
+          </div>
+        )}
         {loading ? (
           <div className="flex items-center justify-center h-40">
             <Loader2 size={32} className="text-[#C03D25] animate-spin" />
@@ -532,6 +565,8 @@ function ProjectSettingsOverlay({ onClose }: { onClose: () => void }) {
   const [loading, setLoading]       = useState(true);
   const [saving, setSaving]         = useState(false);
   const [savedMsg, setSavedMsg]     = useState(false);
+  const [loadError, setLoadError]   = useState('');
+  const [saveError, setSaveError]   = useState('');
 
   // Add-form state
   const [showAdd, setShowAdd]           = useState(false);
@@ -544,6 +579,7 @@ function ProjectSettingsOverlay({ onClose }: { onClose: () => void }) {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError('');
     try {
       const [records, projects] = await Promise.all([
         fetchProjectTowers(),
@@ -558,7 +594,7 @@ function ProjectSettingsOverlay({ onClose }: { onClose: () => void }) {
       })));
       setDeletedKeys([]);
       setAllProjects(projects);
-    } catch (e) { console.error(e); }
+    } catch (e: any) { console.error('[project-settings] load error:', e); setLoadError(e?.message ?? 'Failed to load project settings.'); }
     finally { setLoading(false); }
   }, []);
 
@@ -600,7 +636,7 @@ function ProjectSettingsOverlay({ onClose }: { onClose: () => void }) {
       await load();
       setSavedMsg(true);
       setTimeout(() => setSavedMsg(false), 2000);
-    } catch (e) { console.error(e); }
+    } catch (e: any) { console.error('[project-settings] save error:', e); setSaveError(e?.message ?? 'Failed to save project settings.'); }
     finally { setSaving(false); }
   };
 
@@ -633,6 +669,11 @@ function ProjectSettingsOverlay({ onClose }: { onClose: () => void }) {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-4 py-4 pb-10 space-y-4">
+        {(loadError || saveError) && (
+          <div className="rounded-2xl px-4 py-3 text-xs text-[#FF3B30] font-medium" style={{ background: 'rgba(255,59,48,0.08)', border: '1px solid rgba(255,59,48,0.2)' }}>
+            {loadError || saveError}
+          </div>
+        )}
         {loading ? (
           <div className="flex items-center justify-center h-40">
             <Loader2 size={32} className="text-[#C03D25] animate-spin" />
@@ -788,9 +829,12 @@ function DropdownSettingsOverlay({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [saveError, setSaveError] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError('');
     try {
       const [fees, positions, genders, civils] = await Promise.all([
         fetchReservationFees(),
@@ -818,8 +862,9 @@ function DropdownSettingsOverlay({ onClose }: { onClose: () => void }) {
       setDeletedGenderKeys([]);
       setCivilRows(civils.map((v) => ({ key: v, originalValue: v, value: v, isNew: false })));
       setDeletedCivilKeys([]);
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      console.error('[dropdown-settings] load error:', e);
+      setLoadError(e?.message ?? 'Failed to load dropdown settings.');
     } finally {
       setLoading(false);
     }
@@ -873,8 +918,9 @@ function DropdownSettingsOverlay({ onClose }: { onClose: () => void }) {
       await load();
       setSavedMsg(true);
       setTimeout(() => setSavedMsg(false), 2000);
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      console.error('[dropdown-settings] save error:', e);
+      setSaveError(e?.message ?? 'Failed to save dropdown settings.');
     } finally {
       setSaving(false);
     }
@@ -965,6 +1011,11 @@ function DropdownSettingsOverlay({ onClose }: { onClose: () => void }) {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-4 py-4 pb-10 space-y-4">
+        {(loadError || saveError) && (
+          <div className="rounded-2xl px-4 py-3 text-xs text-[#FF3B30] font-medium" style={{ background: 'rgba(255,59,48,0.08)', border: '1px solid rgba(255,59,48,0.2)' }}>
+            {loadError || saveError}
+          </div>
+        )}
         {loading ? (
           <div className="flex items-center justify-center h-40">
             <Loader2 size={32} className="text-[#C03D25] animate-spin" />
@@ -1200,9 +1251,12 @@ function VatSettingsOverlay({ onClose }: { onClose: () => void }) {
   const [loading, setLoading]     = useState(true);
   const [saving, setSaving]       = useState(false);
   const [savedMsg, setSavedMsg]   = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [saveError, setSaveError] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError('');
     try {
       const records = await fetchVatSettings();
       setRows(records.map(r => ({
@@ -1213,7 +1267,7 @@ function VatSettingsOverlay({ onClose }: { onClose: () => void }) {
         isNew: false,
       })));
       setDeletedKeys([]);
-    } catch (e) { console.error(e); }
+    } catch (e: any) { console.error('[vat-settings] load error:', e); setLoadError(e?.message ?? 'Failed to load VAT settings.'); }
     finally { setLoading(false); }
   }, []);
 
@@ -1221,6 +1275,7 @@ function VatSettingsOverlay({ onClose }: { onClose: () => void }) {
 
   const handleSave = async () => {
     setSaving(true);
+    setSaveError('');
     try {
       // Delete removed + renamed original PKs
       const renamedKeys = rows
@@ -1239,7 +1294,7 @@ function VatSettingsOverlay({ onClose }: { onClose: () => void }) {
       await load();
       setSavedMsg(true);
       setTimeout(() => setSavedMsg(false), 2000);
-    } catch (e) { console.error(e); }
+    } catch (e: any) { console.error('[vat-settings] save error:', e); setSaveError(e?.message ?? 'Failed to save VAT settings.'); }
     finally { setSaving(false); }
   };
 
@@ -1289,6 +1344,11 @@ function VatSettingsOverlay({ onClose }: { onClose: () => void }) {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-4 py-4 pb-10 space-y-4">
+        {(loadError || saveError) && (
+          <div className="rounded-2xl px-4 py-3 text-xs text-[#FF3B30] font-medium" style={{ background: 'rgba(255,59,48,0.08)', border: '1px solid rgba(255,59,48,0.2)' }}>
+            {loadError || saveError}
+          </div>
+        )}
         {loading ? (
           <div className="flex items-center justify-center h-40">
             <Loader2 size={32} className="text-[#C03D25] animate-spin" />
@@ -1382,11 +1442,15 @@ function HicSettingsOverlay({ onClose }: { onClose: () => void }) {
   const [loading, setLoading]       = useState(true);
   const [saving, setSaving]         = useState(false);
   const [savedMsg, setSavedMsg]     = useState(false);
+  const [loadError, setLoadError]   = useState('');
+  const [saveError, setSaveError]   = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError('');
     try {
       const records = await fetchHicSettings();
+      console.log('[hic-settings] loaded:', records);
       setRows(records.map(r => ({
         key: r.product_type,
         originalProductType: r.product_type,
@@ -1395,14 +1459,17 @@ function HicSettingsOverlay({ onClose }: { onClose: () => void }) {
         isNew: false,
       })));
       setDeletedKeys([]);
-    } catch (e) { console.error(e); }
-    finally { setLoading(false); }
+    } catch (e: any) {
+      console.error('[hic-settings] load error:', e);
+      setLoadError(e?.message ?? 'Failed to load HIC settings.');
+    } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
   const handleSave = async () => {
     setSaving(true);
+    setSaveError('');
     try {
       const renamedKeys = rows
         .filter(r => !r.isNew && r.originalProductType !== r.productType.trim())
@@ -1415,13 +1482,16 @@ function HicSettingsOverlay({ onClose }: { onClose: () => void }) {
           product_type: r.productType.trim(),
           hic_target: parseFloat(r.target.replace(/,/g, '')) || 0,
         }));
+      console.log('[hic-settings] saving:', records);
       await saveHicSettings(records);
 
       await load();
       setSavedMsg(true);
       setTimeout(() => setSavedMsg(false), 2000);
-    } catch (e) { console.error(e); }
-    finally { setSaving(false); }
+    } catch (e: any) {
+      console.error('[hic-settings] save error:', e);
+      setSaveError(e?.message ?? 'Failed to save HIC settings.');
+    } finally { setSaving(false); }
   };
 
   const updateTarget = (key: string, value: string) =>
@@ -1481,6 +1551,17 @@ function HicSettingsOverlay({ onClose }: { onClose: () => void }) {
               <span className="font-semibold text-[#C03D25]">Rule: </span>
               The HIC discount reduces the Net List Price down to the target amount. Units with no HIC entry will not show the HIC option in the payment calculator.
             </div>
+
+            {loadError && (
+              <div className="rounded-2xl px-4 py-3 text-xs text-[#FF3B30] font-medium" style={{ background: 'rgba(255,59,48,0.08)', border: '1px solid rgba(255,59,48,0.2)' }}>
+                Load error: {loadError}
+              </div>
+            )}
+            {saveError && (
+              <div className="rounded-2xl px-4 py-3 text-xs text-[#FF3B30] font-medium" style={{ background: 'rgba(255,59,48,0.08)', border: '1px solid rgba(255,59,48,0.2)' }}>
+                Save error: {saveError}
+              </div>
+            )}
 
             {/* Table */}
             <div>
@@ -1544,6 +1625,708 @@ function HicSettingsOverlay({ onClose }: { onClose: () => void }) {
   );
 }
 
+/* ─── Access Rights Overlay ───────────────────────────────────────────── */
+
+const ROLE_ICONS: { key: string; Icon: LucideIcon }[] = [
+  { key: 'Users',       Icon: Users },
+  { key: 'Crown',       Icon: Crown },
+  { key: 'UserPlus',    Icon: UserPlus },
+  { key: 'DollarSign',  Icon: DollarSign },
+  { key: 'Network',     Icon: Network },
+  { key: 'FileCheck',   Icon: FileCheck },
+  { key: 'Building2',   Icon: Building2 },
+  { key: 'ShieldCheck', Icon: ShieldCheck },
+  { key: 'Briefcase',   Icon: Briefcase },
+  { key: 'Globe',       Icon: Globe },
+  { key: 'KeyRound',    Icon: KeyRound },
+  { key: 'Eye',         Icon: Eye },
+];
+
+function getRoleIcon(id: number | null): LucideIcon {
+  if (id === null) return ShieldCheck;
+  return ROLE_ICONS[(id - 1) % ROLE_ICONS.length].Icon;
+}
+
+interface RoleRow {
+  key: string;
+  id: number | null;
+  roleName: string;
+  description: string;
+  color: string;
+  sortOrder: number;
+  isNew: boolean;
+}
+
+function SortableRoleRow({
+  row, isExpanded, onToggle, onUpdate, onDelete,
+}: {
+  row: RoleRow;
+  isExpanded: boolean;
+  onToggle: () => void;
+  onUpdate: (patch: Partial<RoleRow>) => void;
+  onDelete: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: row.key });
+
+  const RoleIcon = getRoleIcon(row.id);
+
+  const wrapStyle: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 20 : undefined,
+  };
+
+  return (
+    <div ref={setNodeRef} style={wrapStyle}>
+      <div
+        className="rounded-3xl overflow-hidden"
+        style={{
+          ...cardStyle,
+          boxShadow: isDragging
+            ? '0 8px 32px rgba(0,0,0,0.18)'
+            : '0 2px 12px rgba(0,0,0,0.06)',
+        }}
+      >
+        {/* Header row */}
+        <div className="flex items-center gap-3 px-4 py-3.5">
+          {/* Drag handle */}
+          <div
+            className="touch-none shrink-0 cursor-grab active:cursor-grabbing p-1 -ml-1 rounded-lg active:bg-black/[0.04]"
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical size={16} className="text-[#C7C7CC]" />
+          </div>
+
+          {/* Icon avatar */}
+          <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 bg-[#C03D25]/10">
+            <RoleIcon size={18} className="text-[#C03D25]" />
+          </div>
+
+          {/* Info — tap to expand */}
+          <button
+            type="button"
+            onClick={onToggle}
+            className="flex-1 flex items-center gap-3 text-left min-w-0"
+          >
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-semibold text-[#1C1C1E] truncate">
+                  {row.roleName || <span className="text-[#C7C7CC] font-normal italic">Unnamed Role</span>}
+                </p>
+                {row.isNew && (
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 shrink-0">NEW</span>
+                )}
+              </div>
+              {row.description && (
+                <p className="text-xs text-[#8E8E93] truncate mt-0.5 leading-snug">{row.description}</p>
+              )}
+            </div>
+
+            <ChevronRight
+              size={15}
+              className="text-[#C7C7CC] shrink-0 transition-transform duration-200"
+              style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}
+            />
+          </button>
+        </div>
+
+        {/* Expanded editor */}
+        {isExpanded && (
+          <div className="border-t border-black/[0.07] px-4 py-4 space-y-4 bg-[#FAFAFA]">
+
+            {/* Role ID */}
+            {row.id && (
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider">Role ID</p>
+                <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-[#F2F2F7] border border-black/[0.06]">
+                  <span className="text-sm font-mono font-bold text-[#1C1C1E]">{row.id}</span>
+                  <span className="text-[10px] text-[#C7C7CC] ml-auto">read-only · used for assignment</span>
+                </div>
+              </div>
+            )}
+
+            {/* Role Name */}
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider">Role Name</p>
+              <input
+                type="text"
+                value={row.roleName}
+                onChange={e => onUpdate({ roleName: e.target.value })}
+                placeholder="e.g. Sales Manager"
+                className={overlayInputCls}
+              />
+            </div>
+
+            {/* Description */}
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider">Description</p>
+              <textarea
+                value={row.description}
+                onChange={e => onUpdate({ description: e.target.value })}
+                placeholder="Describe what this role can see and do in the app…"
+                rows={3}
+                className={overlayInputCls + ' resize-none'}
+              />
+            </div>
+
+            {/* Delete */}
+            <div className="pt-1 border-t border-black/[0.06]">
+              <button
+                type="button"
+                onClick={onDelete}
+                className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-[#FF3B30] bg-[#FF3B30]/10 border border-[#FF3B30]/20 text-xs font-semibold active:opacity-70 transition-opacity"
+              >
+                <Trash2 size={13} />
+                Delete Role
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AccessRightsOverlay({ onClose }: { onClose: () => void }) {
+  const [rows, setRows]         = useState<RoleRow[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [saving, setSaving]     = useState(false);
+  const [savedMsg, setSavedMsg] = useState(false);
+  const [deletedIds, setDeletedIds] = useState<number[]>([]);
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [loadError, setLoadError]     = useState<string | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor,   { activationConstraint: { delay: 200, tolerance: 5 } }),
+  );
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const records = await fetchAccessRoles();
+      setRows(records.map(r => ({
+        key:         String(r.id),
+        id:          r.id,
+        roleName:    r.role_name,
+        description: r.description ?? '',
+        color:       r.color,
+        sortOrder:   r.sort_order,
+        isNew:       false,
+      })));
+      setDeletedIds([]);
+    } catch (e: any) {
+      console.error(e);
+      setLoadError(e?.message ?? String(e));
+    }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setRows(prev => {
+      const oldIdx = prev.findIndex(r => r.key === active.id);
+      const newIdx = prev.findIndex(r => r.key === over.id);
+      const reordered = arrayMove(prev, oldIdx, newIdx);
+      return reordered.map((r, i) => ({ ...r, sortOrder: i + 1 }));
+    });
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      for (const id of deletedIds) await deleteAccessRole(id);
+      for (const row of rows) {
+        await saveAccessRole({
+          id:          row.id ?? undefined,
+          role_name:   row.roleName.trim() || 'Unnamed Role',
+          description: row.description.trim() || null,
+          color:       row.color,
+          sort_order:  row.sortOrder,
+        });
+      }
+      await load();
+      setSavedMsg(true);
+      setTimeout(() => setSavedMsg(false), 2000);
+    } catch (e) { console.error(e); }
+    finally { setSaving(false); }
+  };
+
+  const addRow = () => {
+    const key = `new-${Date.now()}`;
+    setRows(prev => [...prev, {
+      key, id: null, roleName: '', description: '', color: '#C03D25',
+      sortOrder: (prev[prev.length - 1]?.sortOrder ?? 0) + 1,
+      isNew: true,
+    }]);
+    setExpandedKey(key);
+  };
+
+  const deleteRow = (row: RoleRow) => {
+    setRows(prev => prev.filter(r => r.key !== row.key));
+    if (row.id) setDeletedIds(prev => [...prev, row.id!]);
+    if (expandedKey === row.key) setExpandedKey(null);
+  };
+
+  const updateRow = (key: string, patch: Partial<RoleRow>) =>
+    setRows(prev => prev.map(r => r.key === key ? { ...r, ...patch } : r));
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-[#F2F2F7]" style={{ animation: 'overlaySlideUp 0.32s cubic-bezier(0.32,0.72,0,1) both' }}>
+      <style>{`@keyframes overlaySlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
+
+      {/* Nav */}
+      <div className="flex items-center justify-between px-4 pt-14 pb-4 shrink-0 bg-white border-b border-black/[0.06]">
+        <button onClick={onClose} className="p-2.5 rounded-2xl bg-gray-100 text-[#1C1C1E] active:opacity-70 transition-opacity">
+          <ChevronLeft size={20} />
+        </button>
+        <h1 className="text-[#1C1C1E] font-bold text-base">Access Rights</h1>
+        <button
+          onClick={handleSave}
+          disabled={saving || loading}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-md active:scale-95 transition-all disabled:opacity-50"
+        >
+          <Save size={14} />
+          {saving ? 'Saving…' : savedMsg ? 'Saved!' : 'Save'}
+        </button>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto px-4 py-4 pb-10 space-y-3">
+        {loading ? (
+          <div className="flex items-center justify-center h-40">
+            <Loader2 size={32} className="text-[#C03D25] animate-spin" />
+          </div>
+        ) : loadError ? (
+          <div className="rounded-2xl px-4 py-4 space-y-1" style={{ background: 'rgba(255,59,48,0.06)', border: '1px solid rgba(255,59,48,0.2)' }}>
+            <p className="text-xs font-bold text-[#FF3B30]">Failed to load roles</p>
+            <p className="text-xs text-[#6C6C70] font-mono break-all">{loadError}</p>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-start gap-2.5 px-3.5 py-3 rounded-2xl" style={{ background: 'rgba(192,61,37,0.05)', border: '1px solid rgba(192,61,37,0.12)' }}>
+              <ShieldCheck size={14} className="text-[#C03D25] mt-0.5 shrink-0" />
+              <p className="text-xs text-[#6C6C70] leading-relaxed">
+                Drag the grip handle to reorder roles. Tap a role card to edit its name, description, and color. Changes take effect after saving.
+              </p>
+            </div>
+
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={rows.map(r => r.key)} strategy={verticalListSortingStrategy}>
+                <div className="space-y-3">
+                  {rows.length === 0 && (
+                    <div className="rounded-3xl py-10 flex flex-col items-center gap-2" style={cardStyle}>
+                      <ShieldCheck size={28} className="text-[#C7C7CC]" />
+                      <p className="text-sm text-[#8E8E93]">No roles yet. Add one below.</p>
+                    </div>
+                  )}
+                  {rows.map(row => (
+                    <SortableRoleRow
+                      key={row.key}
+                      row={row}
+                      isExpanded={expandedKey === row.key}
+                      onToggle={() => setExpandedKey(expandedKey === row.key ? null : row.key)}
+                      onUpdate={patch => updateRow(row.key, patch)}
+                      onDelete={() => deleteRow(row)}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
+
+            <button
+              onClick={addRow}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-3xl text-[#C03D25] text-sm font-semibold border-2 border-dashed border-[#C03D25]/30 active:bg-[#C03D25]/5 transition-colors"
+            >
+              <Plus size={16} />
+              Add Role
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── User Management ────────────────────────────────────────────────── */
+
+interface UserProfile {
+  id: string;
+  full_name: string;
+  display_name: string | null;
+  email: string;
+  role_id: number | null;
+  created_at: string;
+  access_roles: { role_name: string } | null;
+}
+
+function getInitialsUM(name: string) {
+  const parts = name.trim().split(' ').filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function UserManagementOverlay({ onClose }: { onClose: () => void }) {
+  const [users, setUsers]           = useState<UserProfile[]>([]);
+  const [roles, setRoles]           = useState<{ id: number; role_name: string }[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [loadError, setLoadError]   = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [editUser, setEditUser]     = useState<UserProfile | null>(null);
+
+  const loadUsers = useCallback(async () => {
+    setLoading(true); setLoadError(null);
+    try {
+      const [usersRes, rolesRes] = await Promise.all([
+        fetch('/api/admin/users'),
+        fetchAccessRoles(),
+      ]);
+      const { users: u, error } = await usersRes.json();
+      if (error) throw new Error(error);
+      setUsers(u ?? []);
+      setRoles(rolesRes.map(r => ({ id: r.id, role_name: r.role_name })));
+    } catch (e: any) {
+      setLoadError(e.message ?? 'Failed to load');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadUsers(); }, [loadUsers]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-[#F2F2F7]" style={{ animation: 'overlaySlideUp 0.32s cubic-bezier(0.32,0.72,0,1) both' }}>
+      <style>{`@keyframes overlaySlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
+
+      {/* Nav */}
+      <div className="flex items-center justify-between px-4 pt-14 pb-4 shrink-0 bg-white border-b border-black/[0.06]">
+        <button onClick={onClose} className="p-2.5 rounded-2xl bg-gray-100 text-[#1C1C1E] active:opacity-70">
+          <ChevronLeft size={20} />
+        </button>
+        <h1 className="text-[#1C1C1E] font-bold text-base">User Management</h1>
+        <button
+          onClick={() => setShowCreate(true)}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-md active:scale-95 transition-all"
+        >
+          <Plus size={14} />
+          Add User
+        </button>
+      </div>
+
+      {/* List */}
+      <div className="flex-1 overflow-y-auto px-4 py-4 pb-10 space-y-3">
+        {loading ? (
+          <div className="flex items-center justify-center h-40">
+            <Loader2 size={32} className="text-[#C03D25] animate-spin" />
+          </div>
+        ) : loadError ? (
+          <div className="rounded-2xl px-4 py-4" style={{ background: 'rgba(255,59,48,0.06)', border: '1px solid rgba(255,59,48,0.2)' }}>
+            <p className="text-xs font-bold text-[#FF3B30]">{loadError}</p>
+          </div>
+        ) : users.length === 0 ? (
+          <div className="rounded-3xl py-10 flex flex-col items-center gap-2" style={cardStyle}>
+            <Users size={28} className="text-[#C7C7CC]" />
+            <p className="text-sm text-[#8E8E93]">No users yet. Add one above.</p>
+          </div>
+        ) : (
+          users.map(u => (
+            <button
+              key={u.id}
+              type="button"
+              onClick={() => setEditUser(u)}
+              className="w-full flex items-center gap-3 px-4 py-3.5 rounded-3xl text-left active:scale-[0.98] transition-all"
+              style={cardStyle}
+            >
+              <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 bg-[#C03D25]/10">
+                <span className="text-sm font-bold text-[#C03D25]">{getInitialsUM(u.full_name || u.email)}</span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-[#1C1C1E] truncate">
+                  {u.display_name || u.full_name || '—'}
+                </p>
+                <p className="text-xs text-[#8E8E93] truncate">{u.email}</p>
+              </div>
+              {u.access_roles?.role_name ? (
+                <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-[#C03D25]/10 text-[#C03D25] shrink-0">
+                  {u.access_roles.role_name}
+                </span>
+              ) : (
+                <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-[#F2F2F7] text-[#8E8E93] shrink-0">
+                  No Role
+                </span>
+              )}
+              <ChevronRight size={15} className="text-[#C7C7CC] shrink-0" />
+            </button>
+          ))
+        )}
+      </div>
+
+      {/* Create User Sheet */}
+      {showCreate && (
+        <CreateUserSheet
+          roles={roles}
+          onClose={() => setShowCreate(false)}
+          onCreated={() => { setShowCreate(false); loadUsers(); }}
+        />
+      )}
+
+      {/* Edit User Sheet */}
+      {editUser && (
+        <EditUserSheet
+          user={editUser}
+          roles={roles}
+          onClose={() => setEditUser(null)}
+          onSaved={() => { setEditUser(null); loadUsers(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function CreateUserSheet({
+  roles, onClose, onCreated,
+}: { roles: { id: number; role_name: string }[]; onClose: () => void; onCreated: () => void }) {
+  const [fullName,     setFullName]     = useState('');
+  const [displayName,  setDisplayName]  = useState('');
+  const [email,        setEmail]        = useState('');
+  const [password,     setPassword]     = useState('');
+  const [showPass,     setShowPass]     = useState(false);
+  const [roleId,       setRoleId]       = useState<number | null>(null);
+  const [saving,       setSaving]       = useState(false);
+  const [error,        setError]        = useState<string | null>(null);
+
+  async function handleCreate() {
+    if (!fullName.trim() || !email.trim() || !password.trim()) {
+      setError('Full name, email, and password are required.'); return;
+    }
+    setSaving(true); setError(null);
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ full_name: fullName.trim(), display_name: displayName.trim() || null, email: email.trim(), password, role_id: roleId }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error ?? 'Failed to create user'); return; }
+      onCreated();
+    } catch (e: any) {
+      setError(e.message ?? 'Server error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-60 flex items-end" style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}>
+      <div className="w-full bg-white rounded-t-3xl px-5 pt-5 pb-10 space-y-4" style={{ animation: 'overlaySlideUp 0.28s cubic-bezier(0.32,0.72,0,1) both' }}>
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-base font-bold text-[#1C1C1E]">Create User</h2>
+          <button onClick={onClose} className="p-2 rounded-xl bg-[#F2F2F7] active:opacity-70"><Eraser size={16} /></button>
+        </div>
+
+        <div className="space-y-1.5">
+          <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider">Full Name</p>
+          <input type="text" value={fullName} onChange={e => setFullName(e.target.value)}
+            placeholder="e.g. Juan dela Cruz" className={overlayInputCls} />
+        </div>
+
+        <div className="space-y-1.5">
+          <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider">Display Name <span className="normal-case font-normal text-[#C7C7CC]">optional</span></p>
+          <input type="text" value={displayName} onChange={e => setDisplayName(e.target.value)}
+            placeholder="e.g. Juan" className={overlayInputCls} />
+          <p className="text-[10px] text-[#8E8E93] px-1">Shown in the app instead of full name</p>
+        </div>
+
+        <div className="space-y-1.5">
+          <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider">Email</p>
+          <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+            placeholder="juan@company.com" className={overlayInputCls} />
+        </div>
+
+        <div className="space-y-1.5">
+          <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider">Password</p>
+          <div className="relative">
+            <input type={showPass ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
+              placeholder="Min. 8 characters" className={overlayInputCls + ' pr-10'} />
+            <button type="button" onClick={() => setShowPass(p => !p)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#C7C7CC] active:opacity-70">
+              {showPass ? <Eye size={16} /> : <Eye size={16} className="opacity-40" />}
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider">Role</p>
+          <div className="space-y-2">
+            {roles.map(r => (
+              <button key={r.id} type="button" onClick={() => setRoleId(roleId === r.id ? null : r.id)}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl border transition-colors text-left ${
+                  roleId === r.id
+                    ? 'bg-[#C03D25]/08 border-[#C03D25]/30'
+                    : 'bg-[#F2F2F7] border-transparent'
+                }`}>
+                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                  roleId === r.id ? 'border-[#C03D25] bg-[#C03D25]' : 'border-[#C7C7CC]'
+                }`}>
+                  {roleId === r.id && <Check size={11} className="text-white" />}
+                </div>
+                <span className={`text-sm font-medium ${roleId === r.id ? 'text-[#C03D25]' : 'text-[#1C1C1E]'}`}>
+                  {r.role_name}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {error && (
+          <p className="text-xs text-[#FF3B30] px-1">{error}</p>
+        )}
+
+        <button
+          type="button"
+          onClick={handleCreate}
+          disabled={saving}
+          className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-md active:opacity-80 disabled:opacity-50 flex items-center justify-center gap-2"
+        >
+          {saving ? <><Loader2 size={16} className="animate-spin" /> Creating…</> : 'Create Account'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function EditUserSheet({
+  user, roles, onClose, onSaved,
+}: { user: UserProfile; roles: { id: number; role_name: string }[]; onClose: () => void; onSaved: () => void }) {
+  const [fullName,      setFullName]      = useState(user.full_name ?? '');
+  const [displayName,   setDisplayName]   = useState(user.display_name ?? '');
+  const [roleId,        setRoleId]        = useState<number | null>(user.role_id);
+  const [saving,        setSaving]        = useState(false);
+  const [deleting,      setDeleting]      = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [error,         setError]         = useState<string | null>(null);
+
+  async function handleSaveRole() {
+    setSaving(true); setError(null);
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ full_name: fullName.trim() || null, role_id: roleId, display_name: displayName.trim() || null }),
+      });
+      if (!res.ok) { const d = await res.json(); setError(d.error); return; }
+      onSaved();
+    } catch (e: any) { setError(e.message); }
+    finally { setSaving(false); }
+  }
+
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      await fetch(`/api/admin/users/${user.id}`, { method: 'DELETE' });
+      onSaved();
+    } catch (e: any) { setError(e.message); }
+    finally { setDeleting(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-60 flex items-end" style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}>
+      <div className="w-full bg-white rounded-t-3xl px-5 pt-5 pb-10 space-y-4" style={{ animation: 'overlaySlideUp 0.28s cubic-bezier(0.32,0.72,0,1) both' }}>
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-[#C03D25]/10 flex items-center justify-center">
+              <span className="text-sm font-bold text-[#C03D25]">{getInitialsUM(user.full_name || user.email)}</span>
+            </div>
+            <div>
+              <p className="text-sm font-bold text-[#1C1C1E]">{user.full_name || '—'}</p>
+              <p className="text-xs text-[#8E8E93]">{user.email}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-xl bg-[#F2F2F7] active:opacity-70"><ChevronLeft size={16} /></button>
+        </div>
+
+        <div className="space-y-1.5">
+          <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider">Full Name</p>
+          <input type="text" value={fullName} onChange={e => setFullName(e.target.value)}
+            placeholder="e.g. Juan dela Cruz" className={overlayInputCls} />
+        </div>
+
+        <div className="space-y-1.5">
+          <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider">Display Name <span className="normal-case font-normal text-[#C7C7CC]">optional</span></p>
+          <input type="text" value={displayName} onChange={e => setDisplayName(e.target.value)}
+            placeholder="e.g. Juan" className={overlayInputCls} />
+          <p className="text-[10px] text-[#8E8E93] px-1">Shown in the app instead of full name</p>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider">Assign Role</p>
+          <div className="space-y-2">
+            {roles.map(r => (
+              <button key={r.id} type="button" onClick={() => setRoleId(roleId === r.id ? null : r.id)}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl border transition-colors text-left ${
+                  roleId === r.id
+                    ? 'bg-[#C03D25]/08 border-[#C03D25]/30'
+                    : 'bg-[#F2F2F7] border-transparent'
+                }`}>
+                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                  roleId === r.id ? 'border-[#C03D25] bg-[#C03D25]' : 'border-[#C7C7CC]'
+                }`}>
+                  {roleId === r.id && <Check size={11} className="text-white" />}
+                </div>
+                <span className={`text-sm font-medium ${roleId === r.id ? 'text-[#C03D25]' : 'text-[#1C1C1E]'}`}>
+                  {r.role_name}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {error && <p className="text-xs text-[#FF3B30] px-1">{error}</p>}
+
+        <button type="button" onClick={handleSaveRole} disabled={saving}
+          className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80 disabled:opacity-50 flex items-center justify-center gap-2">
+          {saving ? <><Loader2 size={16} className="animate-spin" /> Saving…</> : 'Save Changes'}
+        </button>
+
+        <button type="button" onClick={() => setConfirmDelete(true)}
+          className="w-full py-3.5 rounded-2xl bg-[#FF3B30]/10 text-[#FF3B30] text-sm font-semibold active:opacity-70">
+          Delete Account
+        </button>
+      </div>
+
+      {confirmDelete && (
+        <div className="fixed inset-0 z-70 flex items-end" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}>
+          <div className="w-full bg-white rounded-t-3xl px-6 pt-6 pb-10 space-y-5">
+            <div className="flex flex-col items-center gap-2 text-center">
+              <div className="w-12 h-12 rounded-2xl bg-red-50 flex items-center justify-center">
+                <Trash2 size={22} className="text-red-500" />
+              </div>
+              <p className="text-base font-bold text-[#1C1C1E]">Delete Account?</p>
+              <p className="text-sm text-[#6C6C70]">This will permanently delete {user.full_name || user.email}'s account.</p>
+            </div>
+            <button type="button" onClick={handleDelete} disabled={deleting}
+              className="w-full py-3.5 rounded-2xl bg-red-500 text-white text-sm font-bold active:opacity-80 disabled:opacity-50">
+              {deleting ? 'Deleting…' : 'Yes, Delete'}
+            </button>
+            <button type="button" onClick={() => setConfirmDelete(false)}
+              className="w-full py-3.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── Admin landing page ──────────────────────────────────────────────── */
 export default function AdminUserPage() {
   const [activeOverlay, setActiveOverlay] = useState<string | null>(null);
@@ -1590,6 +2373,12 @@ export default function AdminUserPage() {
       )}
       {activeOverlay === 'hic-settings' && (
         <HicSettingsOverlay onClose={() => setActiveOverlay(null)} />
+      )}
+      {activeOverlay === 'access-rights' && (
+        <AccessRightsOverlay onClose={() => setActiveOverlay(null)} />
+      )}
+      {activeOverlay === 'user-management' && (
+        <UserManagementOverlay onClose={() => setActiveOverlay(null)} />
       )}
     </>
   );

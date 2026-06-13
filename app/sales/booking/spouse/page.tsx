@@ -218,7 +218,7 @@ const RANK_OPTS               = ['Executive', 'Managerial', 'Supervisor', 'Rank 
 const SALARY_RANGE_OPTS       = ['50,000 and Below', '50,001 to 80,000', '80,001 to 120,000', '120,001 to 150,000', '150,001 to 200,000', '200,001 and Above'];
 const MAILING_OPTS            = ['Home Address', 'Office Address', 'Others'];
 const COUNTRY_OPTIONS         = COUNTRY_CODES.map(c => ({ label: c.name, flag: c.flag }));
-const LOCKED_STATUSES         = ['submitted', 'director-approved', 'finance-verified', 'Booked'];
+const LOCKED_STATUSES         = ['submitted', 'director-approved', 'amd-review', 'amd-approved', 'finance-verified', 'Booked'];
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function SpousePage() {
@@ -297,7 +297,6 @@ export default function SpousePage() {
       supabase.from('reservations').select('booking_review_status').eq('reservation_id', r.reservation_id).single(),
     ]).then(([info, { data: resRow }]) => {
       const brs = (resRow as any)?.booking_review_status ?? null;
-      // Lock fields only when booking is in a locked review status
       setIsSaved(!!info && LOCKED_STATUSES.includes(brs ?? ''));
 
       if (!info) return;

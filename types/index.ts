@@ -1,11 +1,10 @@
-export type UserRole = 'agent' | 'manager' | 'admin';
-
 export interface AppUser {
   id: string;
   email: string;
   full_name: string;
-  role: UserRole;
-  created_at: string;
+  display_name: string | null;
+  role_id: number | null;
+  role_name: string | null;
 }
 
 export interface ProjectPhotos {

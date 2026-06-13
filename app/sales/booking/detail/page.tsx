@@ -10,12 +10,15 @@ import {
 import { deleteCoOwner } from '@/lib/co-owners';
 import { deleteAttyInFact } from '@/lib/atty-in-fact';
 import { generateCommissionSchedule } from '@/lib/commission';
-import { withdrawSubmission } from '@/lib/review';
+import { withdrawSubmission, submitForReview, directorReview, amdReview } from '@/lib/review';
+import { addActivityLog, getActivityLog, ActivityLogEntry } from '@/lib/activity-log';
+import { getSession } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import {
   Building2, Tag, User, ChevronRight,
   Lock, Check, FileText, Loader2, UserCheck, ShieldCheck, ShieldAlert, Heart,
-  CheckCircle2, XCircle, Send, Clock, AlertTriangle,
+  CheckCircle2, XCircle, Send, Clock, AlertTriangle, Eye, Banknote,
+  RotateCcw, X, ThumbsUp, ThumbsDown,
 } from 'lucide-react';
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -64,35 +67,23 @@ function ToggleRow({ icon, label, value, onToggle, locked, saving }: {
   );
 }
 
-function StageCard({ number, title, complete, locked, badge, children }: {
-  number: number; title: string; complete: boolean; locked?: boolean;
-  badge?: React.ReactNode;
+function StageCard({ number, title, icon, complete, locked, viewOnly, badge, children }: {
+  number: number; title: string; icon?: React.ReactNode; complete: boolean;
+  locked?: boolean; viewOnly?: boolean; badge?: React.ReactNode;
   children: React.ReactNode;
 }) {
+  const accentBorder = complete ? 'border-l-green-500' : locked ? 'border-l-[#D1D1D6]' : 'border-l-[#C03D25]';
   return (
-    <GlassCard className={`overflow-hidden ${locked ? 'opacity-50' : ''}`}>
-      <div className={`px-4 py-3 flex items-center justify-between border-b border-black/[0.06] ${
-        complete ? 'bg-green-500/[0.07]' : 'bg-[#F2F2F7]/60'
-      }`}>
-        <div className="flex items-center gap-3">
-          <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
-            complete ? 'bg-green-500' : locked ? 'bg-[#C7C7CC]' : 'bg-[#C03D25]'
-          }`}>
-            {complete
-              ? <Check size={14} className="text-white" />
-              : locked
-              ? <Lock size={13} className="text-white" />
-              : <span className="text-xs font-bold text-white">{number}</span>}
-          </div>
-          <div>
-            <p className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wider">Stage {number}</p>
-            <p className="text-sm font-bold text-[#1C1C1E]">{title}</p>
-          </div>
+    <GlassCard className={`overflow-hidden border-l-4 ${accentBorder} ${locked ? 'opacity-60' : ''}`}>
+      <div className="px-4 py-3.5 flex items-center justify-between border-b border-black/[0.06]">
+        <div className="flex items-center gap-2.5">
+          {icon && <span className="text-[#8E8E93] shrink-0">{icon}</span>}
+          <p className="text-[15px] font-bold text-[#1C1C1E]">{title}</p>
         </div>
         {badge !== undefined ? badge : (
-          complete  ? <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-green-100 text-green-700">Complete</span>
-          : !locked ? <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-[#C03D25]/10 text-[#C03D25]">In Progress</span>
-          :           <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-[#F2F2F7] text-[#8E8E93]">Locked</span>
+          complete  ? <CheckCircle2 size={16} className="text-green-500" />
+          : locked  ? <Lock size={14} className="text-[#C7C7CC]" />
+          : null
         )}
       </div>
       <div className="divide-y divide-black/[0.05]">{children}</div>
@@ -100,29 +91,70 @@ function StageCard({ number, title, complete, locked, badge, children }: {
   );
 }
 
-function StageRow({ icon, label, done, onTap, locked }: {
-  icon: React.ReactNode; label: string; done: boolean; onTap?: () => void; locked?: boolean;
+function StageRow({ icon, label, done, onTap, locked, viewOnly }: {
+  icon: React.ReactNode; label: string; done: boolean; onTap?: () => void;
+  locked?: boolean; viewOnly?: boolean;
 }) {
+  const canTap = !locked;
   return (
-    <button type="button" onClick={!locked ? onTap : undefined}
+    <button type="button" onClick={canTap ? onTap : undefined}
       className={`w-full flex items-center gap-3 px-4 py-3.5 transition-colors ${
         locked ? 'cursor-default' : 'active:bg-black/[0.03]'
       }`}>
-      <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
-        done ? 'bg-green-500' : 'bg-[#E5E5EA]'
+      <div className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 border ${
+        done ? 'bg-green-500 border-green-500' : 'bg-transparent border-[#C7C7CC]'
       }`}>
-        {done && <Check size={10} className="text-white" />}
+        {done && <Check size={9} className="text-white" />}
       </div>
-      <span className="flex-1 text-sm font-medium text-[#1C1C1E] text-left">{label}</span>
-      <div className="flex items-center gap-2 shrink-0">
-        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-          done ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
-        }`}>
-          {done ? 'Done' : 'Pending'}
-        </span>
-        {!locked && <ChevronRight size={14} className="text-[#C7C7CC]" />}
-      </div>
+      <span className={`flex-1 text-sm font-medium text-left ${done ? 'text-[#1C1C1E]' : 'text-[#8E8E93]'}`}>
+        {label}
+      </span>
+      {locked ? null
+        : viewOnly ? <Eye size={13} className="text-[#C7C7CC]" />
+        : <ChevronRight size={14} className="text-[#C7C7CC]" />
+      }
     </button>
+  );
+}
+
+// ─── Activity Log Row ────────────────────────────────────────────────────────
+
+const LOG_CONFIG: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
+  'submitted':          { label: 'Submitted for Director Review',    color: 'text-[#3A3A3C]',  bg: 'bg-[#3A3A3C]',  icon: <Send size={9} className="text-white" /> },
+  'resubmitted':        { label: 'Resubmitted for Director Review',  color: 'text-[#3A3A3C]',  bg: 'bg-[#3A3A3C]',  icon: <RotateCcw size={9} className="text-white" /> },
+  'withdrawn':          { label: 'Submission Withdrawn',             color: 'text-[#3A3A3C]',  bg: 'bg-[#8E8E93]',  icon: <RotateCcw size={9} className="text-white" /> },
+  'director-approved':  { label: 'Approved by Director',             color: 'text-[#1A7F37]',  bg: 'bg-[#1A7F37]',  icon: <ThumbsUp size={9} className="text-white" /> },
+  'director-rejected':  { label: 'Rejected by Director',             color: 'text-[#C03D25]',  bg: 'bg-[#C03D25]',  icon: <ThumbsDown size={9} className="text-white" /> },
+  'amd-approved':       { label: 'Approved by Account Management',   color: 'text-[#1A7F37]',  bg: 'bg-[#1A7F37]',  icon: <ThumbsUp size={9} className="text-white" /> },
+  'amd-rejected':       { label: 'Rejected by Account Management',   color: 'text-[#C03D25]',  bg: 'bg-[#C03D25]',  icon: <ThumbsDown size={9} className="text-white" /> },
+  'dp-verified':        { label: '1st DP Verified by Finance',        color: 'text-[#1A7F37]',  bg: 'bg-[#1A7F37]',  icon: <CheckCircle2 size={9} className="text-white" /> },
+};
+
+function ActivityLogRow({ entry }: { entry: ActivityLogEntry }) {
+  const cfg = LOG_CONFIG[entry.action] ?? { label: entry.action, color: 'text-[#8E8E93]', bg: 'bg-[#C7C7CC]', icon: null };
+  const d = new Date(entry.created_at);
+  const ts = d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })
+           + ', ' + d.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit', hour12: true });
+  return (
+    <div className="px-4 py-3 flex gap-3">
+      <div className={`w-5 h-5 rounded-full ${cfg.bg} flex items-center justify-center shrink-0 mt-0.5`}>
+        {cfg.icon}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-start justify-between gap-2">
+          <p className={`text-xs font-semibold ${cfg.color}`}>{cfg.label}</p>
+          <span className="text-[10px] text-[#C7C7CC] shrink-0 mt-0.5">{ts}</span>
+        </div>
+        {entry.actor_name && (
+          <p className="text-[11px] text-[#8E8E93] mt-0.5">{entry.actor_name}</p>
+        )}
+        {entry.comment && (
+          <p className="text-xs text-[#3A3A3C] mt-1.5 bg-[#F2F2F7] rounded-xl px-3 py-2 leading-relaxed">
+            &ldquo;{entry.comment}&rdquo;
+          </p>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -153,13 +185,22 @@ export default function BookingDetailPage() {
   const [hasCoOwnership,  setHasCoOwnership]  = useState(false);
   const [hasAttyInFact,   setHasAttyInFact]   = useState(false);
   const [savingFlags,     setSavingFlags]     = useState(false);
-  const [dpProofUploaded,    setDpProofUploaded]    = useState(false);
   const [commissionMissing,    setCommissionMissing]    = useState(false);
   const [generatingCommission, setGeneratingCommission] = useState(false);
+  const [submitting,             setSubmitting]             = useState(false);
   const [withdrawing,            setWithdrawing]            = useState(false);
   const [showWithdrawConfirm,    setShowWithdrawConfirm]    = useState(false);
+  const [userRoleName,           setUserRoleName]           = useState<string | null>(null);
+  const [displayName,            setDisplayName]            = useState<string | null>(null);
   const [showRemoveCoOwnerConfirm, setShowRemoveCoOwnerConfirm] = useState(false);
   const [showRemoveAttyConfirm,    setShowRemoveAttyConfirm]    = useState(false);
+  const [activityLog,            setActivityLog]            = useState<ActivityLogEntry[]>([]);
+  const [logOpen,                setLogOpen]                = useState(false);
+  const [showRejectSheet,        setShowRejectSheet]        = useState(false);
+  const [rejectComment,          setRejectComment]          = useState('');
+  const [showAMDRejectSheet,     setShowAMDRejectSheet]     = useState(false);
+  const [amdRejectComment,       setAmdRejectComment]       = useState('');
+  const [reviewing,              setReviewing]              = useState(false);
 
   // Privacy consent
   const [privacyConsent,  setPrivacyConsent]  = useState(false);
@@ -168,6 +209,10 @@ export default function BookingDetailPage() {
   const [agreedEsig,      setAgreedEsig]      = useState(false);
   const [savingConsent,   setSavingConsent]   = useState(false);
   useEffect(() => {
+    getSession().then(s => {
+      setUserRoleName(s?.role_name ?? null);
+      setDisplayName(s?.display_name || s?.full_name || null);
+    });
     const raw = sessionStorage.getItem('selectedReservation');
     if (!raw) { router.replace('/sales/booking'); return; }
     const r = JSON.parse(raw);
@@ -183,20 +228,16 @@ export default function BookingDetailPage() {
         })
         .catch(err => { console.error('[detail] progress error:', err); setProgress(null); })
         .finally(() => setLoading(false));
-      // Check if 1st DP proof has been uploaded
+      getActivityLog(r.reservation_id).then(setActivityLog).catch(e => console.error('[activity-log]', e));
+      // Check commission schedule once director approves
       supabase
         .from('reservations')
-        .select('proof_of_1st_dp_urls, booking_review_status')
+        .select('booking_review_status')
         .eq('reservation_id', r.reservation_id)
         .single()
         .then(({ data }) => {
-          try {
-            const urls = JSON.parse(data?.proof_of_1st_dp_urls ?? '[]');
-            setDpProofUploaded(Array.isArray(urls) && urls.length > 0);
-          } catch { setDpProofUploaded(false); }
-          // Check commission schedule once RF is approved
-          const rs = data?.booking_review_status ?? null;
-          if (rs === 'finance-verified' || rs === 'Booked') {
+          const brs = data?.booking_review_status ?? null;
+          if (brs && ['director-approved', 'amd-review', 'amd-approved', 'finance-verified', 'Booked'].includes(brs)) {
             supabase
               .from('commission_schedule')
               .select('id', { count: 'exact', head: true })
@@ -222,17 +263,101 @@ export default function BookingDetailPage() {
     }
   }
 
+  async function handleSubmit() {
+    if (!reservation?.reservation_id) return;
+    setSubmitting(true);
+    try {
+      const prevStatus = progress?.booking_review_status;
+      const isResubmit = prevStatus === 'director-rejected' || prevStatus === 'amd-rejected';
+      await submitForReview(reservation.reservation_id);
+      await addActivityLog(reservation.reservation_id, isResubmit ? 'resubmitted' : 'submitted', displayName).catch(e => console.error('[activity-log]', e));
+      setProgress(prev => prev ? { ...prev, booking_review_status: 'submitted' } : prev);
+      getActivityLog(reservation.reservation_id).then(setActivityLog).catch(e => console.error('[activity-log]', e));
+    } catch (e) {
+      console.error('[submit] Failed:', e);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   async function handleWithdraw() {
     if (!reservation?.reservation_id) return;
     setWithdrawing(true);
     try {
       await withdrawSubmission(reservation.reservation_id);
+      await addActivityLog(reservation.reservation_id, 'withdrawn', displayName).catch(e => console.error('[activity-log]', e));
       setProgress(prev => prev ? { ...prev, booking_review_status: null } : prev);
+      getActivityLog(reservation.reservation_id).then(setActivityLog).catch(e => console.error('[activity-log]', e));
     } catch (e) {
       console.error('[withdraw] Failed:', e);
     } finally {
       setWithdrawing(false);
       setShowWithdrawConfirm(false);
+    }
+  }
+
+  async function handleDirectorApprove() {
+    if (!reservation?.reservation_id) return;
+    setReviewing(true);
+    try {
+      await directorReview(reservation.reservation_id, true);
+      await supabase.from('reservations').update({ booking_review_status: 'amd-review' }).eq('reservation_id', reservation.reservation_id);
+      await addActivityLog(reservation.reservation_id, 'director-approved', displayName).catch(e => console.error('[activity-log]', e));
+      setProgress(prev => prev ? { ...prev, booking_review_status: 'amd-review' } : prev);
+      getActivityLog(reservation.reservation_id).then(setActivityLog).catch(e => console.error('[activity-log]', e));
+    } catch (e) {
+      console.error('[director-approve] Failed:', e);
+    } finally {
+      setReviewing(false);
+    }
+  }
+
+  async function handleAMDApprove() {
+    if (!reservation?.reservation_id) return;
+    setReviewing(true);
+    try {
+      await amdReview(reservation.reservation_id, true);
+      await addActivityLog(reservation.reservation_id, 'amd-approved', displayName).catch(e => console.error('[activity-log]', e));
+      setProgress(prev => prev ? { ...prev, booking_review_status: 'amd-approved' } : prev);
+      getActivityLog(reservation.reservation_id).then(setActivityLog).catch(e => console.error('[activity-log]', e));
+    } catch (e) {
+      console.error('[amd-approve] Failed:', e);
+    } finally {
+      setReviewing(false);
+    }
+  }
+
+  async function handleAMDReject() {
+    if (!reservation?.reservation_id || !amdRejectComment.trim()) return;
+    setReviewing(true);
+    try {
+      await amdReview(reservation.reservation_id, false, amdRejectComment.trim());
+      await addActivityLog(reservation.reservation_id, 'amd-rejected', displayName, amdRejectComment.trim()).catch(e => console.error('[activity-log]', e));
+      setProgress(prev => prev ? { ...prev, booking_review_status: 'amd-rejected', amd_notes: amdRejectComment.trim() } : null);
+      getActivityLog(reservation.reservation_id).then(setActivityLog).catch(e => console.error('[activity-log]', e));
+      setShowAMDRejectSheet(false);
+      setAmdRejectComment('');
+    } catch (e) {
+      console.error('[amd-reject] Failed:', e);
+    } finally {
+      setReviewing(false);
+    }
+  }
+
+  async function handleDirectorReject() {
+    if (!reservation?.reservation_id || !rejectComment.trim()) return;
+    setReviewing(true);
+    try {
+      await directorReview(reservation.reservation_id, false, rejectComment.trim());
+      await addActivityLog(reservation.reservation_id, 'director-rejected', displayName, rejectComment.trim()).catch(e => console.error('[activity-log]', e));
+      setProgress(prev => prev ? { ...prev, booking_review_status: 'director-rejected', director_notes: rejectComment.trim() } : prev);
+      getActivityLog(reservation.reservation_id).then(setActivityLog).catch(e => console.error('[activity-log]', e));
+      setShowRejectSheet(false);
+      setRejectComment('');
+    } catch (e) {
+      console.error('[director-reject] Failed:', e);
+    } finally {
+      setReviewing(false);
     }
   }
 
@@ -306,24 +431,44 @@ export default function BookingDetailPage() {
       && (!hasAttyInFact        || progress.atty_saved)
     : false;
 
-  const rs          = progress?.booking_review_status ?? null;
-  const docsReady   = progress?.documents_saved ?? false;
-  const dirApproved   = docsReady && (rs === 'director-approved' || rs === 'finance-verified' || rs === 'Booked');
-  const rfVerified    = docsReady && (rs === 'finance-verified' || rs === 'Booked');
-  const isBooked      = docsReady && rs === 'Booked';
-  const stage1Locked   = rs === 'submitted' || dirApproved;
-  const stage2Complete = docsReady && stage1Locked;
-  const currentStage   = !stage1Complete ? 1 : !stage2Complete ? 2 : !dirApproved ? 3 : 4;
+  const rs           = progress?.booking_review_status ?? null;
+  const docsReady    = progress?.documents_saved ?? false;
+  const dirApproved  = docsReady && (rs === 'director-approved' || rs === 'amd-review' || rs === 'amd-approved' || rs === 'finance-verified' || rs === 'Booked');
+  const amdApproved  = docsReady && (rs === 'amd-approved' || rs === 'finance-verified' || rs === 'Booked');
+  const rfVerified   = docsReady && (rs === 'finance-verified' || rs === 'Booked');
+  const isBooked     = docsReady && rs === 'Booked';
+  const isDirector     = userRoleName === 'Sales Director';
+  const isAMD          = userRoleName === 'Account Management';
+  const stage1Locked   = isDirector || isAMD || rs === 'submitted' || dirApproved;
+  const stage2Complete = docsReady;
+  const currentStage   = !stage1Complete ? 1 : !stage2Complete ? 2 : !dirApproved ? 3 : !amdApproved ? 4 : 5;
 
-  function goToBuyerInfo() { router.push('/sales/booking/buyer-info'); }
-  function goToSpouse()    { router.push('/sales/booking/spouse'); }
+  function goToBuyerInfo() {
+    if (stage1Locked) sessionStorage.setItem('booking_view_only', '1');
+    else sessionStorage.removeItem('booking_view_only');
+    router.push('/sales/booking/buyer-info');
+  }
+  function goToSpouse() {
+    if (stage1Locked) sessionStorage.setItem('booking_view_only', '1');
+    else sessionStorage.removeItem('booking_view_only');
+    router.push('/sales/booking/spouse');
+  }
   function goToCoOwner() {
     sessionStorage.setItem('coowner_hasAttyInFact', hasAttyInFact ? '1' : '0');
+    if (stage1Locked) sessionStorage.setItem('booking_view_only', '1');
+    else sessionStorage.removeItem('booking_view_only');
     router.push('/sales/booking/co-owner');
   }
   function goToAttyInFact() {
     sessionStorage.setItem('atty_hasCoOwnership', hasCoOwnership ? '1' : '0');
+    if (stage1Locked) sessionStorage.setItem('booking_view_only', '1');
+    else sessionStorage.removeItem('booking_view_only');
     router.push('/sales/booking/atty-in-fact');
+  }
+  function goToDocuments() {
+    if (stage1Locked) sessionStorage.setItem('booking_view_only', '1');
+    else sessionStorage.removeItem('booking_view_only');
+    router.push('/sales/booking/documents');
   }
 
   return (
@@ -463,58 +608,81 @@ export default function BookingDetailPage() {
           /* ── Stages (consent already given) ── */
           <>
             {/* Progress stepper */}
-            <GlassCard className="px-4 py-4">
-              <div className="relative flex items-start justify-between">
-                <div className="absolute left-4 right-4 top-4 h-0.5 bg-[#E5E5EA]" />
+            <GlassCard className="px-4 pt-4 pb-3.5">
+              {/* Main sequential track */}
+              <div className="flex items-center justify-between px-1">
                 {[
-                  { label: 'Buyer Info', done: stage1Complete },
-                  { label: 'Documents',  done: stage2Complete },
-                  { label: 'Director',   done: dirApproved },
-                  { label: 'Finance',    done: isBooked },
-                ].map((s, i) => {
+                  { label: 'Buyer Info', icon: <User size={14} />,         done: stage1Complete },
+                  { label: 'Documents',  icon: <FileText size={14} />,     done: stage2Complete },
+                  { label: 'Director',   icon: <ShieldCheck size={14} />,  done: dirApproved },
+                  { label: 'AMD',        icon: <CheckCircle2 size={14} />, done: amdApproved },
+                ].map((s, i, arr) => {
                   const isActive = currentStage === i + 1;
                   return (
-                    <div key={i} className="flex flex-col items-center gap-1.5 relative z-10 flex-1">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                        s.done ? 'bg-green-500' : isActive ? 'bg-[#C03D25]' : 'bg-[#E5E5EA]'
-                      }`}>
-                        {s.done
-                          ? <Check size={14} className="text-white" />
-                          : <span className={`text-xs font-bold ${isActive ? 'text-white' : 'text-[#8E8E93]'}`}>{i + 1}</span>}
+                    <div key={i} className="flex flex-col items-center flex-1">
+                      <div className="flex items-center w-full">
+                        <div className={`flex-1 h-0.5 ${i === 0 ? 'opacity-0' : s.done || isActive ? 'bg-[#C03D25]' : 'bg-[#E5E5EA]'}`} />
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 border-2 transition-all duration-200 ${
+                          s.done   ? 'bg-[#C03D25] border-[#C03D25] shadow-[0_2px_8px_rgba(192,61,37,0.35)]'
+                          : isActive ? 'bg-white border-[#C03D25] shadow-[0_2px_8px_rgba(192,61,37,0.25)]'
+                          :            'bg-white border-[#E5E5EA]'
+                        }`}>
+                          {s.done
+                            ? <Check size={14} className="text-white" />
+                            : <span className={isActive ? 'text-[#C03D25]' : 'text-[#C7C7CC]'}>{s.icon}</span>
+                          }
+                        </div>
+                        <div className={`flex-1 h-0.5 ${i === arr.length - 1 ? 'opacity-0' : s.done ? 'bg-[#C03D25]' : 'bg-[#E5E5EA]'}`} />
                       </div>
-                      <span className={`text-[9px] font-semibold text-center leading-tight ${
-                        s.done ? 'text-green-600' : isActive ? 'text-[#C03D25]' : 'text-[#8E8E93]'
+                      <span className={`text-[10px] mt-1.5 font-semibold text-center leading-tight ${
+                        isActive ? 'text-[#C03D25]' : s.done ? 'text-[#6C6C70]' : 'text-[#C7C7CC]'
                       }`}>{s.label}</span>
                     </div>
                   );
                 })}
               </div>
+
+              {/* Finance parallel track */}
+              <div className="mt-3 pt-2.5 border-t border-black/[0.06] flex items-center gap-1.5">
+                <div style={{ width: 12, height: 1, background: 'repeating-linear-gradient(to right, #C7C7CC 0, #C7C7CC 2px, transparent 2px, transparent 5px)' }} />
+                <ChevronRight size={8} className="text-[#C7C7CC]" style={{ marginLeft: -2 }} />
+                <Banknote size={11} className={rfVerified ? 'text-[#C03D25]' : 'text-[#C7C7CC]'} />
+                <span className={`text-[9px] font-medium ${rfVerified ? 'text-[#C03D25]' : 'text-[#8E8E93]'}`}>
+                  Finance Verification · {rfVerified ? 'Verified' : 'Pending'}
+                </span>
+                <span className="ml-auto text-[9px] font-medium uppercase tracking-wider text-[#C7C7CC]">parallel</span>
+              </div>
+
             </GlassCard>
 
             {/* Stage 1 — Buyer's Information */}
-            <StageCard number={1} title="Buyer's Information" complete={stage1Complete} locked={stage1Locked}>
-              <ToggleRow
-                icon={<UserCheck size={15} />}
-                label="Has Co-Owner?"
-                value={hasCoOwnership}
-                onToggle={toggleCoOwner}
-                locked={stage1Locked}
-                saving={savingFlags}
-              />
-              <ToggleRow
-                icon={<ShieldCheck size={15} />}
-                label="Has Attorney in Fact?"
-                value={hasAttyInFact}
-                onToggle={toggleAttyInFact}
-                locked={stage1Locked}
-                saving={savingFlags}
-              />
+            <StageCard number={1} title="Buyer's Information" icon={<User size={15} />} complete={stage1Complete} viewOnly={stage1Locked}>
+              {!isDirector && !isAMD && (
+                <>
+                  <ToggleRow
+                    icon={<UserCheck size={15} />}
+                    label="Has Co-Owner?"
+                    value={hasCoOwnership}
+                    onToggle={toggleCoOwner}
+                    locked={stage1Locked}
+                    saving={savingFlags}
+                  />
+                  <ToggleRow
+                    icon={<ShieldCheck size={15} />}
+                    label="Has Attorney in Fact?"
+                    value={hasAttyInFact}
+                    onToggle={toggleAttyInFact}
+                    locked={stage1Locked}
+                    saving={savingFlags}
+                  />
+                </>
+              )}
               <div className="h-px bg-black/[0.06]" />
               <StageRow
                 icon={<User size={14} />}
                 label="Personal Information"
                 done={progress?.buyer_info_saved ?? false}
-                locked={stage1Locked}
+                viewOnly={stage1Locked}
                 onTap={goToBuyerInfo}
               />
               {progress?.has_spouse && (
@@ -522,7 +690,7 @@ export default function BookingDetailPage() {
                   icon={<Heart size={14} />}
                   label="Spouse Information"
                   done={progress?.spouse_saved ?? false}
-                  locked={stage1Locked}
+                  viewOnly={stage1Locked}
                   onTap={goToSpouse}
                 />
               )}
@@ -531,7 +699,7 @@ export default function BookingDetailPage() {
                   icon={<UserCheck size={14} />}
                   label="Co-Owner Information"
                   done={progress?.co_owner_saved ?? false}
-                  locked={stage1Locked}
+                  viewOnly={stage1Locked}
                   onTap={goToCoOwner}
                 />
               )}
@@ -540,132 +708,51 @@ export default function BookingDetailPage() {
                   icon={<ShieldCheck size={14} />}
                   label="Attorney in Fact"
                   done={progress?.atty_saved ?? false}
-                  locked={stage1Locked}
+                  viewOnly={stage1Locked}
                   onTap={goToAttyInFact}
                 />
               )}
             </StageCard>
 
+            {/* Connector 1→2 */}
+            <div style={{ paddingLeft: 31, marginTop: -2, marginBottom: -2 }}>
+              <div style={{ width: 2, height: 14, background: 'repeating-linear-gradient(to bottom, #C7C7CC 0, #C7C7CC 3px, transparent 3px, transparent 6px)' }} />
+            </div>
+
             {/* Stage 2 — Required Documents */}
-            <StageCard number={2} title="Required Documents" complete={stage2Complete} locked={!stage1Complete || stage1Locked}>
+            <StageCard
+              number={2}
+              title="Required Documents"
+              icon={<FileText size={15} />}
+              complete={stage2Complete}
+              locked={!stage1Complete && !stage1Locked}
+              viewOnly={stage1Complete && stage1Locked}
+            >
               <StageRow
                 icon={<FileText size={14} />}
                 label="Upload Documents"
                 done={stage2Complete}
-                locked={!stage1Complete || stage1Locked}
-                onTap={() => router.push('/sales/booking/documents')}
+                locked={!stage1Complete && !stage1Locked}
+                viewOnly={stage1Complete && stage1Locked}
+                onTap={goToDocuments}
               />
             </StageCard>
 
-            {/* ── Review Pipeline (visible once docs are saved) ── */}
-            {(() => {
-              return (
+            {/* ── Review Pipeline (director, AMD & post-approval) ── */}
+            {(isDirector || isAMD || dirApproved) && (
                 <>
-                  {/* Stage 3 — Director Review */}
-                  <StageCard
-                    number={3}
-                    title="Director Review"
-                    complete={dirApproved}
-                    locked={!docsReady}
-                    badge={
-                      !docsReady ? <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-[#F2F2F7] text-[#8E8E93]">Locked</span>
-                      : rs === 'submitted'         ? <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-blue-100 text-blue-700">Submitted</span>
-                      : rs === 'director-rejected' ? <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-red-100 text-red-700">Rejected</span>
-                      : dirApproved               ? <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-green-100 text-green-700">Approved</span>
-                      : <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-amber-100 text-amber-700">Pending</span>
-                    }
-                  >
-                    {!docsReady && (
-                      <div className="px-4 py-3">
-                        <p className="text-xs text-[#C7C7CC]">Complete document upload first</p>
-                      </div>
-                    )}
-                    {docsReady && !rs && (
-                      <div className="px-4 py-3 flex items-center gap-2">
-                        <Send size={13} className="text-[#8E8E93]" />
-                        <p className="text-xs text-[#8E8E93]">Ready to submit for director review</p>
-                      </div>
-                    )}
-                    {rs === 'submitted' && (
-                      <div className="px-4 py-3 space-y-2.5">
-                        <div className="flex items-center gap-3">
-                          <Clock size={13} className="text-blue-500" />
-                          <p className="text-xs font-medium text-blue-600">Under review by Sales Director</p>
-                        </div>
-                        <button
-                          type="button"
-                          disabled={withdrawing}
-                          onClick={() => setShowWithdrawConfirm(true)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-100 text-amber-700 text-xs font-semibold active:opacity-70 disabled:opacity-50"
-                        >
-                          {withdrawing
-                            ? <><Loader2 size={11} className="animate-spin" /> Withdrawing...</>
-                            : 'Withdraw Submission'
-                          }
-                        </button>
-                      </div>
-                    )}
-                    {rs === 'director-rejected' && (
-                      <div className="px-4 py-3 space-y-2">
-                        <div className="flex items-center gap-2">
-                          <XCircle size={13} className="text-red-500" />
-                          <p className="text-xs font-semibold text-red-600">Rejected — please review and resubmit</p>
-                        </div>
-                        {progress?.director_notes && (
-                          <p className="text-xs text-[#3A3A3C] bg-red-50 border border-red-100 rounded-xl px-3 py-2 leading-relaxed">
-                            {progress.director_notes}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    {dirApproved && (
-                      <div className="px-4 py-3 flex items-center gap-2">
-                        <CheckCircle2 size={13} className="text-green-600" />
+
+
+                  {/* Director approval status — visible to AMD */}
+                  {isAMD && (rs === 'amd-review' || rs === 'amd-approved') && (
+                    <GlassCard className="px-4 py-3 flex items-center gap-2.5 border border-green-200 bg-green-50/60">
+                      <CheckCircle2 size={14} className="text-green-600 shrink-0" />
+                      <div>
                         <p className="text-xs font-semibold text-green-700">Approved by Sales Director</p>
+                        <p className="text-[10px] text-green-600 mt-0.5">Forwarded for Account Management review</p>
                       </div>
-                    )}
-                  </StageCard>
-
-                  {/* Stage 4 — Finance Verification */}
-                  <StageCard
-                    number={4}
-                    title="Finance Verification"
-                    complete={isBooked}
-                    locked={!dirApproved}
-                    badge={
-                      !dirApproved ? <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-[#F2F2F7] text-[#8E8E93]">Locked</span>
-                      : isBooked   ? <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-green-100 text-green-700">Verified</span>
-                      : rfVerified ? <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-blue-100 text-blue-700">RF Verified</span>
-                      :              <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-amber-100 text-amber-700">Pending</span>
-                    }
-                  >
-                    {!dirApproved && (
-                      <div className="px-4 py-3">
-                        <p className="text-xs text-[#C7C7CC]">Awaiting director approval</p>
-                      </div>
-                    )}
-                    {rfVerified && !isBooked && (
-                      <StageRow
-                        icon={<FileText size={14} />}
-                        label="Upload 1st DP Proof"
-                        done={dpProofUploaded}
-                        onTap={() => router.push('/sales/booking/dp-proof')}
-                      />
-                    )}
-                    {rfVerified && !isBooked && dpProofUploaded && (
-                      <div className="px-4 py-3 flex items-center gap-3">
-                        <Clock size={13} className="text-amber-500" />
-                        <p className="text-xs font-medium text-amber-600">Awaiting 1st DP verification by Finance</p>
-                      </div>
-                    )}
-                    {isBooked && (
-                      <div className="px-4 py-3 flex items-center gap-2">
-                        <CheckCircle2 size={13} className="text-green-600" />
-                        <p className="text-xs font-semibold text-green-700">1st DP verified by Finance</p>
-                      </div>
-                    )}
-                  </StageCard>
-
+                    </GlassCard>
+                  )}
 
                   {/* Booking complete banner */}
                   {isBooked && (
@@ -704,8 +791,156 @@ export default function BookingDetailPage() {
                     </GlassCard>
                   )}
                 </>
-              );
-            })()}
+            )}
+
+            {/* ── Activity Log (collapsible) ── */}
+            <GlassCard className="overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setLogOpen(o => !o)}
+                className="w-full px-4 py-3 flex items-center justify-between bg-[#F2F2F7]/60 active:bg-black/[0.03]"
+              >
+                <div className="flex items-center gap-2">
+                  <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Activity Log</p>
+                  {activityLog.length > 0 && (
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-[#C03D25]/10 text-[#C03D25]">
+                      {activityLog.length}
+                    </span>
+                  )}
+                </div>
+                <ChevronRight
+                  size={14}
+                  className="text-[#C7C7CC] transition-transform duration-200"
+                  style={{ transform: logOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}
+                />
+              </button>
+              <div
+                className="grid transition-all duration-300"
+                style={{ gridTemplateRows: logOpen ? '1fr' : '0fr' }}
+              >
+                <div className="overflow-hidden">
+                  {activityLog.length > 0 ? (
+                    <div className="divide-y divide-black/[0.05] border-t border-black/[0.06]">
+                      {activityLog.map(entry => (
+                        <ActivityLogRow key={entry.id} entry={entry} />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="px-4 py-5 flex items-center gap-2.5 border-t border-black/[0.06]">
+                      <Clock size={13} className="text-[#C7C7CC] shrink-0" />
+                      <p className="text-xs text-[#C7C7CC]">No activity yet — actions will appear here.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </GlassCard>
+
+            {/* ── Director Review actions ── */}
+            {isDirector && rs === 'submitted' && (
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={reviewing}
+                  onClick={() => setShowRejectSheet(true)}
+                  className="flex-1 py-4 rounded-2xl bg-red-50 text-red-600 text-sm font-bold border border-red-200 active:opacity-70 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  <ThumbsDown size={15} /> Reject
+                </button>
+                <button
+                  type="button"
+                  disabled={reviewing}
+                  onClick={handleDirectorApprove}
+                  className="flex-1 py-4 rounded-2xl bg-green-500 text-white text-sm font-bold shadow-[0_4px_16px_rgba(34,197,94,0.3)] active:opacity-70 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {reviewing ? <Loader2 size={15} className="animate-spin" /> : <ThumbsUp size={15} />}
+                  Approve
+                </button>
+              </div>
+            )}
+
+            {/* ── AMD Review actions ── */}
+            {isAMD && rs === 'amd-review' && (
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={reviewing}
+                  onClick={() => setShowAMDRejectSheet(true)}
+                  className="flex-1 py-4 rounded-2xl bg-red-50 text-red-600 text-sm font-bold border border-red-200 active:opacity-70 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  <ThumbsDown size={15} /> Reject
+                </button>
+                <button
+                  type="button"
+                  disabled={reviewing}
+                  onClick={handleAMDApprove}
+                  className="flex-1 py-4 rounded-2xl bg-green-500 text-white text-sm font-bold shadow-[0_4px_16px_rgba(34,197,94,0.3)] active:opacity-70 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {reviewing ? <Loader2 size={15} className="animate-spin" /> : <ThumbsUp size={15} />}
+                  Approve
+                </button>
+              </div>
+            )}
+
+            {/* ── Submit / Recall area (agents only) ── */}
+            {!isDirector && !isAMD && !dirApproved && (
+              <div className="space-y-3">
+                {rs === 'director-rejected' && (
+                  <GlassCard className="px-4 py-3 space-y-2 overflow-hidden border border-red-200">
+                    <div className="flex items-center gap-2">
+                      <XCircle size={13} className="text-red-500" />
+                      <p className="text-xs font-semibold text-red-600">Rejected by Sales Director</p>
+                    </div>
+                    {progress?.director_notes && (
+                      <p className="text-xs text-[#3A3A3C] bg-red-50 rounded-xl px-3 py-2 leading-relaxed">
+                        {progress.director_notes}
+                      </p>
+                    )}
+                  </GlassCard>
+                )}
+
+                {rs === 'amd-rejected' && (
+                  <GlassCard className="px-4 py-3 space-y-2 overflow-hidden border border-red-200">
+                    <div className="flex items-center gap-2">
+                      <XCircle size={13} className="text-red-500" />
+                      <p className="text-xs font-semibold text-red-600">Rejected by Account Management</p>
+                    </div>
+                    {progress?.amd_notes && (
+                      <p className="text-xs text-[#3A3A3C] bg-red-50 rounded-xl px-3 py-2 leading-relaxed">
+                        {progress.amd_notes}
+                      </p>
+                    )}
+                  </GlassCard>
+                )}
+
+                {(rs === null || rs === 'director-rejected' || rs === 'amd-rejected') && (
+                  <button
+                    type="button"
+                    disabled={!docsReady || submitting}
+                    onClick={handleSubmit}
+                    className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.3)] active:opacity-80 disabled:opacity-40 flex items-center justify-center gap-2"
+                  >
+                    {submitting
+                      ? <><Loader2 size={15} className="animate-spin" /> Submitting…</>
+                      : <><Send size={15} /> Submit for Review</>
+                    }
+                  </button>
+                )}
+
+                {rs === 'submitted' && (
+                  <button
+                    type="button"
+                    disabled={withdrawing}
+                    onClick={() => setShowWithdrawConfirm(true)}
+                    className="w-full py-4 rounded-2xl bg-amber-500 text-white text-sm font-bold shadow-[0_4px_16px_rgba(245,158,11,0.3)] active:opacity-80 disabled:opacity-40 flex items-center justify-center gap-2"
+                  >
+                    {withdrawing
+                      ? <><Loader2 size={15} className="animate-spin" /> Recalling…</>
+                      : <><RotateCcw size={15} /> Recall Submission</>
+                    }
+                  </button>
+                )}
+              </div>
+            )}
           </>
         )}
 
@@ -798,6 +1033,84 @@ export default function BookingDetailPage() {
                 Cancel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reject Sheet */}
+      {showRejectSheet && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center"
+          style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}>
+          <div className="w-full bg-white rounded-t-3xl px-6 pt-6 pb-10 space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-base font-bold text-[#1C1C1E]">Reject Booking</p>
+              <button
+                onClick={() => { setShowRejectSheet(false); setRejectComment(''); }}
+                className="w-8 h-8 rounded-xl bg-[#F2F2F7] flex items-center justify-center active:opacity-70"
+              >
+                <X size={16} className="text-[#8E8E93]" />
+              </button>
+            </div>
+            <p className="text-sm text-[#8E8E93] leading-relaxed">
+              Provide a reason for rejection. The sales agent will see this comment and can then edit and resubmit the booking.
+            </p>
+            <textarea
+              value={rejectComment}
+              onChange={e => setRejectComment(e.target.value)}
+              placeholder="e.g. Buyer's TIN is incorrect, please verify before resubmitting."
+              rows={4}
+              className="w-full rounded-2xl border border-black/[0.10] bg-[#F2F2F7] px-4 py-3 text-sm text-[#1C1C1E] placeholder:text-[#C7C7CC] resize-none focus:outline-none focus:ring-2 focus:ring-[#C03D25]/30"
+            />
+            <button
+              type="button"
+              disabled={reviewing || !rejectComment.trim()}
+              onClick={handleDirectorReject}
+              className="w-full py-3.5 rounded-2xl bg-red-500 text-white text-sm font-bold active:opacity-80 disabled:opacity-40 flex items-center justify-center gap-2"
+            >
+              {reviewing
+                ? <><Loader2 size={15} className="animate-spin" /> Submitting…</>
+                : 'Confirm Rejection'
+              }
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* AMD Reject Sheet */}
+      {showAMDRejectSheet && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center"
+          style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}>
+          <div className="w-full bg-white rounded-t-3xl px-6 pt-6 pb-10 space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-base font-bold text-[#1C1C1E]">Reject Booking</p>
+              <button
+                onClick={() => { setShowAMDRejectSheet(false); setAmdRejectComment(''); }}
+                className="w-8 h-8 rounded-xl bg-[#F2F2F7] flex items-center justify-center active:opacity-70"
+              >
+                <X size={16} className="text-[#8E8E93]" />
+              </button>
+            </div>
+            <p className="text-sm text-[#8E8E93] leading-relaxed">
+              Provide a reason for rejection. The sales agent will see this comment and can then edit and resubmit the booking.
+            </p>
+            <textarea
+              value={amdRejectComment}
+              onChange={e => setAmdRejectComment(e.target.value)}
+              placeholder="e.g. Supporting documents are incomplete. Please recheck and resubmit."
+              rows={4}
+              className="w-full rounded-2xl border border-black/[0.10] bg-[#F2F2F7] px-4 py-3 text-sm text-[#1C1C1E] placeholder:text-[#C7C7CC] resize-none focus:outline-none focus:ring-2 focus:ring-[#C03D25]/30"
+            />
+            <button
+              type="button"
+              disabled={reviewing || !amdRejectComment.trim()}
+              onClick={handleAMDReject}
+              className="w-full py-3.5 rounded-2xl bg-red-500 text-white text-sm font-bold active:opacity-80 disabled:opacity-40 flex items-center justify-center gap-2"
+            >
+              {reviewing
+                ? <><Loader2 size={15} className="animate-spin" /> Submitting…</>
+                : 'Confirm Rejection'
+              }
+            </button>
           </div>
         </div>
       )}

@@ -10,6 +10,7 @@ import {
   SlidersHorizontal, User, X, Check,
 } from 'lucide-react';
 import { getAllBookingProgress, BookingProgress, BookingStatus, computeBookingStatus } from '@/lib/booking-progress';
+import { getSession } from '@/lib/auth';
 
 interface Reservation {
   reservation_id: string;
@@ -34,9 +35,11 @@ const BOOKING_STATUS_MAP: { value: BookingStatus; label: string }[] = [
   { value: 'in-progress',       label: 'In Progress' },
   { value: 'stage1-complete',   label: 'Docs Pending' },
   { value: 'fully-complete',    label: 'Docs Complete' },
-  { value: 'submitted',         label: 'Submitted' },
+  { value: 'submitted',         label: 'For Dir. Review' },
   { value: 'director-rejected', label: 'Dir. Rejected' },
   { value: 'director-approved', label: 'Dir. Approved' },
+  { value: 'amd-review',        label: 'For AMD Review' },
+  { value: 'amd-approved',      label: 'AMD Approved' },
   { value: 'finance-verified',  label: 'Finance Verified' },
   { value: 'Booked',            label: 'Booked' },
 ];
@@ -45,14 +48,40 @@ function bookingStatusStyle(status: BookingStatus): React.CSSProperties & { labe
   switch (status) {
     case 'Booked':            return { background: 'rgba(52,199,89,0.18)',   color: '#1A7F37', label: 'Booked' } as any;
     case 'finance-verified':  return { background: 'rgba(52,199,89,0.12)',   color: '#1A7F37', label: 'Finance Verified' } as any;
+    case 'amd-approved':      return { background: 'rgba(52,199,89,0.12)',   color: '#1A7F37', label: 'AMD Approved' } as any;
+    case 'amd-review':        return { background: 'rgba(88,86,214,0.12)',   color: '#3634A3', label: 'For AMD Review' } as any;
     case 'director-approved': return { background: 'rgba(48,176,199,0.12)',  color: '#0E6E7E', label: 'Dir. Approved' } as any;
     case 'director-rejected': return { background: 'rgba(255,59,48,0.12)',   color: '#C0392B', label: 'Dir. Rejected' } as any;
-    case 'submitted':         return { background: 'rgba(0,122,255,0.12)',   color: '#0055B3', label: 'Submitted' } as any;
+    case 'submitted':         return { background: 'rgba(0,122,255,0.12)',   color: '#0055B3', label: 'For Dir. Review' } as any;
     case 'fully-complete':    return { background: 'rgba(175,82,222,0.12)',  color: '#7B2FA8', label: 'Docs Complete' } as any;
     case 'stage1-complete':   return { background: 'rgba(0,122,255,0.10)',   color: '#0055B3', label: 'Docs Pending' } as any;
     case 'in-progress':       return { background: 'rgba(255,159,10,0.12)',  color: '#A05A00', label: 'In Progress' } as any;
     default:                  return { background: 'rgba(142,142,147,0.12)', color: '#6C6C70', label: 'Not Started' } as any;
   }
+}
+
+// Review track badge — document/AMD progression only
+function reviewBadge(bs: BookingStatus): { bg: string; color: string; label: string } {
+  switch (bs) {
+    case 'Booked':
+    case 'finance-verified':
+    case 'amd-approved':      return { bg: 'rgba(52,199,89,0.18)',   color: '#1A7F37', label: 'AMD Approved' };
+    case 'amd-review':        return { bg: 'rgba(88,86,214,0.12)',   color: '#3634A3', label: 'For AMD Review' };
+    case 'director-approved': return { bg: 'rgba(48,176,199,0.12)',  color: '#0E6E7E', label: 'Dir. Approved' };
+    case 'director-rejected': return { bg: 'rgba(255,59,48,0.12)',   color: '#C0392B', label: 'Dir. Rejected' };
+    case 'submitted':         return { bg: 'rgba(0,122,255,0.12)',   color: '#0055B3', label: 'For Dir. Review' };
+    case 'fully-complete':    return { bg: 'rgba(175,82,222,0.12)',  color: '#7B2FA8', label: 'Docs Complete' };
+    case 'stage1-complete':   return { bg: 'rgba(0,122,255,0.10)',   color: '#0055B3', label: 'Docs Pending' };
+    case 'in-progress':       return { bg: 'rgba(255,159,10,0.12)',  color: '#A05A00', label: 'In Progress' };
+    default:                  return { bg: 'rgba(142,142,147,0.18)', color: '#6C6C70', label: 'Not Started' };
+  }
+}
+
+// Finance track badge — parallel, independent of review track
+function financeBadge(bs: BookingStatus): { bg: string; color: string; label: string } {
+  if (bs === 'Booked' || bs === 'finance-verified')
+    return { bg: 'rgba(52,199,89,0.20)', color: '#1A7F37', label: 'Verified' };
+  return { bg: 'rgba(255,159,10,0.15)', color: '#A05A00', label: 'Pending' };
 }
 
 // ── Page ──────────────────────────────────────────────────────
@@ -74,6 +103,12 @@ export default function BookingPage() {
   const [statusFilter,  setStatusFilter]  = useState<BookingStatus | ''>('');
 
   const activeFilterCount = [sellerFilter, projectFilter, statusFilter].filter(Boolean).length;
+  const [userRoleName, setUserRoleName] = useState<string | null>(null);
+  const isDirector = userRoleName === 'Sales Director';
+  const isAMD      = userRoleName === 'Account Management';
+  const isAllAccess = userRoleName === 'All Access';
+
+  useEffect(() => { getSession().then(s => setUserRoleName(s?.role_name ?? null)); }, []);
 
   // ── Load dropdown options once ─────────────────────────────
   useEffect(() => {
@@ -89,8 +124,9 @@ export default function BookingPage() {
       });
   }, []);
 
-  // ── Load reservations when DB filters change ───────────────
+  // ── Load reservations when DB filters or role change ──────
   useEffect(() => {
+    if (userRoleName === null) return; // wait for role to load
     setLoading(true);
     let query = supabase
       .from('reservations')
@@ -98,6 +134,13 @@ export default function BookingPage() {
       .in('status', ['Reserved-paid', 'Reserved', 'Booked'])
       .order('created_at', { ascending: false })
       .limit(5000);
+
+    if (isDirector) {
+      query = query.eq('booking_review_status', 'submitted');
+    } else if (isAMD) {
+      query = query.eq('booking_review_status', 'amd-review');
+    }
+    // All Access sees everything — no additional filter
 
     if (sellerFilter)  query = query.eq('seller_name', sellerFilter);
     if (projectFilter) query = query.eq('project', projectFilter);
@@ -110,7 +153,7 @@ export default function BookingPage() {
       setProgressMap(progress);
       setLoading(false);
     });
-  }, [sellerFilter, projectFilter]);
+  }, [sellerFilter, projectFilter, userRoleName, isDirector, isAMD, isAllAccess]);
 
   // ── Client-side search + status filter ────────────────────
   const filtered = reservations.filter(r => {
@@ -186,9 +229,15 @@ export default function BookingPage() {
         ) : (
           <div className="space-y-2">
             {filtered.map(r => {
-              const bs    = computeBookingStatus(progressMap[r.reservation_id]);
-              const style = bookingStatusStyle(bs);
-              const { label, ...badgeStyle } = style as any;
+              const bs            = computeBookingStatus(progressMap[r.reservation_id]);
+              const isBooked      = bs === 'Booked';
+              const isForBooking  = !isBooked && (bs === 'amd-approved' || bs === 'finance-verified');
+              const badgeLabel    = isBooked ? 'Booked' : isForBooking ? 'For Booking' : 'Reserved';
+              const badgeClass    = isBooked
+                ? 'bg-green-100 text-green-700'
+                : isForBooking
+                ? 'bg-amber-100 text-amber-700'
+                : 'bg-red-100 text-red-700';
 
               return (
                 <GlassCard
@@ -214,14 +263,10 @@ export default function BookingPage() {
 
                     {/* Main content */}
                     <div className="flex-1 min-w-0">
-                      {/* Reservation ID + booking status */}
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-sm font-bold text-[#1C1C1E] truncate">{r.reservation_id}</p>
-                        <span
-                          className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0"
-                          style={badgeStyle}
-                        >
-                          {label}
+                        <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full shrink-0 ${badgeClass}`}>
+                          {badgeLabel}
                         </span>
                       </div>
                       <p className="text-xs text-[#8E8E93] mt-0.5 truncate">{r.client_name}</p>

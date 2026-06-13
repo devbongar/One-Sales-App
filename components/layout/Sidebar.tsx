@@ -7,10 +7,10 @@ import {
   UserPlus, CalendarCheck, BookOpen, DollarSign,
   ShieldCheck, FolderOpen, MessageSquare, Receipt, CreditCard,
   Wallet, Banknote, BookMarked, Users, UserCog, LayoutDashboard,
-  X, ChevronDown, LogOut, Home, Settings, Calculator, Database,
+  X, ChevronDown, LogOut, Home, Settings, Database,
 } from 'lucide-react';
 import { NavGroup } from '@/types';
-import { clearSession } from '@/lib/auth';
+import { signOut } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 
 const NAV: NavGroup[] = [
@@ -21,7 +21,6 @@ const NAV: NavGroup[] = [
       { label: 'Reservation',                 href: '/sales/reservation',         icon: 'CalendarCheck' },
       { label: 'Booking',                     href: '/sales/booking',             icon: 'BookOpen' },
       { label: 'Sales Commission',            href: '/sales/sales-commission',    icon: 'DollarSign' },
-      { label: 'Sample Computation',          href: '/sales/sample-computation',  icon: 'Calculator' },
     ],
   },
   {
@@ -56,18 +55,19 @@ const NAV: NavGroup[] = [
 const ICONS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
   UserPlus, CalendarCheck, BookOpen, DollarSign,
   ShieldCheck, FolderOpen, MessageSquare, Receipt, CreditCard,
-  Wallet, Banknote, BookMarked, Users, UserCog, LayoutDashboard, Calculator, Database,
+  Wallet, Banknote, BookMarked, Users, UserCog, LayoutDashboard, Database,
 };
 
 interface SidebarProps {
   open: boolean;
   onClose: () => void;
   userName?: string;
+  displayName?: string | null;
   userRole?: string;
 }
 
-function getInitials(name?: string) {
-  if (!name) return 'SA';
+function getInitials(name?: string | null) {
+  if (!name) return '?';
   const parts = name.trim().split(' ').filter(Boolean);
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
@@ -75,7 +75,7 @@ function getInitials(name?: string) {
 
 const ANIM_DURATION = 260;
 
-export default function Sidebar({ open, onClose, userName, userRole }: SidebarProps) {
+export default function Sidebar({ open, onClose, userName, displayName, userRole }: SidebarProps) {
   const pathname = usePathname();
   const router   = useRouter();
   const [closing, setClosing] = useState(false);
@@ -104,13 +104,13 @@ export default function Sidebar({ open, onClose, userName, userRole }: SidebarPr
     setOpenGroups((prev) => ({ ...prev, [title]: !prev[title] }));
 
   const handleLogout = () => {
-    clearSession();
+    signOut();
     router.push('/login');
   };
 
   if (!open) return null;
 
-  const initials = getInitials(userName);
+  const initials = getInitials(displayName || userName);
 
   return (
     <>
@@ -159,10 +159,13 @@ export default function Sidebar({ open, onClose, userName, userRole }: SidebarPr
                 </div>
                 <div>
                   <p className="text-white font-bold text-[15px] leading-tight">
-                    {userName ?? 'Sales Agent'}
+                    {displayName || userName || '—'}
                   </p>
-                  <p className="text-white/55 text-[11px] mt-0.5 capitalize">
-                    {userRole ?? 'agent'}
+                  {displayName && userName && (
+                    <p className="text-white/40 text-[10px] leading-tight">{userName}</p>
+                  )}
+                  <p className="text-white/55 text-[11px] mt-0.5">
+                    {userRole || '—'}
                   </p>
                 </div>
               </div>

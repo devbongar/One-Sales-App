@@ -10,6 +10,7 @@ import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
 import { fetchAllClients, ClientRecord, saveClient } from '@/lib/clients';
 import { fetchAllPayterms, PaytermRecord } from '@/lib/paytems';
 import { fetchReservationFee, fetchVatThreshold, computeVat, fetchHicTarget } from '@/lib/admin';
+import { getSession } from '@/lib/auth';
 import {
   Check, ChevronDown, Calculator,
   User, Phone, Mail, Briefcase,
@@ -367,6 +368,7 @@ export default function NewReservationPage() {
   const [clientEmailField,      setClientEmailField]      = useState('');
   const [clientSuggestionsOpen, setClientSuggestionsOpen] = useState(false);
   const [savingClient,          setSavingClient]          = useState(false);
+  const [showClientConfirm,    setShowClientConfirm]    = useState(false);
 
   // Seller Info
   const [sellerSearch,       setSellerSearch]       = useState('');
@@ -435,17 +437,15 @@ export default function NewReservationPage() {
 
   // Read user role from session
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem('osa_session');
-      if (raw) setUserRole(JSON.parse(raw)?.role ?? '');
-    } catch {}
+    getSession().then(s => setUserRole(s?.role_name ?? '')).catch(() => {});
   }, []);
 
   // Fetch reservation fee when selected unit changes
   useEffect(() => {
     if (!selectedUnit) return;
     const pt = selectedUnit.product_type ?? 'Residential Unit';
-    fetchReservationFee(pt).then(setReservationFee).catch(() => setReservationFee(0));
+    console.log('[res-fee] product_type="'+pt+'"');
+    fetchReservationFee(pt).then(fee => { console.log('[res-fee] result:', fee); setReservationFee(fee); }).catch(e => { console.error('[res-fee] error:', e); setReservationFee(0); });
     setVatThreshold(undefined);
     fetchVatThreshold(pt).then(setVatThreshold).catch(() => setVatThreshold(null));
     fetchHicTarget(pt).then(setHicTarget).catch(() => setHicTarget(null));
@@ -478,7 +478,7 @@ export default function NewReservationPage() {
     const records = allPayterms.filter(
       p => p.project === project && p.tower === tower && p.payterm_scheme === schemeLabel
     );
-    const opts = records.map(p => p.dp_percent).filter(Boolean) as string[];
+    const opts = ([...new Set(records.map(p => p.dp_percent).filter(Boolean) as string[])]).sort((a, b) => parseFloat(a) - parseFloat(b));
     if (opts.length > 0 && !opts.includes(dpRate)) {
       setDpRate(opts[0]);
     }
@@ -490,9 +490,10 @@ export default function NewReservationPage() {
     const records = allPayterms.filter(
       p => p.project === project && p.tower === tower && p.payterm_scheme === 'Stretched DP' && p.dp_percent === dpRate
     );
-    const opts = records
+    const opts = (records
       .map(p => p.payment_term ?? (p.term ? `${p.term} months` : null))
-      .filter(Boolean) as string[];
+      .filter(Boolean) as string[])
+      .sort((a, b) => parseInt(a) - parseInt(b));
     if (opts.length > 0 && !opts.includes(stretchedDpTerm)) {
       setStretchedDpTerm(opts[0]);
     }
@@ -560,13 +561,24 @@ export default function NewReservationPage() {
     setContact(digits ? `${cc}${digits}` : '');
     setEmail(c.email ?? '');
     setErrors(prev => ({ ...prev, fullName: '', contact: '', email: '' }));
+
+    // Auto-populate seller from client record
+    if (c.seller_type === 'In House' && c.property_specialist) {
+      const match = allSalespersons.find(s => s.seller_name === c.property_specialist);
+      if (match) { setSellerRecord(match); setSellerSearch(''); setSellerDropdownOpen(false); }
+    }
   }
 
   function handleClearClient() {
     setIsMegawide(false);
     resetClientFields();
     setFullName(''); setContact(''); setEmail('');
+    setSellerRecord(null); setSellerSearch('');
   }
+
+  const emailAlreadyUsed = !selectedClientRecord
+    && clientEmailField.trim().length > 0
+    && allClients.some(c => c.email?.toLowerCase() === clientEmailField.trim().toLowerCase());
 
   function validateStep0(): boolean {
     const e: Record<string, string> = {};
@@ -575,6 +587,7 @@ export default function NewReservationPage() {
                                                   e.contact  = 'Enter a valid 10-digit number.';
     if (!email.trim())                            e.email    = 'Email address is required.';
     else if (!email.includes('@'))                e.email    = 'Email must contain @.';
+    else if (emailAlreadyUsed)                    e.email    = 'This email is already registered.';
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -596,8 +609,11 @@ export default function NewReservationPage() {
   async function handleContinue() {
     if (!validateStep0()) return;
     if (selectedClientRecord) { goToStep(1); return; }
+    setShowClientConfirm(true);
+  }
 
-    // New client — save to DB first
+  async function handleConfirmClientSave() {
+    setShowClientConfirm(false);
     setSavingClient(true);
     try {
       await saveClient({
@@ -615,6 +631,10 @@ export default function NewReservationPage() {
         reason_for_buying:        '',
         source_of_sale:           '',
         monthly_household_income: '',
+        seller_type:              sellerRecord ? 'In House' : undefined,
+        property_specialist:      sellerRecord?.seller_name    ?? undefined,
+        sales_manager:            sellerRecord?.sales_manager  ?? undefined,
+        sales_director:           sellerRecord?.sales_director ?? undefined,
       });
       goToStep(1);
     } catch (err: any) {
@@ -882,6 +902,9 @@ export default function NewReservationPage() {
                       className="flex-1 bg-transparent text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC] text-right" />
                   </div>
                   {errors.email && <p className="text-red-400 text-[11px] px-1 pb-2">{errors.email}</p>}
+                  {!errors.email && emailAlreadyUsed && (
+                    <p className="text-amber-500 text-[11px] px-1 pb-2">This email is already registered. Search the client by last name instead.</p>
+                  )}
                 </div>
 
                 {/* Megawide */}
@@ -1302,18 +1325,19 @@ export default function NewReservationPage() {
         const deferredDiscount = deferredRecord?.discount ?? 0;
 
         const spotDpRecords     = filteredPayterms.filter(p => p.payterm_scheme === 'Spot DP');
-        const spotDpRateOptions = spotDpRecords.map(p => p.dp_percent).filter(Boolean) as string[];
+        const spotDpRateOptions = ([...new Set(spotDpRecords.map(p => p.dp_percent).filter(Boolean) as string[])]).sort((a, b) => parseFloat(a) - parseFloat(b));
         const spotDpRecord      = spotDpRecords.find(p => p.dp_percent === dpRate);
         const spotDpDiscount    = spotDpRecord?.discount ?? 0;
 
         const stretchedDpRecords     = filteredPayterms.filter(p => p.payterm_scheme === 'Stretched DP');
-        const stretchedDpRateOptions = stretchedDpRecords.map(p => p.dp_percent).filter(Boolean) as string[];
+        const stretchedDpRateOptions = ([...new Set(stretchedDpRecords.map(p => p.dp_percent).filter(Boolean) as string[])]).sort((a, b) => parseFloat(a) - parseFloat(b));
         const stretchedDpRecord      = stretchedDpRecords.find(p => p.dp_percent === dpRate);
         const stretchedDpDiscount    = stretchedDpRecord?.discount ?? 0;
-        const stretchedDpTermOptions = stretchedDpRecords
+        const stretchedDpTermOptions = (stretchedDpRecords
           .filter(p => p.dp_percent === dpRate)
           .map(p => p.payment_term ?? (p.term ? `${p.term} months` : null))
-          .filter(Boolean) as string[];
+          .filter(Boolean) as string[])
+          .sort((a, b) => parseInt(a) - parseInt(b));
         const stretchedTermMonths = parseInt(stretchedDpTerm) || 54;
 
         const paytermRate  = paymentScheme === 'deferred_cash'
@@ -1333,12 +1357,12 @@ export default function NewReservationPage() {
         const paytermAmount   = Math.round(listPrice * paytermRate);
         const employeeAmount  = isMegawide ? Math.round(listPrice * EMPLOYEE_DISCOUNT_RATE) : 0;
         const nlpBeforeHIC    = listPrice - promoAmount - employeeAmount - paytermAmount;
-        const showHIC         = userRole === 'admin' && unitCategory === 'Residential' && selectedUnit.hic === true && hicTarget != null;
+        const showHIC         = userRole === 'All Access' && unitCategory === 'Residential' && selectedUnit.hic === true && hicTarget != null;
         const hicDiscount     = (useHIC && showHIC && hicTarget != null) ? Math.max(0, nlpBeforeHIC - hicTarget) : 0;
         const netListPrice    = nlpBeforeHIC - hicDiscount;
         const vat          = (vatThreshold != null) ? computeVat(netListPrice, vatThreshold) : 0;
         const otherCharges = Math.round(netListPrice * OTHER_CHARGES_RATE);
-        const totalContractPrice = netListPrice + vat + otherCharges;
+        const totalContractPrice = netListPrice + vat + otherCharges + hicDiscount;
         const netAmount    = totalContractPrice - reservationFee - RETENTION_FEE;
         const monthlyDeferred = paymentScheme === 'deferred_cash'
           ? Math.round(netAmount / termMonths)
@@ -1533,10 +1557,14 @@ export default function NewReservationPage() {
 
               {/* HIC Checkbox — Sales Director + Residential only */}
               {showHIC && (
-                <div className={`w-full flex items-center gap-3 p-3 rounded-2xl border-2 ${
-                  useHIC ? 'border-[#5E5CE6] bg-[#5E5CE6]/10' : 'border-[#E5E5EA] bg-white'
-                }`}>
-                  <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 ${
+                <button
+                  type="button"
+                  onClick={() => setUseHIC(p => !p)}
+                  className={`w-full flex items-center gap-3 p-3 rounded-2xl border-2 transition-all ${
+                    useHIC ? 'border-[#5E5CE6] bg-[#5E5CE6]/10' : 'border-[#E5E5EA] bg-white'
+                  }`}
+                >
+                  <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
                     useHIC ? 'border-[#5E5CE6] bg-[#5E5CE6]' : 'border-[#C7C7CC]'
                   }`}>
                     {useHIC && <Check size={12} className="text-white" />}
@@ -1547,7 +1575,7 @@ export default function NewReservationPage() {
                     </p>
                     <p className="text-[10px] text-[#8E8E93]">Adjusts Net List Price to ₱{hicTarget != null ? hicTarget.toLocaleString() : '—'}</p>
                   </div>
-                </div>
+                </button>
               )}
 
               {/* Computation breakdown */}
@@ -1590,7 +1618,7 @@ export default function NewReservationPage() {
                   )}
                   {hicDiscount > 0 && (
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-[#5E5CE6]">Less: HIC Discount ({nlpBeforeHIC > 0 ? (hicDiscount / nlpBeforeHIC * 100).toFixed(1) : 0}%)</span>
+                      <span className="text-sm text-[#5E5CE6]">Less: HIC Discount</span>
                       <span className="text-sm font-medium text-[#5E5CE6]">(₱{hicDiscount.toLocaleString()})</span>
                     </div>
                   )}
@@ -1611,6 +1639,12 @@ export default function NewReservationPage() {
                     <span className="text-sm text-[#1C1C1E]">Other Charges (7%)</span>
                     <span className="text-sm font-medium text-[#1C1C1E]">₱{otherCharges.toLocaleString()}</span>
                   </div>
+                  {hicDiscount > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[#5E5CE6]">HIC Discount</span>
+                      <span className="text-sm font-medium text-[#5E5CE6]">₱{hicDiscount.toLocaleString()}</span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between pt-2 border-t border-black/[0.06]">
                     <span className="text-sm font-bold text-[#C03D25]">Total Contract Price</span>
                     <span className="text-sm font-bold text-[#C03D25]">₱{totalContractPrice.toLocaleString()}</span>
@@ -1638,7 +1672,7 @@ export default function NewReservationPage() {
                     <div className="px-4 pt-3 pb-4 space-y-2.5 border-b border-black/[0.06]">
                       <p className="text-[#8E8E93] text-[10px] font-semibold uppercase tracking-wider">Payment Summary</p>
                       <div className="flex items-center justify-between">
-                        <span className="text-sm text-[#1C1C1E]">DP ({dpRate})</span>
+                        <span className="text-sm text-[#1C1C1E]">DP ({dpRate}%)</span>
                         <span className="text-sm font-medium text-[#1C1C1E]">₱{dpAmount.toLocaleString()}</span>
                       </div>
                       <div className="flex items-center justify-between">
@@ -1674,7 +1708,7 @@ export default function NewReservationPage() {
                     <div className="px-4 pt-3 pb-4 space-y-2.5 border-b border-black/[0.06]">
                       <p className="text-[#8E8E93] text-[10px] font-semibold uppercase tracking-wider">Payment Summary</p>
                       <div className="flex items-center justify-between">
-                        <span className="text-sm text-[#1C1C1E]">DP ({dpRate})</span>
+                        <span className="text-sm text-[#1C1C1E]">DP ({dpRate}%)</span>
                         <span className="text-sm font-medium text-[#1C1C1E]">₱{dpAmount.toLocaleString()}</span>
                       </div>
                       <div className="flex items-center justify-between">
@@ -1989,6 +2023,51 @@ export default function NewReservationPage() {
             </span>
           </button>
         </>
+      )}
+
+      {/* ── New Client Save Confirmation ── */}
+      {showClientConfirm && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center px-4 pb-8"
+          style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}>
+          <div className="w-full max-w-sm bg-white rounded-3xl overflow-hidden shadow-2xl">
+            <div className="flex flex-col items-center px-6 pt-7 pb-4 border-b border-black/[0.06]">
+              <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center mb-3">
+                <User size={22} className="text-blue-500" />
+              </div>
+              <p className="text-base font-bold text-[#1C1C1E] text-center">Save New Client?</p>
+              <p className="text-xs text-[#8E8E93] mt-1 text-center">Please confirm the details before saving.</p>
+            </div>
+            <div className="px-6 py-4 space-y-2.5">
+              {[
+                { label: 'Name',   value: [clientFirstName, clientMiddleName, clientLastName, clientSuffix].filter(Boolean).join(' ') },
+                { label: 'Mobile', value: clientMobileRaw ? `${clientCountryCode} ${clientMobileRaw}` : '—' },
+                { label: 'Email',  value: clientEmailField.trim() || '—' },
+                { label: 'Seller', value: sellerRecord?.seller_name ?? '—' },
+              ].map(({ label, value }) => (
+                <div key={label} className="flex items-center justify-between">
+                  <span className="text-sm text-[#8E8E93]">{label}</span>
+                  <span className="text-sm font-semibold text-[#1C1C1E] text-right max-w-[200px] truncate">{value}</span>
+                </div>
+              ))}
+            </div>
+            <div className="px-6 pb-7 pt-2 flex flex-col gap-2.5">
+              <button
+                type="button"
+                onClick={handleConfirmClientSave}
+                className="w-full py-3.5 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80"
+              >
+                Confirm & Save
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowClientConfirm(false)}
+                className="w-full py-3.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-70"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Reservation Confirmation Modal ── */}

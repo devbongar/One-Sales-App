@@ -6,13 +6,13 @@ import GlassCard from '@/components/ui/GlassCard';
 import GlassButton from '@/components/ui/GlassButton';
 import { UserCog, Mail, Shield } from 'lucide-react';
 import { getSession } from '@/lib/auth';
-import { AppUser } from '@/types';
+import type { AppUser } from '@/types';
 
 export default function UserProfilePage() {
   const [user, setUser] = useState<AppUser | null>(null);
 
   useEffect(() => {
-    setUser(getSession());
+    getSession().then(setUser);
   }, []);
 
   return (
@@ -25,7 +25,7 @@ export default function UserProfilePage() {
         </div>
         <div>
           <p className="text-[#1C1C1E] font-semibold text-lg">{user?.full_name ?? '—'}</p>
-          <p className="text-[#6C6C70] text-sm capitalize">{user?.role ?? '—'}</p>
+          <p className="text-[#6C6C70] text-sm">{user?.role_name ?? '—'}</p>
         </div>
       </GlassCard>
 
@@ -41,16 +41,7 @@ export default function UserProfilePage() {
           <Shield size={16} className="text-[#8E8E93]" />
           <div>
             <p className="text-[#8E8E93] text-xs">Role</p>
-            <p className="text-[#1C1C1E] text-sm capitalize">{user?.role ?? '—'}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <UserCog size={16} className="text-[#8E8E93]" />
-          <div>
-            <p className="text-[#8E8E93] text-xs">Member since</p>
-            <p className="text-[#1C1C1E] text-sm">
-              {user?.created_at ? new Date(user.created_at).toLocaleDateString() : '—'}
-            </p>
+            <p className="text-[#1C1C1E] text-sm">{user?.role_name ?? '—'}</p>
           </div>
         </div>
       </GlassCard>

@@ -8,6 +8,13 @@ import { getSession } from '@/lib/auth';
 import { AppUser } from '@/types';
 import { useTheme } from '@/context/theme';
 
+function getAvatarInitials(name?: string | null): string {
+  if (!name) return 'U';
+  const parts = name.trim().split(' ').filter(Boolean);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 interface AppLayoutProps {
   children: React.ReactNode;
   showHeader?: boolean;
@@ -24,12 +31,10 @@ export default function AppLayout({ children, showHeader = true, title, transpar
   const isLight = useTheme() === 'light';
 
   useEffect(() => {
-    const session = getSession();
-    if (!session) {
-      router.replace('/login');
-      return;
-    }
-    setUser(session);
+    getSession().then(session => {
+      if (!session) { router.replace('/login'); return; }
+      setUser(session);
+    });
   }, [router]);
 
   if (!user) return null;
@@ -40,7 +45,8 @@ export default function AppLayout({ children, showHeader = true, title, transpar
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         userName={user.full_name}
-        userRole={user.role}
+        displayName={user.display_name}
+        userRole={user.role_name ?? ''}
       />
 
       {showHeader && (
@@ -81,11 +87,14 @@ export default function AppLayout({ children, showHeader = true, title, transpar
             </span>
           )}
 
-          <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${isLight ? 'bg-gray-100' : 'glass'}`}>
-            <span className={`font-bold text-sm ${isLight ? 'text-[#1C1C1E]' : 'text-white'}`}>
-              {user.full_name?.charAt(0).toUpperCase() ?? 'U'}
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className={`w-10 h-10 rounded-2xl flex items-center justify-center ${isLight ? 'bg-[#C03D25]/10' : 'glass'}`}
+          >
+            <span className={`font-bold text-sm ${isLight ? 'text-[#C03D25]' : 'text-white'}`}>
+              {getAvatarInitials(user.display_name || user.full_name)}
             </span>
-          </div>
+          </button>
         </header>
       )}
 

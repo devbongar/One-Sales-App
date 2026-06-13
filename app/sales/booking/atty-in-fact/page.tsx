@@ -112,7 +112,7 @@ export default function AttyInFactPage() {
   const [loading,  setLoading]  = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isSaved,  setIsSaved]  = useState(false);
-  const LOCKED_STATUSES = ['submitted', 'director-approved', 'finance-verified', 'Booked'];
+  const LOCKED_STATUSES = ['submitted', 'director-approved', 'amd-review', 'amd-approved', 'finance-verified', 'Booked'];
   const [showModal, setShowModal] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 

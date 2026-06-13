@@ -7,7 +7,7 @@ import Image from 'next/image';
 import GlassCard from '@/components/ui/GlassCard';
 import GlassButton from '@/components/ui/GlassButton';
 import GlassInput from '@/components/ui/GlassInput';
-import { setSession } from '@/lib/auth';
+import { signIn } from '@/lib/auth';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -23,23 +23,10 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.error ?? 'Login failed. Please try again.');
-        return;
-      }
-
-      setSession(data.user);
+      await signIn(email, password);
       router.push('/welcome');
-    } catch {
-      setError('Connection error. Please try again.');
+    } catch (err: any) {
+      setError(err?.message ?? 'Login failed. Please try again.');
     } finally {
       setLoading(false);
     }

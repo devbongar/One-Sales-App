@@ -9,6 +9,7 @@ import { fetchAllPayterms, PaytermRecord } from '@/lib/paytems';
 import { fetchAllClients, ClientRecord } from '@/lib/clients';
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
 import { fetchReservationFee, fetchVatThreshold, computeVat, fetchHicTarget } from '@/lib/admin';
+import { getSession } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import {
   Check, ChevronDown, ChevronLeft, Calculator,
@@ -630,7 +631,18 @@ export default function SampleComputationPage() {
   // which avoids the transient DNS failure that happens if fetched on mount)
   useEffect(() => {
     if (!project || !tower) { setAllPayterms([]); return; }
-    fetchAllPayterms().then(setAllPayterms).catch(console.error);
+    fetchAllPayterms()
+      .then(data => {
+        console.log('[paytems] fetched:', data.length, 'total records');
+        const matched = data.filter(p =>
+          p.project?.trim().toLowerCase() === project.trim().toLowerCase() &&
+          p.tower?.trim().toLowerCase() === tower.trim().toLowerCase()
+        );
+        console.log('[paytems] matched project="'+project+'" tower="'+tower+'":', matched.length);
+        if (data.length > 0) console.log('[paytems] sample projects in DB:', [...new Set(data.map(p => p.project))].slice(0, 5));
+        setAllPayterms(data);
+      })
+      .catch(e => console.error('[paytems] fetch failed:', e));
   }, [project, tower]);
 
   useEffect(() => {
@@ -639,17 +651,15 @@ export default function SampleComputationPage() {
   }, []);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem('osa_session');
-      if (raw) setUserRole(JSON.parse(raw)?.role ?? '');
-    } catch {}
+    getSession().then(s => setUserRole(s?.role_name ?? '')).catch(() => {});
   }, []);
 
   // Fetch reservation fee, VAT threshold & HIC target when selected unit changes; auto-set HIC
   useEffect(() => {
     if (!selectedUnit) return;
     const pt = selectedUnit.product_type ?? 'Residential Unit';
-    fetchReservationFee(pt).then(setReservationFee).catch(() => setReservationFee(0));
+    console.log('[res-fee] product_type="'+pt+'"');
+    fetchReservationFee(pt).then(fee => { console.log('[res-fee] result:', fee); setReservationFee(fee); }).catch(e => { console.error('[res-fee] error:', e); setReservationFee(0); });
     setVatThreshold(undefined);
     fetchVatThreshold(pt).then(setVatThreshold).catch(() => setVatThreshold(null));
     fetchHicTarget(pt).then(setHicTarget).catch(() => setHicTarget(null));
@@ -712,11 +722,19 @@ export default function SampleComputationPage() {
     setErrors((prev) => ({ ...prev, tower: '', floor: '', unitType: '' }));
   }
 
-  // Fetch projects on mount
+  // Fetch projects on mount, then pre-fill if coming from carousel
   useEffect(() => {
     const load = async () => {
-      try { setLoading(true); setProjects(await fetchProjects()); }
-      catch (err) { console.error(err); }
+      try {
+        setLoading(true);
+        const list = await fetchProjects();
+        setProjects(list);
+        const prefill = sessionStorage.getItem('sc_prefill_project');
+        if (prefill) {
+          sessionStorage.removeItem('sc_prefill_project');
+          if (list.includes(prefill)) setProject(prefill);
+        }
+      } catch (err) { console.error(err); }
       finally { setLoading(false); }
     };
     load();
@@ -1311,18 +1329,22 @@ export default function SampleComputationPage() {
         const deferredDiscount = deferredRecord?.discount ?? 0;
 
         const spotDpRecords     = filteredPayterms.filter(p => p.payterm_scheme === 'Spot DP');
-        const spotDpRateOptions = [...new Set(spotDpRecords.map(p => p.dp_percent).filter(Boolean) as string[])];
+        const spotDpRateOptions = [...new Set(spotDpRecords.map(p => p.dp_percent).filter(Boolean) as string[])].sort((a, b) => parseFloat(a) - parseFloat(b));
+        console.log('[sort-debug] spotDpRateOptions raw:', spotDpRecords.map(p => p.dp_percent), '=> sorted:', spotDpRateOptions);
         const spotDpRecord      = spotDpRecords.find(p => p.dp_percent === dpRate);
         const spotDpDiscount    = spotDpRecord?.discount ?? 0;
 
         const stretchedDpRecords     = filteredPayterms.filter(p => p.payterm_scheme === 'Stretched DP');
-        const stretchedDpRateOptions = [...new Set(stretchedDpRecords.map(p => p.dp_percent).filter(Boolean) as string[])];
+        const stretchedDpRateOptions = [...new Set(stretchedDpRecords.map(p => p.dp_percent).filter(Boolean) as string[])].sort((a, b) => parseFloat(a) - parseFloat(b));
+        console.log('[sort-debug] stretchedDpRateOptions raw:', stretchedDpRecords.map(p => p.dp_percent), '=> sorted:', stretchedDpRateOptions);
         const stretchedDpRecord      = stretchedDpRecords.find(p => p.dp_percent === dpRate);
         const stretchedDpDiscount    = stretchedDpRecord?.discount ?? 0;
-        const stretchedDpTermOptions = stretchedDpRecords
+        const stretchedDpTermOptions = (stretchedDpRecords
           .filter(p => p.dp_percent === dpRate)
           .map(p => p.payment_term ?? (p.term ? `${p.term} months` : null))
-          .filter(Boolean) as string[];
+          .filter(Boolean) as string[])
+          .sort((a, b) => parseInt(a) - parseInt(b));
+        console.log('[sort-debug] stretchedDpTermOptions (dpRate='+dpRate+'):', stretchedDpTermOptions);
         const stretchedTermMonths = parseInt(stretchedDpTerm) || 54;
 
         const paytermRate = paymentScheme === 'deferred_cash' ? deferredDiscount / 100
@@ -1335,12 +1357,12 @@ export default function SampleComputationPage() {
           : spotCashDiscount;
         const paytermAmount      = Math.round(listPrice * paytermRate);
         const nlpBeforeHIC       = listPrice - promoAmount - paytermAmount;
-        const showHIC            = userRole === 'admin' && unitCategory === 'Residential' && selectedUnit.hic === true && hicTarget != null;
+        const showHIC            = userRole === 'All Access' && unitCategory === 'Residential' && selectedUnit.hic === true && hicTarget != null;
         const hicDiscount        = (useHIC && showHIC && hicTarget != null) ? Math.max(0, nlpBeforeHIC - hicTarget) : 0;
         const netListPrice       = nlpBeforeHIC - hicDiscount;
         const vat                = (vatThreshold != null) ? computeVat(netListPrice, vatThreshold) : 0;
         const otherCharges       = Math.round(netListPrice * OTHER_CHARGES_RATE);
-        const totalContractPrice = netListPrice + vat + otherCharges;
+        const totalContractPrice = netListPrice + vat + otherCharges + hicDiscount;
         const netAmount          = totalContractPrice - reservationFee - RETENTION_FEE;
         const monthlyDeferred    = paymentScheme === 'deferred_cash' ? Math.round(netAmount / termMonths) : 0;
 
@@ -1563,7 +1585,7 @@ export default function SampleComputationPage() {
                   )}
                   {hicDiscount > 0 && (
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-[#5E5CE6]">Less: HIC Discount ({nlpBeforeHIC > 0 ? (hicDiscount / nlpBeforeHIC * 100).toFixed(1) : 0}%)</span>
+                      <span className="text-sm text-[#5E5CE6]">Less: HIC Discount</span>
                       <span className="text-sm font-medium text-[#5E5CE6]">(₱{hicDiscount.toLocaleString()})</span>
                     </div>
                   )}
@@ -1584,6 +1606,12 @@ export default function SampleComputationPage() {
                     <span className="text-sm text-[#1C1C1E]">Other Charges (7%)</span>
                     <span className="text-sm font-medium text-[#1C1C1E]">₱{otherCharges.toLocaleString()}</span>
                   </div>
+                  {hicDiscount > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[#5E5CE6]">HIC Discount</span>
+                      <span className="text-sm font-medium text-[#5E5CE6]">₱{hicDiscount.toLocaleString()}</span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between pt-2 border-t border-black/[0.06]">
                     <span className="text-sm font-bold text-[#C03D25]">Total Contract Price</span>
                     <span className="text-sm font-bold text-[#C03D25]">₱{totalContractPrice.toLocaleString()}</span>
@@ -1611,7 +1639,7 @@ export default function SampleComputationPage() {
                     <div className="px-4 pt-3 pb-4 space-y-2.5 border-b border-black/[0.06]">
                       <p className="text-[#8E8E93] text-[10px] font-semibold uppercase tracking-wider">Payment Summary</p>
                       <div className="flex items-center justify-between">
-                        <span className="text-sm text-[#1C1C1E]">DP ({dpRate})</span>
+                        <span className="text-sm text-[#1C1C1E]">DP ({dpRate}%)</span>
                         <span className="text-sm font-medium text-[#1C1C1E]">₱{dpAmount.toLocaleString()}</span>
                       </div>
                       <div className="flex items-center justify-between">
@@ -1645,7 +1673,7 @@ export default function SampleComputationPage() {
                     <div className="px-4 pt-3 pb-4 space-y-2.5 border-b border-black/[0.06]">
                       <p className="text-[#8E8E93] text-[10px] font-semibold uppercase tracking-wider">Payment Summary</p>
                       <div className="flex items-center justify-between">
-                        <span className="text-sm text-[#1C1C1E]">DP ({dpRate})</span>
+                        <span className="text-sm text-[#1C1C1E]">DP ({dpRate}%)</span>
                         <span className="text-sm font-medium text-[#1C1C1E]">₱{dpAmount.toLocaleString()}</span>
                       </div>
                       <div className="flex items-center justify-between">

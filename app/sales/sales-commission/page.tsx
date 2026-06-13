@@ -65,15 +65,16 @@ export default function SalesCommissionPage() {
   // Auto-match My Commission (only when in 'my' mode and no seller restored from state)
   useEffect(() => {
     if (mode !== 'my' || salespersons.length === 0) return;
-    // If a seller was already restored from saved state, don't overwrite
     if (selectedSeller) return;
-    const session = getSession();
+    (async () => {
+    const session = await getSession();
     if (!session) return;
     const match = salespersons.find(
       s => s.seller_name.toLowerCase() === session.full_name.toLowerCase()
     );
     setSelectedSeller(match ?? null);
     setSelectedBroker(null);
+    })();
   }, [mode, salespersons]);
 
   const filteredSalespersons = useMemo(() => {

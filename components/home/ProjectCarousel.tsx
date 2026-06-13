@@ -1,10 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import useEmblaCarousel from 'embla-carousel-react';
 import Autoplay from 'embla-carousel-autoplay';
 import Image from 'next/image';
-import { MapPin, Building2, Camera } from 'lucide-react';
+import { MapPin, Building2, Camera, Calculator } from 'lucide-react';
 import logoImg from '@/public/logo.png';
 import { Project } from '@/types';
 
@@ -87,6 +88,10 @@ function CarouselLoader() {
           0%   { opacity: 0; }
           100% { opacity: 1; }
         }
+        @keyframes computeGlow {
+          0%, 100% { box-shadow: 0 0 4px 1px rgba(245,158,11,0.3); }
+          50%       { box-shadow: 0 0 12px 4px rgba(245,158,11,0.85); }
+        }
       `}</style>
     </div>
   );
@@ -94,6 +99,7 @@ function CarouselLoader() {
 
 // ── Main carousel ─────────────────────────────────────────────────────────────
 export default function ProjectCarousel({ onProjectClick }: ProjectCarouselProps) {
+  const router = useRouter();
   const [projects, setProjects]           = useState<Project[]>([]);
   const [loading, setLoading]             = useState(true);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -143,6 +149,20 @@ export default function ProjectCarousel({ onProjectClick }: ProjectCarouselProps
       className="relative h-full w-full bg-black"
       style={{ animation: 'carouselFadeIn 0.5s cubic-bezier(0.23,1,0.32,1) both' }}
     >
+      <style>{`
+        @keyframes carouselFadeIn {
+          0%   { opacity: 0; }
+          100% { opacity: 1; }
+        }
+        @keyframes slideUpFade {
+          0%   { opacity: 0; transform: translateY(10px) scale(0.98); }
+          100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes computeGlow {
+          0%, 100% { box-shadow: 0 0 4px 1px rgba(245,158,11,0.3); }
+          50%       { box-shadow: 0 0 12px 4px rgba(245,158,11,0.85); }
+        }
+      `}</style>
 
       {/* ── Slides ── */}
       <div ref={emblaRef} className="overflow-hidden h-full">
@@ -151,21 +171,21 @@ export default function ProjectCarousel({ onProjectClick }: ProjectCarouselProps
             <div
               key={project.id}
               className="flex-none w-full h-full relative"
+              style={!project.cover_photo_url ? { background: 'linear-gradient(160deg, #2C2C2E 0%, #1C1C1E 100%)' } : undefined}
               onClick={() => onProjectClick(project)}
             >
-              <Image
-                src={
-                  project.cover_photo_url ||
-                  'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=800&q=80'
-                }
-                alt={project.name}
-                fill
-                className="object-cover"
-                priority
-                sizes="100vw"
-                placeholder="blur"
-                blurDataURL={BLUR_DATA_URL}
-              />
+              {project.cover_photo_url && (
+                <Image
+                  src={project.cover_photo_url}
+                  alt={project.name}
+                  fill
+                  className="object-cover"
+                  priority
+                  sizes="100vw"
+                  placeholder="blur"
+                  blurDataURL={BLUR_DATA_URL}
+                />
+              )}
               {/* Gradient — strong at bottom, fades to transparent at top */}
               <div
                 className="absolute inset-0"
@@ -174,6 +194,12 @@ export default function ProjectCarousel({ onProjectClick }: ProjectCarouselProps
                     'linear-gradient(to top, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.35) 40%, rgba(0,0,0,0.10) 70%, transparent 100%)',
                 }}
               />
+              {/* No photo label */}
+              {!project.cover_photo_url && (
+                <div className="absolute inset-0 flex items-center justify-center pb-32">
+                  <span className="text-white/20 text-xs font-medium tracking-widest uppercase">No photo added</span>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -234,6 +260,7 @@ export default function ProjectCarousel({ onProjectClick }: ProjectCarouselProps
             {projects[selectedIndex]?.floors} floors
           </span>
           <button
+            onClick={e => { e.stopPropagation(); onProjectClick(projects[selectedIndex]); }}
             className="ml-auto pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full active:scale-[0.96]"
             style={{
               background: 'rgba(192,61,37,0.80)',
@@ -244,6 +271,22 @@ export default function ProjectCarousel({ onProjectClick }: ProjectCarouselProps
           >
             <Camera size={12} className="text-white" />
             <span className="text-white text-[11px] font-semibold">Photos</span>
+          </button>
+          <button
+            onClick={e => {
+              e.stopPropagation();
+              sessionStorage.setItem('sc_prefill_project', projects[selectedIndex]?.name ?? '');
+              router.push('/sales/sample-computation');
+            }}
+            className="pointer-events-auto flex items-center gap-1.5 px-3.5 py-2 rounded-full active:scale-[0.96]"
+            style={{
+              background: 'linear-gradient(135deg, #F59E0B, #D97706)',
+              animation: 'slideUpFade 0.4s 0.15s cubic-bezier(0.22,1,0.36,1) both, computeGlow 1.2s 0.8s ease-in-out infinite',
+              transition: 'transform 100ms ease-out',
+            }}
+          >
+            <Calculator size={13} className="text-white" />
+            <span className="text-white text-[12px] font-bold">Compute</span>
           </button>
         </div>
       </div>

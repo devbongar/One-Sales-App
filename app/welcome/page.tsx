@@ -13,12 +13,10 @@ export default function WelcomePage() {
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
-    const session = getSession();
-    if (!session) {
-      router.replace('/login');
-      return;
-    }
-    setUserName(session.full_name?.split(' ')[0] ?? 'there');
+    getSession().then(session => {
+      if (!session) { router.replace('/login'); return; }
+      setUserName(session.display_name || session.full_name?.split(' ')[0] || 'there');
+    });
 
     const start = Date.now();
     const interval = setInterval(() => {

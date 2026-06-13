@@ -47,8 +47,8 @@ export async function fetchFloors(projectName: string, tower: string) {
 
     console.log('Floors for', projectName, tower, ':', data);
 
-    // Extract floor names from the result
-    const floors = data?.map((row: any) => row.floor).filter(Boolean) as string[];
+    const floors = (data?.map((row: any) => row.floor).filter(Boolean) as string[])
+      .sort((a, b) => (parseInt(a) || 0) - (parseInt(b) || 0));
     return floors;
   } catch (err) {
     console.error('Error fetching floors:', err);
@@ -68,8 +68,8 @@ export async function fetchFloorsByCategory(projectName: string, tower: string, 
 
     console.log('Floors for', projectName, tower, 'category', category, ':', data);
 
-    // Extract floor names from the result
-    const floors = data?.map((row: any) => row.floor).filter(Boolean) as string[];
+    const floors = (data?.map((row: any) => row.floor).filter(Boolean) as string[])
+      .sort((a, b) => (parseInt(a) || 0) - (parseInt(b) || 0));
     return floors;
   } catch (err) {
     console.error('Error fetching floors by category:', err);

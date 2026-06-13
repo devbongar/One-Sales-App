@@ -10,7 +10,6 @@ import {
   fetchBookingDocuments, saveBookingDocuments,
   uploadDocumentFile, removeDocumentFile,
 } from '@/lib/booking-documents';
-import { submitForReview } from '@/lib/review';
 import { Plus, X, FileText, CheckCircle2, Loader2, Upload } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -118,6 +117,14 @@ export default function BookingDocumentsPage() {
   const [uploadingBilling, setUploadingBilling] = useState(false);
   const [uploadingIncome,  setUploadingIncome]  = useState(false);
 
+  // Optional docs
+  const [loanDisclosureFiles,       setLoanDisclosureFiles]       = useState<DocFile[]>([]);
+  const [addlIncomeFiles,           setAddlIncomeFiles]           = useState<DocFile[]>([]);
+  const [floorLayoutFiles,          setFloorLayoutFiles]          = useState<DocFile[]>([]);
+  const [uploadingLoanDisclosure,   setUploadingLoanDisclosure]   = useState(false);
+  const [uploadingAddlIncome,       setUploadingAddlIncome]       = useState(false);
+  const [uploadingFloorLayout,      setUploadingFloorLayout]      = useState(false);
+
   // Conditional ID docs
   const [coOwnerFiles,    setCoOwnerFiles]    = useState<DocFile[]>([]);
   const [attyFiles,       setAttyFiles]       = useState<DocFile[]>([]);
@@ -127,14 +134,16 @@ export default function BookingDocumentsPage() {
   const [uploadingSpouse, setUploadingSpouse] = useState(false);
 
   const [isSaving,         setIsSaving]         = useState(false);
-  const [showConfirmModal, setShowConfirmModal]  = useState(false);
   const [showDoneModal,    setShowDoneModal]     = useState(false);
 
-  const billingInputRef = useRef<HTMLInputElement>(null);
-  const incomeInputRef  = useRef<HTMLInputElement>(null);
-  const coInputRef      = useRef<HTMLInputElement>(null);
-  const attyInputRef    = useRef<HTMLInputElement>(null);
-  const spouseInputRef  = useRef<HTMLInputElement>(null);
+  const billingInputRef       = useRef<HTMLInputElement>(null);
+  const incomeInputRef        = useRef<HTMLInputElement>(null);
+  const loanDisclosureInputRef = useRef<HTMLInputElement>(null);
+  const addlIncomeInputRef    = useRef<HTMLInputElement>(null);
+  const floorLayoutInputRef   = useRef<HTMLInputElement>(null);
+  const coInputRef            = useRef<HTMLInputElement>(null);
+  const attyInputRef          = useRef<HTMLInputElement>(null);
+  const spouseInputRef        = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const raw = sessionStorage.getItem('selectedReservation');
@@ -150,7 +159,7 @@ export default function BookingDocumentsPage() {
           setHasAttyInFact(p.has_atty_in_fact);
           setHasSpouse(p.has_spouse);
           setCoOwnerIsSpouse(p.co_owner_is_spouse);
-          const lockedStatuses = ['submitted', 'director-approved', 'finance-verified', 'Booked'];
+          const lockedStatuses = ['submitted', 'director-approved', 'amd-review', 'amd-approved', 'finance-verified', 'Booked'];
           setIsSaved(p.documents_saved && lockedStatuses.includes(p.booking_review_status ?? ''));
 
           const docs = await fetchBookingDocuments(r.reservation_id);
@@ -162,10 +171,10 @@ export default function BookingDocumentsPage() {
           setAttyFiles((docs.atty_in_fact_id_urls ?? []).map(toDocFile));
           setSpouseFiles((docs.spouse_id_urls ?? []).map(toDocFile));
 
-          // Load billing & income from reservations table
+          // Load billing, income, and optional docs from reservations table
           const { data: resData } = await supabase
             .from('reservations')
-            .select('proof_of_billing_urls, proof_of_income_urls')
+            .select('proof_of_billing_urls, proof_of_income_urls, existing_loan_disclosure_urls, additional_proof_of_income_urls, signed_floor_layout_urls')
             .eq('reservation_id', r.reservation_id)
             .single();
           if (resData) {
@@ -174,6 +183,9 @@ export default function BookingDocumentsPage() {
             };
             setBillingFiles(parse(resData.proof_of_billing_urls).map(toDocFile));
             setIncomeFiles(parse(resData.proof_of_income_urls).map(toDocFile));
+            setLoanDisclosureFiles(parse(resData.existing_loan_disclosure_urls).map(toDocFile));
+            setAddlIncomeFiles(parse(resData.additional_proof_of_income_urls).map(toDocFile));
+            setFloorLayoutFiles(parse(resData.signed_floor_layout_urls).map(toDocFile));
           }
         } catch (err) {
           console.error('[documents] load error:', err);
@@ -226,11 +238,13 @@ export default function BookingDocumentsPage() {
       await supabase
         .from('reservations')
         .update({
-          proof_of_billing_urls: JSON.stringify(billingFiles.map(f => f.url)),
-          proof_of_income_urls:  JSON.stringify(incomeFiles.map(f => f.url)),
+          proof_of_billing_urls:             JSON.stringify(billingFiles.map(f => f.url)),
+          proof_of_income_urls:              JSON.stringify(incomeFiles.map(f => f.url)),
+          existing_loan_disclosure_urls:     JSON.stringify(loanDisclosureFiles.map(f => f.url)),
+          additional_proof_of_income_urls:   JSON.stringify(addlIncomeFiles.map(f => f.url)),
+          signed_floor_layout_urls:          JSON.stringify(floorLayoutFiles.map(f => f.url)),
         })
         .eq('reservation_id', reservation?.reservation_id ?? '');
-      await submitForReview(reservation?.reservation_id ?? '');
       setIsSaved(true);
       setShowDoneModal(true);
     } catch (err) {
@@ -259,6 +273,13 @@ export default function BookingDocumentsPage() {
           </div>
         ) : (
           <>
+            {isSaved && (
+              <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl bg-[#F2F2F7] border border-black/[0.06]">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#E5E5EA] text-[#6C6C70]">View Only</span>
+                <p className="text-xs text-[#8E8E93]">Submitted for review — documents locked</p>
+              </div>
+            )}
+
             {/* Proof of Billing — always required */}
             <DocSection
               label="Proof of Billing"
@@ -349,18 +370,67 @@ export default function BookingDocumentsPage() {
               </>
             )}
 
+            {/* Optional documents */}
+            <div className="pt-1">
+              <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider px-1 mb-3">Optional Documents</p>
+
+              <div className="space-y-4">
+                <DocSection
+                  label="Existing Loan Disclosure"
+                  files={loanDisclosureFiles}
+                  onAdd={() => loanDisclosureInputRef.current?.click()}
+                  onRemove={idx => handleRemove(idx, loanDisclosureFiles, setLoanDisclosureFiles)}
+                  uploading={uploadingLoanDisclosure}
+                  disabled={isSaved}
+                />
+                <input ref={loanDisclosureInputRef} type="file" accept="image/*,.pdf" className="hidden"
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) handleFileUpload(file, 'loan-disclosure', setLoanDisclosureFiles, setUploadingLoanDisclosure);
+                    e.target.value = '';
+                  }} />
+
+                <DocSection
+                  label="Additional Proof of Income"
+                  files={addlIncomeFiles}
+                  onAdd={() => addlIncomeInputRef.current?.click()}
+                  onRemove={idx => handleRemove(idx, addlIncomeFiles, setAddlIncomeFiles)}
+                  uploading={uploadingAddlIncome}
+                  disabled={isSaved}
+                />
+                <input ref={addlIncomeInputRef} type="file" accept="image/*,.pdf" className="hidden"
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) handleFileUpload(file, 'addl-income', setAddlIncomeFiles, setUploadingAddlIncome);
+                    e.target.value = '';
+                  }} />
+
+                <DocSection
+                  label="Signed Floor Layout"
+                  files={floorLayoutFiles}
+                  onAdd={() => floorLayoutInputRef.current?.click()}
+                  onRemove={idx => handleRemove(idx, floorLayoutFiles, setFloorLayoutFiles)}
+                  uploading={uploadingFloorLayout}
+                  disabled={isSaved}
+                />
+                <input ref={floorLayoutInputRef} type="file" accept="image/*,.pdf" className="hidden"
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) handleFileUpload(file, 'floor-layout', setFloorLayoutFiles, setUploadingFloorLayout);
+                    e.target.value = '';
+                  }} />
+              </div>
+            </div>
+
             {!hasAnyConditional && isSaved && (
               <GlassCard className="p-4 flex items-center gap-3">
                 <CheckCircle2 size={20} className="text-green-600 shrink-0" />
-                <p className="text-sm text-[#6C6C70]">All documents have been submitted.</p>
+                <p className="text-sm text-[#6C6C70]">All documents have been saved.</p>
               </GlassCard>
             )}
 
             <button type="button"
-              onClick={() => {
-                if (isSaved) { router.push('/sales/booking/detail'); return; }
-                setShowConfirmModal(true);
-              }}
+              onClick={() => { if (isSaved) { router.push('/sales/booking/detail'); return; } handleSave(); }}
               disabled={isSaving || (!isSaved && !canSave)}
               className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity disabled:opacity-40">
               {isSaving ? 'Saving…' : isSaved ? 'Done' : 'Save'}
@@ -369,39 +439,6 @@ export default function BookingDocumentsPage() {
         )}
 
       </div>
-
-      {/* ── Confirm modal ── */}
-      {showConfirmModal && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowConfirmModal(false)} />
-          <div className="relative w-full bg-white rounded-t-3xl px-6 pt-6 pb-10 space-y-5 animate-slide-up">
-            <button type="button" onClick={() => setShowConfirmModal(false)}
-              className="absolute top-4 right-4 w-8 h-8 rounded-full bg-[#F2F2F7] flex items-center justify-center active:opacity-70">
-              <X size={16} className="text-[#6C6C70]" />
-            </button>
-            <div className="flex flex-col items-center gap-2 text-center">
-              <div className="w-12 h-12 rounded-2xl bg-[rgba(192,61,37,0.12)] flex items-center justify-center">
-                <CheckCircle2 size={24} className="text-[#C03D25]" />
-              </div>
-              <p className="text-base font-bold text-[#1C1C1E]">Confirm Documents</p>
-              <p className="text-sm text-[#6C6C70] leading-relaxed">
-                Make sure all uploaded documents are correct and complete before saving.
-              </p>
-            </div>
-            <div className="space-y-2">
-              <button type="button"
-                onClick={() => { setShowConfirmModal(false); handleSave(); }}
-                className="w-full py-3.5 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80">
-                Confirm &amp; Save
-              </button>
-              <button type="button" onClick={() => setShowConfirmModal(false)}
-                className="w-full py-3.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-80">
-                Review Again
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Done modal ── */}
       {showDoneModal && (
@@ -416,7 +453,7 @@ export default function BookingDocumentsPage() {
               <div className="w-12 h-12 rounded-2xl bg-[rgba(192,61,37,0.12)] flex items-center justify-center">
                 <CheckCircle2 size={24} className="text-[#C03D25]" />
               </div>
-              <p className="text-base font-bold text-[#1C1C1E]">Documents Submitted!</p>
+              <p className="text-base font-bold text-[#1C1C1E]">Documents Saved!</p>
               <p className="text-sm text-[#6C6C70] leading-relaxed">
                 All required documents have been uploaded and saved successfully.
               </p>

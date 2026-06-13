@@ -96,8 +96,8 @@ export default function BuyersPaymentPage() {
   useEffect(() => {
     async function loadOptions() {
       const [r1, r2] = await Promise.all([
-        supabase.from('reservations').select('project, seller_name').in('booking_review_status', ['director-approved', 'finance-verified', 'Booked']).limit(5000),
-        supabase.from('reservations').select('project, seller_name').eq('status', 'Pending Review').limit(5000),
+        supabase.from('reservations').select('project, seller_name').in('booking_review_status', ['finance-verified', 'Booked']).limit(5000),
+        supabase.from('reservations').select('project, seller_name').in('status', ['Pending Review', 'Reserved']).not('payment_proof_url', 'is', null).limit(5000),
       ]);
       const rows = [...(r1.data ?? []), ...(r2.data ?? [])];
       setProjectOptions([...new Set(rows.map(r => r.project).filter(Boolean))] as string[]);
@@ -124,7 +124,8 @@ export default function BuyersPaymentPage() {
       q = supabase
         .from('reservations')
         .select(SELECT)
-        .or('status.eq.Pending Review,booking_review_status.eq.director-approved,booking_review_status.eq.finance-verified,booking_review_status.eq.Booked')
+        .or('status.eq.Pending Review,status.eq.Reserved,booking_review_status.eq.finance-verified,booking_review_status.eq.Booked')
+        .not('payment_proof_url', 'is', null)
         .order('created_at', { ascending: false })
         .limit(5000);
     } else if (statusFilter === 'Pending Review') {
@@ -135,16 +136,22 @@ export default function BuyersPaymentPage() {
         .order('created_at', { ascending: false })
         .limit(5000);
     } else {
-      const statusValues: Record<string, string[]> = {
-        'Pending':  ['director-approved'],
-        'Verified': ['finance-verified', 'Booked'],
-      };
-      q = supabase
-        .from('reservations')
-        .select(SELECT)
-        .in('booking_review_status', statusValues[statusFilter] ?? ['director-approved'])
-        .order('director_reviewed_at', { ascending: false })
-        .limit(5000);
+      if (statusFilter === 'Pending') {
+        q = supabase
+          .from('reservations')
+          .select(SELECT)
+          .in('status', ['Pending Review', 'Reserved'])
+          .not('payment_proof_url', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(5000);
+      } else {
+        q = supabase
+          .from('reservations')
+          .select(SELECT)
+          .in('booking_review_status', ['finance-verified', 'Booked'])
+          .order('created_at', { ascending: false })
+          .limit(5000);
+      }
     }
 
     if (projectFilter) q = q.eq('project',     projectFilter);

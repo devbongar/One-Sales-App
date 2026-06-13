@@ -19,9 +19,11 @@ import {
 import {
   fetchReceivableSummaries,
   fetchReceivableLines,
+  generateReceivableLines,
   ReservationReceivableSummary,
   ReceivableLine,
 } from '@/lib/receivables';
+import { supabase } from '@/lib/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1216,6 +1218,9 @@ export default function CollectionPostingPage() {
   const [clientFilter, setClientFilter] = useState('');
   const [selected,     setSelected]     = useState<ReservationReceivableSummary | null>(null);
   const [exporting,    setExporting]    = useState(false);
+  const [loadError,    setLoadError]    = useState('');
+  const [backfilling,  setBackfilling]  = useState(false);
+  const [backfillDone, setBackfillDone] = useState<{ generated: number; skipped: number } | null>(null);
 
   const fileInputRef                            = useRef<HTMLInputElement>(null);
   const [importing,        setImporting]        = useState(false);
@@ -1227,8 +1232,12 @@ export default function CollectionPostingPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError('');
     try {
       setSummaries(await fetchReceivableSummaries());
+    } catch (e: any) {
+      console.error('[collection-posting] load failed:', e);
+      setLoadError(e?.message ?? 'Failed to load collection data.');
     } finally {
       setLoading(false);
     }
@@ -1321,6 +1330,42 @@ export default function CollectionPostingPage() {
     load();
   }
 
+  // ── Backfill: generate receivable lines for all Reserved/Booked reservations ──
+
+  async function handleBackfill() {
+    setBackfilling(true);
+    setBackfillDone(null);
+    try {
+      // Fetch all reservations that should have receivable lines
+      const { data: reservations, error } = await supabase
+        .from('reservations')
+        .select('reservation_id, date_of_reservation_fee, status')
+        .in('status', ['Reserved', 'Booked', 'Pending Review']);
+      if (error) throw error;
+
+      let generated = 0;
+      let skipped   = 0;
+
+      for (const r of reservations ?? []) {
+        const paymentDate = r.date_of_reservation_fee ?? localToday();
+        try {
+          // generateReceivableLines is idempotent — skips if lines already exist
+          await generateReceivableLines(r.reservation_id, paymentDate);
+          generated++;
+        } catch {
+          skipped++;
+        }
+      }
+
+      setBackfillDone({ generated, skipped });
+      load();
+    } catch (e: any) {
+      alert(e?.message ?? 'Backfill failed.');
+    } finally {
+      setBackfilling(false);
+    }
+  }
+
   return (
     <>
       <PageShell title="Collection Posting">
@@ -1400,12 +1445,59 @@ export default function CollectionPostingPage() {
             <div className="flex items-center justify-center py-16">
               <Loader2 size={24} className="text-[#C03D25] animate-spin" />
             </div>
-          ) : sorted.length === 0 ? (
-            <GlassCard className="p-8 text-center">
-              <Building2 size={28} className="text-[#C7C7CC] mx-auto mb-2" />
-              <p className="text-sm font-semibold text-[#1C1C1E]">No records found</p>
-              <p className="text-xs text-[#8E8E93] mt-1">Try adjusting your search or filters</p>
+          ) : loadError ? (
+            <GlassCard className="px-4 py-4 flex items-start gap-3 bg-red-50 border border-red-200">
+              <AlertTriangle size={18} className="text-red-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-bold text-red-700">Failed to load</p>
+                <p className="text-xs text-red-600 mt-0.5 leading-relaxed">{loadError}</p>
+              </div>
             </GlassCard>
+          ) : sorted.length === 0 ? (
+            <div className="space-y-3">
+              <GlassCard className="p-8 text-center">
+                <Building2 size={28} className="text-[#C7C7CC] mx-auto mb-2" />
+                <p className="text-sm font-semibold text-[#1C1C1E]">No records found</p>
+                <p className="text-xs text-[#8E8E93] mt-1">
+                  {search || statusFilter || projectFilter || clientFilter
+                    ? 'Try adjusting your search or filters'
+                    : 'No payment schedules have been generated yet'}
+                </p>
+              </GlassCard>
+              {!search && !statusFilter && !projectFilter && !clientFilter && (
+                <GlassCard className="px-4 py-4 space-y-3">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle size={16} className="text-amber-500 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-xs font-bold text-[#1C1C1E]">Payment schedules missing</p>
+                      <p className="text-xs text-[#8E8E93] mt-0.5 leading-relaxed">
+                        Existing reservations may not have payment schedules yet. Tap below to generate them for all Reserved and Booked reservations.
+                      </p>
+                    </div>
+                  </div>
+                  {backfillDone && (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-green-50 border border-green-200">
+                      <CheckCircle2 size={13} className="text-green-500 shrink-0" />
+                      <p className="text-xs text-green-700 font-medium">
+                        Generated for {backfillDone.generated} reservation{backfillDone.generated !== 1 ? 's' : ''}
+                        {backfillDone.skipped > 0 ? `, ${backfillDone.skipped} skipped` : ''}
+                      </p>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    disabled={backfilling}
+                    onClick={handleBackfill}
+                    className="w-full py-3 rounded-2xl bg-[#C03D25] text-white text-sm font-bold flex items-center justify-center gap-2 active:opacity-80 disabled:opacity-50"
+                  >
+                    {backfilling
+                      ? <><Loader2 size={15} className="animate-spin" /> Generating…</>
+                      : 'Generate Payment Schedules'
+                    }
+                  </button>
+                </GlassCard>
+              )}
+            </div>
           ) : (
             <div className="space-y-2">
               {sorted.map(s => (

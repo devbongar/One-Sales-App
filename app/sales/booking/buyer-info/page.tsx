@@ -241,7 +241,7 @@ const RANK_OPTS                = ['Executive', 'Managerial', 'Supervisor', 'Rank
 const SALARY_RANGE_OPTS        = ['50,000 and Below', '50,001 to 80,000', '80,001 to 120,000', '120,001 to 150,000', '150,001 to 200,000', '200,001 and Above'];
 const MAILING_OPTS             = ['Home Address', 'Office Address', 'Others'];
 const COUNTRY_OPTIONS          = COUNTRY_CODES.map(c => ({ label: c.name, flag: c.flag }));
-const LOCKED_STATUSES          = ['submitted', 'director-approved', 'finance-verified', 'Booked'];
+const LOCKED_STATUSES          = ['submitted', 'director-approved', 'amd-review', 'amd-approved', 'finance-verified', 'Booked'];
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function BuyerInfoPage() {
@@ -365,7 +365,6 @@ export default function BuyerInfoPage() {
       // Fetch previously saved buyer info
       const info = await fetchBuyerInfo(match.id).catch(() => null);
 
-      // Lock address/employment fields only when booking is in a locked review status
       setIsSaved(LOCKED_STATUSES.includes(brs ?? ''));
 
       if (!info?.buyer_info_saved) return; // first time filling out — client fields already set above
@@ -416,6 +415,7 @@ export default function BuyerInfoPage() {
 
   // ── Validate Step 0 before advancing ─────────────────────────────────────
   function handleNextFromStep0() {
+    if (isSaved) { setStep(1); return; }
     if (!lastName.trim())  { setStep0Error('Please enter a last name.'); return; }
     if (!firstName.trim()) { setStep0Error('Please enter a first name.'); return; }
     if (!gender)           { setStep0Error('Please select a gender.'); return; }
@@ -507,57 +507,73 @@ export default function BuyerInfoPage() {
 
         <StepIndicator current={1} total={3} />
 
+        {isSaved && (
+          <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl bg-[#F2F2F7] border border-black/[0.06]">
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#E5E5EA] text-[#6C6C70]">View Only</span>
+            <p className="text-xs text-[#8E8E93]">Submitted for review — no edits allowed</p>
+          </div>
+        )}
+
         <GlassCard className="p-4 space-y-4">
           <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Personal Information</p>
 
           <ReadOnlyField label="Client ID" icon={<UserCheck size={11} />} value={clientId} />
-          <InputRow label="Last Name" icon={<User size={11} />} required>
-            <TextInput value={lastName} onChange={setLastName} placeholder="e.g. Santos" />
+          <InputRow label="Last Name" icon={<User size={11} />} required={!isSaved}>
+            <TextInput value={lastName} onChange={setLastName} placeholder="e.g. Santos" disabled={isSaved} />
           </InputRow>
-          <InputRow label="First Name" icon={<User size={11} />} required>
-            <TextInput value={firstName} onChange={setFirstName} placeholder="e.g. Maria" />
+          <InputRow label="First Name" icon={<User size={11} />} required={!isSaved}>
+            <TextInput value={firstName} onChange={setFirstName} placeholder="e.g. Maria" disabled={isSaved} />
           </InputRow>
           <InputRow label="Middle Name" icon={<User size={11} />}>
-            <TextInput value={middleName} onChange={setMiddleName} placeholder="e.g. Cruz" />
+            <TextInput value={middleName} onChange={setMiddleName} placeholder="e.g. Cruz" disabled={isSaved} />
           </InputRow>
           <InputRow label="Suffix" icon={<User size={11} />}>
-            <TextInput value={suffix} onChange={setSuffix} placeholder="e.g. Jr., Sr., III" />
+            <TextInput value={suffix} onChange={setSuffix} placeholder="e.g. Jr., Sr., III" disabled={isSaved} />
           </InputRow>
 
-          <InputRow label="Gender" icon={<User size={11} />} required>
-            <SelectInput value={gender} options={GENDER_OPTIONS} onChange={v => { setGender(v); setStep0Error(''); }} placeholder="Select gender" />
+          <InputRow label="Gender" icon={<User size={11} />} required={!isSaved}>
+            <SelectInput value={gender} options={GENDER_OPTIONS} onChange={v => { setGender(v); setStep0Error(''); }} placeholder="Select gender" disabled={isSaved} />
           </InputRow>
-          <InputRow label="Civil Status" icon={<Heart size={11} />} required>
-            <SelectInput value={civilStatus} options={CIVIL_STATUS_OPTIONS} onChange={v => { setCivilStatus(v); setStep0Error(''); }} placeholder="Select civil status" />
+          <InputRow label="Civil Status" icon={<Heart size={11} />} required={!isSaved}>
+            <SelectInput value={civilStatus} options={CIVIL_STATUS_OPTIONS} onChange={v => { setCivilStatus(v); setStep0Error(''); }} placeholder="Select civil status" disabled={isSaved} />
           </InputRow>
 
           <InputRow label="Citizenship" icon={<Globe size={11} />}>
-            <SearchableSelect value={citizenship} options={COUNTRY_OPTIONS} onChange={setCitizenship} placeholder="Select citizenship" />
+            <SearchableSelect value={citizenship} options={COUNTRY_OPTIONS} onChange={setCitizenship} placeholder="Select citizenship" disabled={isSaved} />
           </InputRow>
           <InputRow label="Date of Birth" icon={<Calendar size={11} />}>
-            <DatePickerInput value={dateOfBirth} onChange={setDateOfBirth} />
+            <DatePickerInput value={dateOfBirth} onChange={setDateOfBirth} disabled={isSaved} />
           </InputRow>
-          <InputRow label="Mobile No." icon={<Phone size={11} />} required>
-            <PhoneInputField code={mobileCode} onCodeChange={setMobileCode} number={mobileNumber} onNumberChange={setMobileNumber} />
+          <InputRow label="Mobile No." icon={<Phone size={11} />} required={!isSaved}>
+            <PhoneInputField code={mobileCode} onCodeChange={setMobileCode} number={mobileNumber} onNumberChange={setMobileNumber} disabled={isSaved} />
           </InputRow>
           <InputRow label="Landline No." icon={<Phone size={11} />}>
-            <TextInput value={landline} onChange={setLandline} placeholder="e.g. 028XXXXXXX" />
+            <TextInput value={landline} onChange={setLandline} placeholder="e.g. 028XXXXXXX" disabled={isSaved} />
           </InputRow>
           <InputRow label="Email Address" icon={<Mail size={11} />}>
-            <TextInput value={email} onChange={setEmail} placeholder="e.g. name@email.com" />
+            <TextInput value={email} onChange={setEmail} placeholder="e.g. name@email.com" disabled={isSaved} />
           </InputRow>
 
-          <InputRow label="Tax ID No. (TIN)" icon={<CreditCard size={11} />} required={!noTin}>
+          <InputRow label="Tax ID No. (TIN)" icon={<CreditCard size={11} />} required={!noTin && !isSaved}>
             <TextInput value={noTin ? '' : tin} onChange={v => { setTin(v); setStep0Error(''); }}
-              placeholder={noTin ? 'No TIN' : 'XXX-XXX-XXX'} disabled={noTin} />
+              placeholder={noTin ? 'No TIN' : 'XXX-XXX-XXX'} disabled={noTin || isSaved} />
           </InputRow>
 
-          <button type="button" onClick={() => { setNoTin(p => !p); if (!noTin) setTin(''); setStep0Error(''); }}
-            className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-semibold transition-all ${
+          {!isSaved && (
+            <button type="button" onClick={() => { setNoTin(p => !p); if (!noTin) setTin(''); setStep0Error(''); }}
+              className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-semibold transition-all ${
+                noTin ? 'bg-[#C03D25] border-[#C03D25] text-white' : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
+              }`}>
+              {noTin && <Check size={13} />}<FileText size={14} />No TIN
+            </button>
+          )}
+          {isSaved && (
+            <div className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-semibold opacity-50 ${
               noTin ? 'bg-[#C03D25] border-[#C03D25] text-white' : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
             }`}>
-            {noTin && <Check size={13} />}<FileText size={14} />No TIN
-          </button>
+              {noTin && <Check size={13} />}<FileText size={14} />No TIN
+            </div>
+          )}
 
           {noTin && (
             <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
@@ -590,6 +606,13 @@ export default function BuyerInfoPage() {
       <div className="space-y-4 pb-6">
 
         <StepIndicator current={2} total={3} />
+
+        {isSaved && (
+          <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl bg-[#F2F2F7] border border-black/[0.06]">
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#E5E5EA] text-[#6C6C70]">View Only</span>
+            <p className="text-xs text-[#8E8E93]">Submitted for review — no edits allowed</p>
+          </div>
+        )}
 
         <GlassCard className="p-4 space-y-4">
           <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Address Information</p>
@@ -631,6 +654,13 @@ export default function BuyerInfoPage() {
       <div className="space-y-4 pb-6">
 
         <StepIndicator current={3} total={3} />
+
+        {isSaved && (
+          <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl bg-[#F2F2F7] border border-black/[0.06]">
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#E5E5EA] text-[#6C6C70]">View Only</span>
+            <p className="text-xs text-[#8E8E93]">Submitted for review — no edits allowed</p>
+          </div>
+        )}
 
         {/* Employment Information */}
         <GlassCard className="p-4 space-y-4">
@@ -736,13 +766,21 @@ export default function BuyerInfoPage() {
           </div>
         </GlassCard>
 
-        {/* Save button */}
-        <button type="button"
-          onClick={() => setShowConfirmModal(true)}
-          disabled={isSaving}
-          className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity disabled:opacity-60">
-          {isSaving ? 'Saving...' : 'Save'}
-        </button>
+        {/* Save / Back button */}
+        {isSaved ? (
+          <button type="button"
+            onClick={() => router.push('/sales/booking/detail')}
+            className="w-full py-4 rounded-2xl bg-[#F2F2F7] text-[#6C6C70] text-sm font-bold active:opacity-80 transition-opacity">
+            Back to Booking
+          </button>
+        ) : (
+          <button type="button"
+            onClick={() => setShowConfirmModal(true)}
+            disabled={isSaving}
+            className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity disabled:opacity-60">
+            {isSaving ? 'Saving...' : 'Save'}
+          </button>
+        )}
 
       </div>
 

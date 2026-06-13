@@ -14,6 +14,7 @@ export interface BookingProgress {
   documents_saved: boolean;
   booking_review_status: string | null;
   director_notes: string | null;
+  amd_notes: string | null;
 }
 
 export type BookingStatus =
@@ -24,6 +25,9 @@ export type BookingStatus =
   | 'submitted'
   | 'director-rejected'
   | 'director-approved'
+  | 'amd-review'
+  | 'amd-rejected'
+  | 'amd-approved'
   | 'finance-verified'
   | 'Booked';
 
@@ -44,6 +48,7 @@ export async function getBookingProgress(reservationId: string): Promise<Booking
     documents_saved: false,
     booking_review_status: null,
     director_notes: null,
+    amd_notes: null,
   };
 }
 
@@ -88,6 +93,8 @@ export function computeBookingStatus(p?: BookingProgress): BookingStatus {
   if (!p.documents_saved) return 'stage1-complete';
   if (p.booking_review_status === 'Booked')            return 'Booked';
   if (p.booking_review_status === 'finance-verified')  return 'finance-verified';
+  if (p.booking_review_status === 'amd-approved')      return 'amd-approved';
+  if (p.booking_review_status === 'amd-review')        return 'amd-review';
   if (p.booking_review_status === 'director-approved') return 'director-approved';
   if (p.booking_review_status === 'director-rejected') return 'director-rejected';
   if (p.booking_review_status === 'submitted')         return 'submitted';

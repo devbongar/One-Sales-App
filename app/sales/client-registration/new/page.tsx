@@ -12,7 +12,7 @@ import {
   COUNTRY_CODES, CITIZENSHIP_LIST,
   REASON_OPTIONS, SOURCE_OPTIONS, INCOME_OPTIONS,
 } from '@/lib/client-form-options';
-import { saveClient } from '@/lib/clients';
+import { saveClient, fetchAllClients, ClientRecord } from '@/lib/clients';
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
 import { fetchAllBrokers, BrokerRecord } from '@/lib/brokers';
 
@@ -125,6 +125,8 @@ export default function NewClientPage() {
   const [citizenshipPickerOpen, setCitizenshipPickerOpen]     = useState(false);
   const [citizenshipSearch, setCitizenshipSearch]             = useState('');
 
+  const [allClients, setAllClients] = useState<ClientRecord[]>([]);
+
   // Seller state
   const [allSalespersons, setAllSalespersons] = useState<SalespersonRecord[]>([]);
   const [allBrokers, setAllBrokers]           = useState<BrokerRecord[]>([]);
@@ -140,6 +142,7 @@ export default function NewClientPage() {
     setForm(f => ({ ...f, [key]: val }));
 
   useEffect(() => {
+    fetchAllClients().then(setAllClients).catch(console.error);
     fetchAllSalespersons().then(setAllSalespersons).catch(console.error);
     fetchAllBrokers().then(setAllBrokers).catch(console.error);
   }, []);
@@ -193,12 +196,21 @@ export default function NewClientPage() {
     const e: Record<string, string> = {};
     if (!form.lastName.trim())              e.lastName              = 'Last name is required';
     if (!form.firstName.trim())             e.firstName             = 'First name is required';
-    if (!form.dateOfBirth)                  e.dateOfBirth           = 'Date of birth is required';
+    if (!form.dateOfBirth) {
+      e.dateOfBirth = 'Date of birth is required';
+    } else {
+      const dob = new Date(form.dateOfBirth);
+      const cutoff = new Date();
+      cutoff.setFullYear(cutoff.getFullYear() - 18);
+      if (dob > cutoff) e.dateOfBirth = 'Client must be at least 18 years old';
+    }
     if (!form.citizenship)                  e.citizenship           = 'Citizenship is required';
     if (!form.mobileNumber.trim())          e.mobileNumber          = 'Mobile number is required';
     if (!form.email.trim())                 e.email                 = 'Email address is required';
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
                                             e.email                 = 'Enter a valid email address';
+    else if (allClients.some(c => c.email?.toLowerCase() === form.email.trim().toLowerCase()))
+                                            e.email                 = 'This email is already registered';
     if (!form.reasonForBuying)              e.reasonForBuying       = 'Reason for buying is required';
     if (!form.sourceOfSale)                 e.sourceOfSale          = 'Source of sale is required';
     if (!form.monthlyHouseholdIncome)       e.monthlyHouseholdIncome = 'Monthly income is required';
@@ -443,7 +455,11 @@ export default function NewClientPage() {
 
           <InputRow label="Date of Birth" icon={<Calendar size={11} />} error={errors.dateOfBirth} required>
             <div className="w-full flex items-center px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/80 overflow-hidden focus-within:border-black/20 focus-within:bg-white transition-colors">
-              <input type="date" value={form.dateOfBirth} onChange={e => set('dateOfBirth')(e.target.value)}
+              <input
+                type="date"
+                value={form.dateOfBirth}
+                max={(() => { const d = new Date(); d.setFullYear(d.getFullYear() - 18); return d.toISOString().split('T')[0]; })()}
+                onChange={e => set('dateOfBirth')(e.target.value)}
                 className="w-full min-w-0 bg-transparent text-sm text-[#1C1C1E] outline-none"
               />
             </div>
@@ -523,6 +539,10 @@ export default function NewClientPage() {
                 errors.email ? 'border-red-400 focus:border-red-400' : 'border-black/[0.10] focus:border-black/20'
               }`}
             />
+            {!errors.email && form.email.trim().length > 0 &&
+              allClients.some(c => c.email?.toLowerCase() === form.email.trim().toLowerCase()) && (
+              <p className="text-xs text-amber-500 mt-0.5">This email is already registered.</p>
+            )}
           </InputRow>
         </div>
 

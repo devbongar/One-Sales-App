@@ -377,10 +377,21 @@ export default function ClientRegistrationPage() {
   )].sort();
 
   const filteredClients = allClients.filter(c => {
-    const fullName = `${c.last_name} ${c.first_name} ${c.middle_name ?? ''}`.toLowerCase();
     if (clientTypeFilter && c.client_type !== clientTypeFilter) return false;
     if (citizenshipFilter && c.citizenship !== citizenshipFilter) return false;
-    if (clientSearch && !fullName.includes(clientSearch.toLowerCase())) return false;
+    if (clientSearch) {
+      const q = clientSearch.toLowerCase();
+      const searchable = [
+        c.last_name, c.first_name, c.middle_name, c.suffix,
+        c.client_id,
+        c.email,
+        c.mobile_number,
+        c.citizenship,
+        c.property_specialist,
+        c.broker_network_associate,
+      ].filter(Boolean).join(' ').toLowerCase();
+      if (!searchable.includes(q)) return false;
+    }
     return true;
   });
 
@@ -395,7 +406,7 @@ export default function ClientRegistrationPage() {
               <SearchInput
                 value={clientSearch}
                 onChange={setClientSearch}
-                placeholder="Search by name…"
+                placeholder="Search by name, email, mobile, ID…"
               />
             </div>
             <button
