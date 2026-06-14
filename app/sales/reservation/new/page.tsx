@@ -75,12 +75,6 @@ interface ComparisonItem {
 
 type CompRow = { label: string; value: (c: ComparisonItem) => string | null; bold?: boolean; coral?: boolean; green?: boolean; };
 
-function calcDueDate(addMonths = 0): string {
-  const today = new Date();
-  const dueDayOfMonth = today.getDate() <= 15 ? 15 : 30;
-  return new Date(today.getFullYear(), today.getMonth() + 1 + addMonths, dueDayOfMonth)
-    .toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
 
 const COMP_SECTIONS: { title: string; rows: CompRow[] }[] = [
   { title: 'Unit Info', rows: [
@@ -116,10 +110,7 @@ const COMP_SECTIONS: { title: string; rows: CompRow[] }[] = [
     { label: 'Monthly DP',   value: c => c.paymentScheme === 'stretched_dp' ? `₱${c.monthlyStretchedDP.toLocaleString()}/mo (${c.termMonths} mo)` : '—', coral: true, bold: true },
     { label: 'Monthly Def.', value: c => c.paymentScheme === 'deferred_cash' ? `₱${c.monthlyDeferred.toLocaleString()}/mo (${c.termMonths} mo)` : '—', coral: true, bold: true },
     { label: 'Balance',      value: c => ['spot_dp','stretched_dp'].includes(c.paymentScheme) ? `₱${c.balanceForFinancing.toLocaleString()}` : '—' },
-    { label: 'Due Date',     value: c => c.paymentScheme === 'spot_cash' ? calcDueDate() : '—', coral: true },
-    { label: 'DP Due Date',  value: c => c.paymentScheme === 'spot_dp' ? calcDueDate() : '—', coral: true },
-    { label: 'Due (From)',   value: c => ['deferred_cash','stretched_dp'].includes(c.paymentScheme) ? calcDueDate() : '—', coral: true },
-    { label: 'Due (To)',     value: c => c.paymentScheme === 'deferred_cash' ? calcDueDate(c.termMonths) : c.paymentScheme === 'stretched_dp' ? calcDueDate(c.termMonths) : '—', coral: true },
+
   ]},
   { title: 'Financing', rows: [
     { label: 'Bank/mo',  value: c => ['spot_dp','stretched_dp'].includes(c.paymentScheme) ? `₱${c.bankMonthly.toLocaleString()}` : '—' },
@@ -1546,14 +1537,6 @@ export default function NewReservationPage() {
 
         // Due date base: day 1–15 → 15th of next month; day 16–31 → 30th of next month
         const today = new Date();
-        const nextMonth = today.getMonth() === 11 ? 0 : today.getMonth() + 1;
-        const nextYear  = today.getMonth() === 11 ? today.getFullYear() + 1 : today.getFullYear();
-        const dueDayOfMonth = today.getDate() <= 15 ? 15 : 30;
-        const dueFromDate = new Date(nextYear, nextMonth, dueDayOfMonth);
-        const spotCashDueDate = dueFromDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-        const monthlyDueFrom  = dueFromDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-        const dueToDate = new Date(nextYear, nextMonth + termMonths, dueDayOfMonth);
-        const monthlyDueTo = dueToDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
         const dpRateDecimal       = parseFloat(dpRate) / 100;
         const dpAmount            = Math.round(totalContractPrice * dpRateDecimal);

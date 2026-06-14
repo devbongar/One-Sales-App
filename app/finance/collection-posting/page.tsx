@@ -23,6 +23,7 @@ import {
   ReservationReceivableSummary,
   ReceivableLine,
 } from '@/lib/receivables';
+import { fetchTurnoverDate } from '@/lib/admin';
 import { supabase } from '@/lib/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -578,10 +579,13 @@ function PostCollectionSheet({
   onClose:       () => void;
   onPosted:      () => void;
 }) {
-  const totalOutstanding = unpaidLines.reduce(
-    (sum, l) => sum + Math.max(0, l.total_amount_due - (l.amount_paid ?? 0)),
-    0,
-  );
+  const today = localToday();
+  const totalOutstanding = unpaidLines
+    .filter(l => l.due_date < today)
+    .reduce(
+      (sum, l) => sum + Math.max(0, l.total_amount_due - (l.amount_paid ?? 0)),
+      0,
+    );
 
   const [amountStr, setAmountStr] = useState('');
   const [mop,       setMop]       = useState('');
@@ -819,11 +823,12 @@ function LinesOverlay({
   onClose:      () => void;
   onLinePosted: () => void;
 }) {
-  const [lines,        setLines]        = useState<ReceivableLine[]>([]);
-  const [collections,  setCollections]  = useState<CollectionRecord[]>([]);
-  const [applications, setApplications] = useState<CollectionApplication[]>([]);
-  const [loading,      setLoading]      = useState(true);
-  const [showPost,     setShowPost]     = useState(false);
+  const [lines,           setLines]           = useState<ReceivableLine[]>([]);
+  const [collections,     setCollections]     = useState<CollectionRecord[]>([]);
+  const [applications,    setApplications]    = useState<CollectionApplication[]>([]);
+  const [loading,         setLoading]         = useState(true);
+  const [showPost,        setShowPost]        = useState(false);
+  const [turnoverDateOk,  setTurnoverDateOk]  = useState<boolean | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -837,10 +842,23 @@ function LinesOverlay({
       if (collData.length > 0) {
         setApplications(await fetchCollectionApplicationsByIds(collData.map(c => c.id)));
       }
+
+      // Check turnover date — missing it causes wrong retention payment timing
+      const { data: resRow } = await supabase
+        .from('reservations')
+        .select('tower')
+        .eq('reservation_id', summary.reservation_id)
+        .maybeSingle();
+      if (resRow?.tower) {
+        const td = await fetchTurnoverDate(summary.project, resRow.tower);
+        setTurnoverDateOk(td !== null);
+      } else {
+        setTurnoverDateOk(null);
+      }
     } finally {
       setLoading(false);
     }
-  }, [summary.reservation_id]);
+  }, [summary.reservation_id, summary.project]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -925,6 +943,17 @@ function LinesOverlay({
           </span>
         </div>
       </div>
+
+      {/* Turnover date warning */}
+      {turnoverDateOk === false && (
+        <div className="flex items-start gap-3 px-4 py-3 bg-[#FFF3CD] border-b border-[#FFCA28]/50 shrink-0">
+          <AlertTriangle size={16} className="text-[#A05A00] shrink-0 mt-0.5" />
+          <p className="text-xs text-[#7A4400] leading-snug">
+            <span className="font-bold">Turnover date not set</span> for this project — retention payment timing may be incorrect.
+            Set the turnover date in Admin Settings to fix the payment schedule.
+          </p>
+        </div>
+      )}
 
       {/* Scrollable body */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2 pb-10">

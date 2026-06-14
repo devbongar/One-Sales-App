@@ -307,11 +307,13 @@ export async function fetchReceivableSummaries(): Promise<ReservationReceivableS
     const first = rLines[0];
     const unpaid     = rLines.filter((l) => l.payment_status !== 'Paid');
     const paid_lines = rLines.length - unpaid.length;
-    // Outstanding is the remaining balance on each non-Paid line
-    const outstanding = unpaid.reduce(
-      (sum, l) => sum + Math.max(0, Number(l.total_amount_due) - Number(l.amount_paid ?? 0)),
-      0,
-    );
+    // Outstanding is the remaining balance on overdue lines (due date earlier than today)
+    const outstanding = unpaid
+      .filter((l) => l.due_date < today)
+      .reduce(
+        (sum, l) => sum + Math.max(0, Number(l.total_amount_due) - Number(l.amount_paid ?? 0)),
+        0,
+      );
     const unpaidSorted = [...unpaid].sort((a, b) => (a.due_date < b.due_date ? -1 : 1));
     const nextDue      = unpaidSorted[0] ?? null;
     // For partial lines, next_due_amount shows the remaining balance, not the full amount
@@ -354,5 +356,121 @@ export async function fetchReceivableLines(reservationId: string): Promise<Recei
     .order('due_date');
   if (error) throw error;
   return (data ?? []) as ReceivableLine[];
+}
+
+/* ─── Turnover due-date fix ──────────────────────────────────────────────── */
+
+export interface DueDateFixPreview {
+  reservation_id: string;
+  client_name: string;
+  inventory_code: string;
+  line_id: string;
+  type_of_payment: string;
+  current_due_date: string;
+  correct_due_date: string;
+}
+
+function applyDueDayStatic(turnoverDate: string, dueDay: number, sameMonth: boolean): string {
+  let [y, m] = turnoverDate.split('-').map(Number);
+  if (!sameMonth) { m += 1; if (m > 12) { m = 1; y++; } }
+  const lastDay = new Date(y, m, 0).getDate();
+  const day = Math.min(dueDay, lastDay);
+  return `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/**
+ * Scans all reservations that now have a turnover date configured and returns
+ * the set of receivable lines whose stored due_date differs from what the
+ * correct turnover-based date should be.
+ */
+export async function previewTurnoverDueDateFixes(): Promise<DueDateFixPreview[]> {
+  // 1. Fetch all project towers that have a turnover date set
+  const { data: towers, error: twErr } = await supabase
+    .from('project_towers')
+    .select('project, tower, turnover_date')
+    .not('turnover_date', 'is', null);
+  if (twErr) throw twErr;
+  if (!towers || towers.length === 0) return [];
+
+  const turnoverMap = new Map<string, string>(
+    (towers as any[]).map((t) => [`${t.project}::${t.tower}`, t.turnover_date as string])
+  );
+
+  // 2. Fetch all reservations
+  const { data: reservations, error: resErr } = await supabase
+    .from('reservations')
+    .select('reservation_id, project, tower, payment_scheme, term_months');
+  if (resErr) throw resErr;
+  if (!reservations) return [];
+
+  // 3. Identify affected reservations and which line type to check
+  type ResRow = { reservation_id: string; project: string; tower: string; payment_scheme: string; term_months: number };
+  const affected: Array<{ res: ResRow; turnoverDate: string; lineType: string }> = [];
+  for (const r of reservations as ResRow[]) {
+    const td = turnoverMap.get(`${r.project}::${r.tower}`);
+    if (!td) continue;
+    if (r.payment_scheme === 'spot_cash') {
+      affected.push({ res: r, turnoverDate: td, lineType: 'Retention Fee' });
+    } else if (r.payment_scheme === 'deferred_cash' && (r.term_months ?? 0) <= 12) {
+      affected.push({ res: r, turnoverDate: td, lineType: 'Retention Fee' });
+    } else if (r.payment_scheme === 'spot_dp') {
+      affected.push({ res: r, turnoverDate: td, lineType: 'Loan Take-out' });
+    }
+  }
+  if (affected.length === 0) return [];
+
+  // 4. Batch-fetch existing turnover-dependent lines
+  const resIds = [...new Set(affected.map((a) => a.res.reservation_id))];
+  const { data: lines, error: linesErr } = await supabase
+    .from('receivables_database')
+    .select('id, reservation_id, client_name, inventory_code, type_of_payment, due_date')
+    .in('reservation_id', resIds)
+    .in('type_of_payment', ['Retention Fee', 'Loan Take-out']);
+  if (linesErr) throw linesErr;
+
+  type LineRow = { id: string; reservation_id: string; client_name: string; inventory_code: string; type_of_payment: string; due_date: string };
+  const lineMap = new Map<string, LineRow>();
+  for (const l of (lines ?? []) as LineRow[]) {
+    lineMap.set(`${l.reservation_id}::${l.type_of_payment}`, l);
+  }
+
+  // 5. Resolve due-day config per unique turnover-day (cached to avoid N+1 DB calls)
+  const dueDayCache = new Map<number, { dueDay: number; sameMonth: boolean }>();
+  async function getDueDayConfig(day: number) {
+    if (!dueDayCache.has(day)) dueDayCache.set(day, await resolveDueDate(day));
+    return dueDayCache.get(day)!;
+  }
+
+  // 6. Compute correct dates and collect differences
+  const previews: DueDateFixPreview[] = [];
+  for (const { res, turnoverDate, lineType } of affected) {
+    const line = lineMap.get(`${res.reservation_id}::${lineType}`);
+    if (!line) continue;
+    const turnoverDay = Number(turnoverDate.split('-')[2]);
+    const { dueDay, sameMonth } = await getDueDayConfig(turnoverDay);
+    const correctDate = applyDueDayStatic(turnoverDate, dueDay, sameMonth);
+    if (line.due_date !== correctDate) {
+      previews.push({
+        reservation_id: res.reservation_id,
+        client_name: line.client_name,
+        inventory_code: line.inventory_code,
+        line_id: line.id,
+        type_of_payment: lineType,
+        current_due_date: line.due_date,
+        correct_due_date: correctDate,
+      });
+    }
+  }
+  return previews;
+}
+
+export async function applyTurnoverDueDateFixes(
+  fixes: { line_id: string; correct_due_date: string }[]
+): Promise<void> {
+  await Promise.all(
+    fixes.map(({ line_id, correct_due_date }) =>
+      supabase.from('receivables_database').update({ due_date: correct_due_date }).eq('id', line_id)
+    )
+  );
 }
 

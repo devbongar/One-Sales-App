@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { ChevronLeft, ChevronRight, DollarSign, CalendarDays, Loader2, Save, Plus, Trash2, Eraser, Building2, Layers, Percent, Home, ShieldCheck, GripVertical, Users, Crown, UserPlus, Network, FileCheck, Eye, KeyRound, Briefcase, Globe, Check } from 'lucide-react';
+import { AlertTriangle, Calendar, ChevronLeft, ChevronRight, CheckCircle2, DollarSign, CalendarDays, Loader2, Save, Plus, Trash2, Eraser, Building2, Layers, Percent, Home, ShieldCheck, GripVertical, Users, Crown, UserPlus, Network, FileCheck, Eye, KeyRound, Briefcase, Globe, Check } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import {
   DndContext, closestCenter, PointerSensor, TouchSensor,
@@ -45,6 +45,11 @@ import {
   AccessRoleRecord,
 } from '@/lib/admin';
 import { fetchProjects, fetchTowers } from '@/lib/inventory';
+import {
+  previewTurnoverDueDateFixes,
+  applyTurnoverDueDateFixes,
+  DueDateFixPreview,
+} from '@/lib/receivables';
 import { supabase } from '@/lib/supabase';
 
 /* ─── Design tokens ───────────────────────────────────────────────────── */
@@ -108,6 +113,12 @@ const SETUP_ITEMS: SetupItem[] = [
     label: 'User Management',
     description: 'Create accounts and assign roles to users',
     icon: <Users size={22} />,
+  },
+  {
+    id: 'fix-due-dates',
+    label: 'Fix Turnover Due Dates',
+    description: 'Correct retention/loan due dates after turnover date is set',
+    icon: <Calendar size={22} />,
   },
 ];
 
@@ -2327,6 +2338,129 @@ function EditUserSheet({
   );
 }
 
+/* ─── Fix Turnover Due Dates overlay ─────────────────────────────────── */
+
+function fmtDate(d: string): string {
+  const [y, m, day] = d.split('-');
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${months[parseInt(m, 10) - 1]} ${parseInt(day, 10)}, ${y}`;
+}
+
+function FixDueDatesOverlay({ onClose }: { onClose: () => void }) {
+  const [scanning, setScanning] = useState(true);
+  const [previews, setPreviews] = useState<DueDateFixPreview[]>([]);
+  const [applying, setApplying] = useState(false);
+  const [done,     setDone]     = useState(false);
+  const [error,    setError]    = useState<string | null>(null);
+
+  useEffect(() => {
+    previewTurnoverDueDateFixes()
+      .then(setPreviews)
+      .catch((e: any) => setError(e?.message ?? 'Scan failed'))
+      .finally(() => setScanning(false));
+  }, []);
+
+  const handleApply = async () => {
+    setApplying(true);
+    try {
+      await applyTurnoverDueDateFixes(previews.map((p) => ({ line_id: p.line_id, correct_due_date: p.correct_due_date })));
+      setDone(true);
+    } catch (e: any) {
+      setError(e?.message ?? 'Apply failed');
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-[#F2F2F7]" style={{ animation: 'overlaySlideUp 0.32s cubic-bezier(0.32,0.72,0,1) both' }}>
+      <style>{`@keyframes overlaySlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
+
+      {/* Nav */}
+      <div className="flex items-center justify-between px-4 pt-14 pb-4 shrink-0 bg-white border-b border-black/[0.06]">
+        <button onClick={onClose} className="p-2.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] active:scale-[0.92]" style={{ transition: 'transform 100ms ease-out' }}>
+          <ChevronLeft size={20} />
+        </button>
+        <p className="text-[#1C1C1E] font-bold text-sm">Fix Turnover Due Dates</p>
+        <div className="w-10" />
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 pb-10">
+        {scanning ? (
+          <div className="flex flex-col items-center justify-center py-20 gap-3">
+            <Loader2 size={28} className="text-[#C03D25] animate-spin" />
+            <p className="text-sm text-[#8E8E93]">Scanning payment lines…</p>
+          </div>
+        ) : error ? (
+          <div className="flex items-start gap-3 px-4 py-3 rounded-2xl bg-red-50 border border-red-200">
+            <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" />
+            <p className="text-sm text-red-700">{error}</p>
+          </div>
+        ) : done ? (
+          <div className="flex flex-col items-center justify-center py-20 gap-3">
+            <CheckCircle2 size={40} className="text-[#34C759]" />
+            <p className="text-sm font-semibold text-[#1C1C1E]">{previews.length} line{previews.length !== 1 ? 's' : ''} updated</p>
+            <button onClick={onClose} className="mt-2 px-6 py-2.5 rounded-2xl text-white text-sm font-bold" style={{ background: '#C03D25' }}>Done</button>
+          </div>
+        ) : previews.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 gap-3">
+            <CheckCircle2 size={40} className="text-[#34C759]" />
+            <p className="text-sm font-semibold text-[#1C1C1E]">All due dates are correct</p>
+            <p className="text-xs text-[#8E8E93]">No fixes needed</p>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-start gap-3 px-4 py-3 bg-[#FFF3CD] rounded-2xl border border-[#FFCA28]/50">
+              <AlertTriangle size={15} className="text-[#A05A00] shrink-0 mt-0.5" />
+              <p className="text-xs text-[#7A4400] leading-snug">
+                {previews.length} payment line{previews.length !== 1 ? 's' : ''} have an incorrect due date based on the now-configured turnover date. Review below and apply to correct them.
+              </p>
+            </div>
+
+            {previews.map((p) => (
+              <div key={p.line_id} className="rounded-3xl bg-white overflow-hidden" style={{ border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 2px 12px rgba(0,0,0,0.05)' }}>
+                <div className="px-4 py-3 border-b border-black/[0.06]">
+                  <p className="text-sm font-semibold text-[#1C1C1E]">{p.client_name}</p>
+                  <p className="text-xs text-[#8E8E93]">{p.inventory_code} · {p.reservation_id}</p>
+                </div>
+                <div className="px-4 py-3">
+                  <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider mb-2">{p.type_of_payment}</p>
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 text-center py-2 rounded-xl" style={{ background: 'rgba(255,59,48,0.08)' }}>
+                      <p className="text-[10px] text-[#8E8E93] font-medium mb-0.5">Current</p>
+                      <p className="text-sm font-bold text-[#C03D25]">{fmtDate(p.current_due_date)}</p>
+                    </div>
+                    <ChevronRight size={16} className="text-[#C7C7CC] shrink-0" />
+                    <div className="flex-1 text-center py-2 rounded-xl" style={{ background: 'rgba(52,199,89,0.08)' }}>
+                      <p className="text-[10px] text-[#8E8E93] font-medium mb-0.5">Correct</p>
+                      <p className="text-sm font-bold text-[#1A7F37]">{fmtDate(p.correct_due_date)}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+
+      {!scanning && !done && !error && previews.length > 0 && (
+        <div className="px-4 pb-8 pt-3 bg-white border-t border-black/[0.06] shrink-0">
+          <button
+            onClick={handleApply}
+            disabled={applying}
+            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-sm font-bold disabled:opacity-50"
+            style={{ background: '#C03D25', color: '#fff' }}
+          >
+            {applying
+              ? <><Loader2 size={16} className="animate-spin" /> Applying…</>
+              : `Apply ${previews.length} Fix${previews.length !== 1 ? 'es' : ''}`}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── Admin landing page ──────────────────────────────────────────────── */
 export default function AdminUserPage() {
   const [activeOverlay, setActiveOverlay] = useState<string | null>(null);
@@ -2379,6 +2513,9 @@ export default function AdminUserPage() {
       )}
       {activeOverlay === 'user-management' && (
         <UserManagementOverlay onClose={() => setActiveOverlay(null)} />
+      )}
+      {activeOverlay === 'fix-due-dates' && (
+        <FixDueDatesOverlay onClose={() => setActiveOverlay(null)} />
       )}
     </>
   );
