@@ -101,7 +101,7 @@ function loadSession() {
   } catch { return { filters: {}, towers: [], units: [] }; }
 }
 
-const pad2 = (s: string) => String(parseInt(s) || 0).padStart(2, '0');
+const pad2 = (s: string | null) => String(parseInt(s ?? '') || 0).padStart(2, '0');
 
 export default function InventoryPage() {
   const saved = loadSession();
