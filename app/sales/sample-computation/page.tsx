@@ -330,6 +330,12 @@ export default function SampleComputationPage() {
     setClientEmail(c.email ?? '');
     setClientSuggestionsOpen(false);
     setErrors(p => ({ ...p, clientLastName: '', clientFirstName: '', clientMobile: '' }));
+
+    // Auto-populate seller from client record
+    if (c.seller_type === 'In House' && c.property_specialist) {
+      const match = allSalespersons.find(s => s.seller_name === c.property_specialist);
+      if (match) { setSellerRecord(match); setSellerSearch(''); setSellerDropdownOpen(false); }
+    }
   }
 
   function handleClearClient() {
