@@ -84,8 +84,8 @@ function statusChip(status: string | null) {
     case 'submitted':         return { label: 'Under Review',      cls: 'bg-blue-100 text-blue-700' };
     case 'director-approved': return { label: 'Director Approved', cls: 'bg-green-100 text-green-700' };
     case 'director-rejected': return { label: 'Rejected',          cls: 'bg-red-100 text-red-700' };
-    case 'finance-verified':  return { label: 'Finance Verified',  cls: 'bg-green-100 text-green-700' };
-    case 'Booked':            return { label: 'Booked',            cls: 'bg-green-100 text-green-700' };
+    case 'amd-approved':      return { label: 'AMD Approved',      cls: 'bg-green-100 text-green-700' };
+    case 'amd-rejected':      return { label: 'AMD Rejected',      cls: 'bg-red-100 text-red-700' };
     default:                  return { label: 'Pending',           cls: 'bg-amber-100 text-amber-700' };
   }
 }
@@ -1008,9 +1008,7 @@ export default function DirectorReviewPage() {
   }
 
   const alreadyReviewed = booking?.booking_review_status === 'director-approved'
-    || booking?.booking_review_status === 'director-rejected'
-    || booking?.booking_review_status === 'finance-verified'
-    || booking?.booking_review_status === 'Booked';
+    || booking?.booking_review_status === 'director-rejected';
 
   if (done) {
     return (
@@ -1082,8 +1080,6 @@ export default function DirectorReviewPage() {
             }`}>
               {booking.booking_review_status === 'director-approved'   ? 'You have already approved this booking.'
               : booking.booking_review_status === 'director-rejected'  ? 'You have already rejected this booking.'
-              : booking.booking_review_status === 'finance-verified'   ? 'This booking has been verified by Finance.'
-              : booking.booking_review_status === 'Booked'             ? 'This booking is fully completed.'
               : ''}
             </p>
           </GlassCard>

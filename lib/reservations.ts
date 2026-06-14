@@ -106,7 +106,7 @@ export async function approvePaymentReview(
     .from('reservations')
     .update({
       status:                     'Reserved',
-      booking_review_status:      'finance-verified',
+      finance_status:             'rf-verified',
       finance_verified_at:        new Date().toISOString(),
       acknowledgement_receipt_no: acknowledgementReceiptNo,
       sales_invoice_no:           salesInvoiceNo,
@@ -160,7 +160,7 @@ export async function updateReservationPayment(
     p_reservation_id:         reservationId,
     p_payment_date:           paymentDate,
     p_payment_proof_url:      JSON.stringify(paymentProofUrls),
-    p_status:                 'Reserved-paid',
+    p_status:                 'Reserved',
     p_subsequent_mode:        options?.subsequentMode        ?? null,
     p_ada_bank:               options?.adaBank               ?? null,
     p_proof_of_billing_urls:  options?.billingUrls  ? JSON.stringify(options.billingUrls)  : null,
@@ -168,4 +168,7 @@ export async function updateReservationPayment(
     p_proof_of_valid_id_urls: options?.validIdUrls  ? JSON.stringify(options.validIdUrls)  : null,
   });
   if (error) throw error;
+  await supabase.from('reservations')
+    .update({ finance_status: 'proof-submitted' })
+    .eq('reservation_id', reservationId);
 }

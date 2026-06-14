@@ -25,10 +25,8 @@ export type BookingStatus =
   | 'submitted'
   | 'director-rejected'
   | 'director-approved'
-  | 'amd-review'
   | 'amd-rejected'
   | 'amd-approved'
-  | 'finance-verified'
   | 'Booked';
 
 export async function getBookingProgress(reservationId: string): Promise<BookingProgress> {
@@ -91,10 +89,8 @@ export function computeBookingStatus(p?: BookingProgress): BookingStatus {
                   && (!p.has_atty_in_fact  || p.atty_saved);
   if (!stage1Done) return 'in-progress';
   if (!p.documents_saved) return 'stage1-complete';
-  if (p.booking_review_status === 'Booked')            return 'Booked';
-  if (p.booking_review_status === 'finance-verified')  return 'finance-verified';
   if (p.booking_review_status === 'amd-approved')      return 'amd-approved';
-  if (p.booking_review_status === 'amd-review')        return 'amd-review';
+  if (p.booking_review_status === 'amd-rejected')      return 'amd-rejected';
   if (p.booking_review_status === 'director-approved') return 'director-approved';
   if (p.booking_review_status === 'director-rejected') return 'director-rejected';
   if (p.booking_review_status === 'submitted')         return 'submitted';

@@ -179,7 +179,10 @@ export default function BookingDetailPage() {
 
   const [reservation, setReservation] = useState<{
     reservation_id?: string; project?: string; inventory_code?: string; client_name?: string;
+    status?: string; finance_status?: string | null;
   } | null>(null);
+  const [financeStatus,      setFinanceStatus]      = useState<string | null>(null);
+  const [reservationStatus,  setReservationStatus]  = useState<string | null>(null);
   const [progress,        setProgress]        = useState<BookingProgress | null>(null);
   const [loading,         setLoading]         = useState(true);
   const [hasCoOwnership,  setHasCoOwnership]  = useState(false);
@@ -229,15 +232,16 @@ export default function BookingDetailPage() {
         .catch(err => { console.error('[detail] progress error:', err); setProgress(null); })
         .finally(() => setLoading(false));
       getActivityLog(r.reservation_id).then(setActivityLog).catch(e => console.error('[activity-log]', e));
-      // Check commission schedule once director approves
+      // Fetch finance_status and check commission schedule if Booked
       supabase
         .from('reservations')
-        .select('booking_review_status')
+        .select('status, finance_status')
         .eq('reservation_id', r.reservation_id)
         .single()
         .then(({ data }) => {
-          const brs = data?.booking_review_status ?? null;
-          if (brs && ['director-approved', 'amd-review', 'amd-approved', 'finance-verified', 'Booked'].includes(brs)) {
+          setFinanceStatus((data as any)?.finance_status ?? null);
+          setReservationStatus((data as any)?.status ?? null);
+          if (data?.status === 'Booked') {
             supabase
               .from('commission_schedule')
               .select('id', { count: 'exact', head: true })
@@ -301,9 +305,8 @@ export default function BookingDetailPage() {
     setReviewing(true);
     try {
       await directorReview(reservation.reservation_id, true);
-      await supabase.from('reservations').update({ booking_review_status: 'amd-review' }).eq('reservation_id', reservation.reservation_id);
       await addActivityLog(reservation.reservation_id, 'director-approved', displayName).catch(e => console.error('[activity-log]', e));
-      setProgress(prev => prev ? { ...prev, booking_review_status: 'amd-review' } : prev);
+      setProgress(prev => prev ? { ...prev, booking_review_status: 'director-approved' } : prev);
       getActivityLog(reservation.reservation_id).then(setActivityLog).catch(e => console.error('[activity-log]', e));
     } catch (e) {
       console.error('[director-approve] Failed:', e);
@@ -433,10 +436,13 @@ export default function BookingDetailPage() {
 
   const rs           = progress?.booking_review_status ?? null;
   const docsReady    = progress?.documents_saved ?? false;
-  const dirApproved  = docsReady && (rs === 'director-approved' || rs === 'amd-review' || rs === 'amd-approved' || rs === 'finance-verified' || rs === 'Booked');
-  const amdApproved  = docsReady && (rs === 'amd-approved' || rs === 'finance-verified' || rs === 'Booked');
-  const rfVerified   = docsReady && (rs === 'finance-verified' || rs === 'Booked');
-  const isBooked     = docsReady && rs === 'Booked';
+  const dirApproved  = docsReady && (rs === 'director-approved' || rs === 'amd-approved');
+  const amdApproved  = docsReady && rs === 'amd-approved';
+  const rfVerified   = financeStatus === 'rf-verified' || financeStatus === 'dp-verified';
+  const dpVerified   = financeStatus === 'dp-verified';
+  const rfRejected   = financeStatus === 'rf-rejected';
+  const proofPending = financeStatus === 'proof-submitted';
+  const isBooked     = reservationStatus === 'Booked';
   const isDirector     = userRoleName === 'Sales Director';
   const isAMD          = userRoleName === 'Account Management';
   const stage1Locked   = isDirector || isAMD || rs === 'submitted' || dirApproved;
@@ -510,6 +516,12 @@ export default function BookingDetailPage() {
               <p className="text-lg font-bold text-[#1C1C1E] truncate">{reservation?.reservation_id ?? '—'}</p>
               <p className="text-sm text-[#6C6C70] truncate">{reservation?.client_name ?? '—'}</p>
             </div>
+            {progress && !isBooked && !rfVerified && (() => {
+              if (amdApproved)  return <span className="absolute top-3 right-3 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#34C759]/15 text-[#1A7F37]"><CheckCircle2 size={9} /> AMD Approved</span>;
+              if (dirApproved)  return <span className="absolute top-3 right-3 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#007AFF]/12 text-[#0058C9]"><ThumbsUp size={9} /> SD Approved</span>;
+              if (rs === 'submitted' || rs === 'resubmitted') return <span className="absolute top-3 right-3 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#FF9500]/12 text-[#A05A00]"><Send size={9} /> Submitted</span>;
+              return null;
+            })()}
           </div>
           <div className="border-t border-black/[0.06] px-4 py-2.5 flex items-center justify-between">
             <div className="flex items-center gap-1.5">
@@ -646,9 +658,25 @@ export default function BookingDetailPage() {
               <div className="mt-3 pt-2.5 border-t border-black/[0.06] flex items-center gap-1.5">
                 <div style={{ width: 12, height: 1, background: 'repeating-linear-gradient(to right, #C7C7CC 0, #C7C7CC 2px, transparent 2px, transparent 5px)' }} />
                 <ChevronRight size={8} className="text-[#C7C7CC]" style={{ marginLeft: -2 }} />
-                <Banknote size={11} className={rfVerified ? 'text-[#C03D25]' : 'text-[#C7C7CC]'} />
-                <span className={`text-[9px] font-medium ${rfVerified ? 'text-[#C03D25]' : 'text-[#8E8E93]'}`}>
-                  Finance Verification · {rfVerified ? 'Verified' : 'Pending'}
+                <Banknote size={11} className={
+                  rfRejected   ? 'text-[#FF3B30]'
+                  : rfVerified || dpVerified ? 'text-[#34C759]'
+                  : proofPending ? 'text-[#FF9500]'
+                  : 'text-[#C7C7CC]'
+                } />
+                <span className={`text-[9px] font-medium ${
+                  rfRejected   ? 'text-[#FF3B30]'
+                  : dpVerified   ? 'text-[#1A7F37]'
+                  : rfVerified   ? 'text-[#1A7F37]'
+                  : proofPending ? 'text-[#A05A00]'
+                  : 'text-[#8E8E93]'
+                }`}>
+                  Finance ·{' '}
+                  {dpVerified   ? '1st DP Verified'
+                  : rfVerified   ? 'RF Verified'
+                  : rfRejected   ? 'RF Rejected'
+                  : proofPending ? 'Pending RF'
+                  : 'Awaiting Proof'}
                 </span>
                 <span className="ml-auto text-[9px] font-medium uppercase tracking-wider text-[#C7C7CC]">parallel</span>
               </div>
@@ -744,7 +772,7 @@ export default function BookingDetailPage() {
 
 
                   {/* Director approval status — visible to AMD */}
-                  {isAMD && (rs === 'amd-review' || rs === 'amd-approved') && (
+                  {isAMD && (rs === 'director-approved' || rs === 'amd-approved') && (
                     <GlassCard className="px-4 py-3 flex items-center gap-2.5 border border-green-200 bg-green-50/60">
                       <CheckCircle2 size={14} className="text-green-600 shrink-0" />
                       <div>
@@ -859,7 +887,7 @@ export default function BookingDetailPage() {
             )}
 
             {/* ── AMD Review actions ── */}
-            {isAMD && rs === 'amd-review' && (
+            {isAMD && rs === 'director-approved' && (
               <div className="flex gap-2">
                 <button
                   type="button"

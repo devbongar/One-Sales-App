@@ -19,6 +19,7 @@ interface Reservation {
   inventory_code: string | null;
   unit_type: string;
   status: string;
+  finance_status: string | null;
   seller_name: string | null;
   payment_proof_url: string | null;
 }
@@ -38,18 +39,14 @@ const BOOKING_STATUS_MAP: { value: BookingStatus; label: string }[] = [
   { value: 'submitted',         label: 'For Dir. Review' },
   { value: 'director-rejected', label: 'Dir. Rejected' },
   { value: 'director-approved', label: 'Dir. Approved' },
-  { value: 'amd-review',        label: 'For AMD Review' },
   { value: 'amd-approved',      label: 'AMD Approved' },
-  { value: 'finance-verified',  label: 'Finance Verified' },
   { value: 'Booked',            label: 'Booked' },
 ];
 
 function bookingStatusStyle(status: BookingStatus): React.CSSProperties & { label: string } {
   switch (status) {
     case 'Booked':            return { background: 'rgba(52,199,89,0.18)',   color: '#1A7F37', label: 'Booked' } as any;
-    case 'finance-verified':  return { background: 'rgba(52,199,89,0.12)',   color: '#1A7F37', label: 'Finance Verified' } as any;
     case 'amd-approved':      return { background: 'rgba(52,199,89,0.12)',   color: '#1A7F37', label: 'AMD Approved' } as any;
-    case 'amd-review':        return { background: 'rgba(88,86,214,0.12)',   color: '#3634A3', label: 'For AMD Review' } as any;
     case 'director-approved': return { background: 'rgba(48,176,199,0.12)',  color: '#0E6E7E', label: 'Dir. Approved' } as any;
     case 'director-rejected': return { background: 'rgba(255,59,48,0.12)',   color: '#C0392B', label: 'Dir. Rejected' } as any;
     case 'submitted':         return { background: 'rgba(0,122,255,0.12)',   color: '#0055B3', label: 'For Dir. Review' } as any;
@@ -64,9 +61,7 @@ function bookingStatusStyle(status: BookingStatus): React.CSSProperties & { labe
 function reviewBadge(bs: BookingStatus): { bg: string; color: string; label: string } {
   switch (bs) {
     case 'Booked':
-    case 'finance-verified':
     case 'amd-approved':      return { bg: 'rgba(52,199,89,0.18)',   color: '#1A7F37', label: 'AMD Approved' };
-    case 'amd-review':        return { bg: 'rgba(88,86,214,0.12)',   color: '#3634A3', label: 'For AMD Review' };
     case 'director-approved': return { bg: 'rgba(48,176,199,0.12)',  color: '#0E6E7E', label: 'Dir. Approved' };
     case 'director-rejected': return { bg: 'rgba(255,59,48,0.12)',   color: '#C0392B', label: 'Dir. Rejected' };
     case 'submitted':         return { bg: 'rgba(0,122,255,0.12)',   color: '#0055B3', label: 'For Dir. Review' };
@@ -78,9 +73,11 @@ function reviewBadge(bs: BookingStatus): { bg: string; color: string; label: str
 }
 
 // Finance track badge — parallel, independent of review track
-function financeBadge(bs: BookingStatus): { bg: string; color: string; label: string } {
-  if (bs === 'Booked' || bs === 'finance-verified')
-    return { bg: 'rgba(52,199,89,0.20)', color: '#1A7F37', label: 'Verified' };
+function financeBadge(financeStatus: string | null): { bg: string; color: string; label: string } {
+  if (financeStatus === 'dp-verified')  return { bg: 'rgba(52,199,89,0.20)', color: '#1A7F37', label: '1st DP Verified' };
+  if (financeStatus === 'rf-verified')  return { bg: 'rgba(48,176,199,0.15)', color: '#0E6E7E', label: 'RF Verified' };
+  if (financeStatus === 'rf-rejected')  return { bg: 'rgba(255,59,48,0.12)',  color: '#C0392B', label: 'RF Rejected' };
+  if (financeStatus === 'proof-submitted') return { bg: 'rgba(0,122,255,0.12)', color: '#0055B3', label: 'For RF Verification' };
   return { bg: 'rgba(255,159,10,0.15)', color: '#A05A00', label: 'Pending' };
 }
 
@@ -115,7 +112,7 @@ export default function BookingPage() {
     supabase
       .from('reservations')
       .select('seller_name, project')
-      .in('status', ['Reserved-paid', 'Reserved', 'Booked'])
+      .in('status', ['Reserved', 'Booked'])
       .limit(5000)
       .then(({ data }) => {
         if (!data) return;
@@ -130,15 +127,15 @@ export default function BookingPage() {
     setLoading(true);
     let query = supabase
       .from('reservations')
-      .select('reservation_id, client_name, project, inventory_code, unit_type, status, seller_name, payment_proof_url')
-      .in('status', ['Reserved-paid', 'Reserved', 'Booked'])
+      .select('reservation_id, client_name, project, inventory_code, unit_type, status, finance_status, seller_name, payment_proof_url')
+      .in('status', ['Reserved', 'Booked'])
       .order('created_at', { ascending: false })
       .limit(5000);
 
     if (isDirector) {
       query = query.eq('booking_review_status', 'submitted');
     } else if (isAMD) {
-      query = query.eq('booking_review_status', 'amd-review');
+      query = query.eq('booking_review_status', 'director-approved');
     }
     // All Access sees everything — no additional filter
 
@@ -229,15 +226,11 @@ export default function BookingPage() {
         ) : (
           <div className="space-y-2">
             {filtered.map(r => {
-              const bs            = computeBookingStatus(progressMap[r.reservation_id]);
-              const isBooked      = bs === 'Booked';
-              const isForBooking  = !isBooked && (bs === 'amd-approved' || bs === 'finance-verified');
-              const badgeLabel    = isBooked ? 'Booked' : isForBooking ? 'For Booking' : 'Reserved';
-              const badgeClass    = isBooked
-                ? 'bg-green-100 text-green-700'
-                : isForBooking
-                ? 'bg-amber-100 text-amber-700'
-                : 'bg-red-100 text-red-700';
+              const bs       = computeBookingStatus(progressMap[r.reservation_id]);
+              const isBooked = r.status === 'Booked';
+              const badge    = isBooked
+                ? { label: 'Booked', bg: 'rgba(52,199,89,0.18)', color: '#1A7F37' }
+                : reviewBadge(bs);
 
               return (
                 <GlassCard
@@ -265,8 +258,11 @@ export default function BookingPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-sm font-bold text-[#1C1C1E] truncate">{r.reservation_id}</p>
-                        <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full shrink-0 ${badgeClass}`}>
-                          {badgeLabel}
+                        <span
+                          className="text-[10px] font-bold px-2.5 py-0.5 rounded-full shrink-0"
+                          style={{ background: badge.bg, color: badge.color }}
+                        >
+                          {badge.label}
                         </span>
                       </div>
                       <p className="text-xs text-[#8E8E93] mt-0.5 truncate">{r.client_name}</p>

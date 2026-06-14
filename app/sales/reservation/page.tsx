@@ -16,6 +16,7 @@ interface RecentReservation {
   project: string;
   inventory_code: string | null;
   status: string;
+  finance_status: string | null;
 }
 
 interface StatusCounts {
@@ -24,11 +25,12 @@ interface StatusCounts {
   approved: number;
 }
 
-function statusStyle(status: string): { bg: string; text: string; label: string; Icon: React.ComponentType<{ size?: number; className?: string }> } {
-  if (status === 'Reserved-paid')   return { bg: 'rgba(52,199,89,0.12)',  text: '#1A7F37', label: 'Paid',     Icon: CheckCircle2 };
-  if (status === 'Reserved-unpaid') return { bg: 'rgba(255,159,10,0.12)', text: '#A05A00', label: 'Unpaid',   Icon: Clock };
-  if (status === 'Reserved')        return { bg: 'rgba(48,176,199,0.12)', text: '#0E6E7E', label: 'Reserved', Icon: ShieldCheck };
-  return                                   { bg: 'rgba(142,142,147,0.12)', text: '#6C6C70', label: status,    Icon: Clock };
+function statusStyle(status: string, financeStatus: string | null): { bg: string; text: string; label: string; Icon: React.ComponentType<{ size?: number; className?: string }> } {
+  if (status === 'Pending Proof')                return { bg: 'rgba(255,159,10,0.12)', text: '#A05A00', label: 'Pending Proof', Icon: Clock };
+  if (financeStatus === 'rf-rejected')           return { bg: 'rgba(255,59,48,0.12)',  text: '#C0392B', label: 'RF Rejected',   Icon: Clock };
+  if (financeStatus === 'rf-verified')           return { bg: 'rgba(52,199,89,0.12)',  text: '#1A7F37', label: 'RF Verified',   Icon: CheckCircle2 };
+  if (status === 'Reserved')                     return { bg: 'rgba(48,176,199,0.12)', text: '#0E6E7E', label: 'Reserved',      Icon: ShieldCheck };
+  return                                                { bg: 'rgba(142,142,147,0.12)', text: '#6C6C70', label: status,         Icon: Clock };
 }
 
 function getInitials(name: string) {
@@ -47,14 +49,15 @@ export default function ReservationPage() {
     async function load() {
       const { data } = await supabase
         .from('reservations')
-        .select('reservation_id, client_name, project, inventory_code, status')
+        .select('reservation_id, client_name, project, inventory_code, status, finance_status')
+        .neq('status', 'Booked')
         .order('created_at', { ascending: false });
 
       if (data) {
         setCounts({
-          paid:     data.filter(r => r.status === 'Reserved-paid').length,
-          unpaid:   data.filter(r => r.status === 'Reserved-unpaid').length,
-          approved: data.filter(r => r.status === 'Reserved').length,
+          paid:     data.filter(r => r.finance_status === 'rf-verified').length,
+          unpaid:   data.filter(r => r.status === 'Pending Proof').length,
+          approved: data.filter(r => r.finance_status === 'proof-submitted').length,
         });
         setRecent(data.slice(0, 5) as RecentReservation[]);
       }
@@ -157,7 +160,7 @@ export default function ReservationPage() {
           <div className="space-y-2">
             <p className="text-[11px] font-semibold text-[#8E8E93] uppercase tracking-wider px-1">Recent</p>
             {recent.map(r => {
-              const s = statusStyle(r.status);
+              const s = statusStyle(r.status, r.finance_status);
               return (
                 <GlassCard
                   key={r.reservation_id}

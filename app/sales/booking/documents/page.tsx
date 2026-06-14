@@ -159,7 +159,7 @@ export default function BookingDocumentsPage() {
           setHasAttyInFact(p.has_atty_in_fact);
           setHasSpouse(p.has_spouse);
           setCoOwnerIsSpouse(p.co_owner_is_spouse);
-          const lockedStatuses = ['submitted', 'director-approved', 'amd-review', 'amd-approved', 'finance-verified', 'Booked'];
+          const lockedStatuses = ['submitted', 'director-approved', 'amd-approved'];
           setIsSaved(p.documents_saved && lockedStatuses.includes(p.booking_review_status ?? ''));
 
           const docs = await fetchBookingDocuments(r.reservation_id);

@@ -187,15 +187,9 @@ export default function FinanceVerifyPage() {
     setActionError('');
     try {
       await approvePaymentReview(booking.reservation_id, ackReceiptNo.trim(), salesInvoiceNo.trim(), dateOfResFee);
-      try {
-        const result = await generateCommissionSchedule(booking.reservation_id);
-        if (!result.ok && result.reason !== 'already-exists') setCommissionWarn(result);
-      } catch (e) {
-        console.error('[commission] Failed to generate schedule:', e);
-      }
       const updated = {
         ...booking,
-        booking_review_status:      'finance-verified',
+        finance_status:             'rf-verified',
         finance_verified_at:        new Date().toISOString(),
         acknowledgement_receipt_no: ackReceiptNo.trim(),
         sales_invoice_no:           salesInvoiceNo.trim(),
@@ -219,7 +213,13 @@ export default function FinanceVerifyPage() {
     try {
       const now = new Date().toISOString();
 
-      // 1. Update reservations — mark Booked and finance-verified
+      // 1. Update reservations — set dp-verified; mark Booked only if AMD also approved
+      const { data: resRow } = await supabase
+        .from('reservations')
+        .select('booking_review_status')
+        .eq('reservation_id', booking.reservation_id)
+        .single();
+      const amdDone = resRow?.booking_review_status === 'amd-approved';
       const { error } = await supabase
         .from('reservations')
         .update({
@@ -227,8 +227,8 @@ export default function FinanceVerifyPage() {
           dp_sales_invoice_no:           dpSalesInvoiceNo.trim(),
           date_of_1st_dp:               dpDate,
           dp_verified_at:               now,
-          booking_review_status:        'Booked',
-          status:                       'Booked',
+          finance_status:               'dp-verified',
+          ...(amdDone ? { status: 'Booked' } : {}),
         })
         .eq('reservation_id', booking.reservation_id);
       if (error) throw new Error(error.message);
@@ -271,8 +271,8 @@ export default function FinanceVerifyPage() {
 
       const updated = {
         ...booking,
-        status:                        'Booked',
-        booking_review_status:         'Booked',
+        status:                        amdDone ? 'Booked' : booking.status,
+        finance_status:                'dp-verified',
         dp_acknowledgement_receipt_no: dpAckReceiptNo.trim(),
         dp_sales_invoice_no:           dpSalesInvoiceNo.trim(),
         date_of_1st_dp:               dpDate,
@@ -294,7 +294,7 @@ export default function FinanceVerifyPage() {
     setRejecting(true);
     setActionError('');
     try {
-      await updateReservationStatus(booking.reservation_id, 'Reserved-paid');
+      await supabase.from('reservations').update({ finance_status: 'rf-rejected' }).eq('reservation_id', booking.reservation_id);
       setDone('rejected');
     } catch (e: any) {
       setActionError(e.message ?? 'Failed to reject. Please try again.');

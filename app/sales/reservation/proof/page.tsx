@@ -13,7 +13,6 @@ import {
 import { supabase } from '@/lib/supabase';
 import { uploadPaymentProof, uploadDocumentFile, updateReservationPayment, updateReservationStatus } from '@/lib/reservations';
 import { generateReceivableLines } from '@/lib/receivables';
-import { generateCommissionSchedule } from '@/lib/commission';
 import { updateInventoryUnitStatus } from '@/lib/inventory';
 
 const MAX_FILES     = 5;
@@ -42,6 +41,7 @@ interface SelectedReservation {
   inventory_code: string | null;
   unit_type: string;
   status: string;
+  finance_status: string | null;
   seller_name: string | null;
   payment_proof_url: string | null;
 }
@@ -137,9 +137,8 @@ export default function ProofOfPaymentPage() {
   const cameraScanRef  = useRef<HTMLInputElement>(null);
   const galleryRef     = useRef<HTMLInputElement>(null);
 
-  const PAID_STATUSES = ['Reserved-paid', 'Pending Review', 'Reserved'];
-  const alreadyPaid = PAID_STATUSES.includes(reservation?.status ?? '');
-  const isApproved = reservation?.status === 'Reserved';
+  const alreadyPaid = reservation?.status === 'Reserved';
+  const isApproved = reservation?.finance_status === 'rf-verified';
 
   useEffect(() => {
     const id  = sessionStorage.getItem('currentReservationId');
@@ -171,12 +170,11 @@ export default function ProofOfPaymentPage() {
   }
 
   // ── Auto-fetch when viewing a paid / pending-review reservation ──
-  const reservationStatus = reservation?.status ?? '';
   useEffect(() => {
-    if (!reservationId || !PAID_STATUSES.includes(reservationStatus)) return;
+    if (!reservationId || reservation?.status !== 'Reserved') return;
     loadExistingData(reservationId).catch(e => console.error('[auto-fetch]', e));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reservationId, reservationStatus]);
+  }, [reservationId, reservation?.status]);
 
   // ── File upload handling ──
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -247,9 +245,8 @@ export default function ProofOfPaymentPage() {
     setRecalling(true);
     setActionError('');
     try {
-      await updateReservationStatus(reservationId, 'Reserved-paid');
-      // Update local state so the view switches back immediately (no redirect)
-      const updated = { ...reservation!, status: 'Reserved-paid' };
+      await supabase.from('reservations').update({ finance_status: 'proof-submitted' }).eq('reservation_id', reservationId);
+      const updated = { ...reservation!, finance_status: 'proof-submitted' };
       setReservation(updated);
       sessionStorage.setItem('selectedReservation', JSON.stringify(updated));
     } catch (e: any) {
@@ -264,7 +261,11 @@ export default function ProofOfPaymentPage() {
     setResubmitting(true);
     setActionError('');
     try {
-      await updateReservationStatus(reservationId, 'Pending Review');
+      const { error } = await supabase
+        .from('reservations')
+        .update({ finance_status: 'proof-submitted' })
+        .eq('reservation_id', reservationId);
+      if (error) throw error;
       sessionStorage.removeItem('currentReservationId');
       router.push('/sales/reservation');
     } catch (e: any) {
@@ -321,21 +322,12 @@ export default function ProofOfPaymentPage() {
       const inventoryCode = getInventoryCode();
       if (inventoryCode) await updateInventoryUnitStatus(inventoryCode, 'Reserved');
 
-      // Generate receivable lines and commission schedule (non-fatal)
+      // Generate receivable lines (non-fatal)
       try {
         await generateReceivableLines(reservationId, paymentDate);
       } catch (e) {
         console.error('[receivables] Failed to generate lines:', e);
       }
-      try {
-        await generateCommissionSchedule(reservationId);
-        // Warning shown to Finance on approval if tranches are missing — silent here
-      } catch (e) {
-        console.error('[commission] Failed to generate schedule:', e);
-      }
-
-      // Submit for verification immediately
-      await updateReservationStatus(reservationId, 'Pending Review');
 
       sessionStorage.removeItem('currentReservationId');
       sessionStorage.removeItem('reservationData');
@@ -390,11 +382,12 @@ export default function ProofOfPaymentPage() {
               <img src="/approved-stamp.png" alt="Approved" className="w-20 h-20 object-contain shrink-0" />
             ) : (
               <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
-                alreadyPaid ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                reservation.finance_status === 'rf-rejected' ? 'bg-red-100 text-red-700'
+                : alreadyPaid ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
               }`}>
-                {reservation.status === 'Reserved-paid'    ? 'Paid'
-                 : reservation.status === 'Reserved-unpaid' ? 'Unpaid'
-                 : reservation.status}
+                {reservation.finance_status === 'rf-rejected' ? 'RF Rejected'
+                 : alreadyPaid ? 'Reserved'
+                 : 'Pending Proof'}
               </span>
             )
           )}
@@ -432,12 +425,12 @@ export default function ProofOfPaymentPage() {
         <p className="text-xs text-[#8E8E93] leading-relaxed">
           {isApproved
             ? 'This reservation has been approved. All details are read-only.'
-            : reservation?.status === 'Pending Review'
-            ? 'This reservation has been submitted for verification and is currently under review.'
-            : reservation?.status === 'Reserved-paid' && !editMode
+            : reservation?.finance_status === 'rf-rejected' && !editMode
             ? 'This submission was returned. You may edit and resubmit, or cancel the reservation.'
-            : reservation?.status === 'Reserved-paid' && editMode
+            : reservation?.finance_status === 'rf-rejected' && editMode
             ? 'Update the payment details below and resubmit for verification.'
+            : reservation?.finance_status === 'proof-submitted'
+            ? 'This reservation has been submitted for verification and is currently under review.'
             : 'Upload your proof of payment and valid ID, then tap Submit for Verification. Your reservation will be sent for review immediately.'
           }
         </p>
@@ -705,8 +698,8 @@ export default function ProofOfPaymentPage() {
       )}
 
 
-      {/* Edit / Resubmit / Cancel — shown when returned (Reserved-paid) */}
-      {reservation?.status === 'Reserved-paid' && !editMode && (
+      {/* Edit / Resubmit / Cancel — shown when returned (RF Rejected) */}
+      {reservation?.finance_status === 'rf-rejected' && !editMode && (
         <div className="space-y-2.5 pb-2">
           {actionError && <p className="text-red-500 text-xs text-center">{actionError}</p>}
           <button
@@ -735,8 +728,8 @@ export default function ProofOfPaymentPage() {
         </div>
       )}
 
-      {/* Recall button — shown only when Pending Review */}
-      {alreadyPaid && !isApproved && reservation?.status === 'Pending Review' && (
+      {/* Recall button — shown only when proof is pending RF verification */}
+      {alreadyPaid && !isApproved && reservation?.finance_status === 'proof-submitted' && (
         <div className="space-y-2.5 pb-2">
           {actionError ? <p className="text-red-500 text-xs text-center">{actionError}</p> : null}
           <button
@@ -899,7 +892,7 @@ export default function ProofOfPaymentPage() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-[#8E8E93]">New Status</span>
-                <span className="text-xs font-semibold text-[#1C1C1E]">Reserved-paid</span>
+                <span className="text-xs font-semibold text-[#1C1C1E]">Pending Proof</span>
               </div>
             </div>
             {actionError && <p className="text-red-500 text-xs text-center px-6 pt-3">{actionError}</p>}

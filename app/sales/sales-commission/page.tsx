@@ -215,7 +215,7 @@ export default function SalesCommissionPage() {
           </div>
 
           {/* Results list — shown only when search bar is focused */}
-          {searchFocused && <div className="max-h-60 overflow-y-auto space-y-0.5">
+          {searchFocused && <div className="max-h-60 overflow-y-auto space-y-0.5" onMouseDown={e => e.preventDefault()}>
             {loadingSellers && (
               <p className="text-center text-sm text-[#8E8E93] py-4">Loading…</p>
             )}

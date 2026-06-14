@@ -214,7 +214,7 @@ export default function ReservationAgreementPage() {
         sales_manager: data.salesManager,
         sales_director: data.salesDirector,
         sales_division_head: data.salesDivisionHead,
-        status: 'Reserved-unpaid',
+        status: 'Pending Proof',
       });
       sessionStorage.setItem('currentReservationId', reservationId);
       sessionStorage.setItem('proofEntrySource', 'agreement');
@@ -224,7 +224,7 @@ export default function ReservationAgreementPage() {
         project:          data.project,
         inventory_code:   data.inventoryCode,
         unit_type:        data.unitType,
-        status:           'Reserved-unpaid',
+        status:           'Pending Proof',
         seller_name:      data.sellerName,
         payment_proof_url: null,
       }));

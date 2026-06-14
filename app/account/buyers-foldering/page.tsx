@@ -71,7 +71,7 @@ export default function BuyersFolderingPage() {
   const activeFilterCount = [sellerFilter, projectFilter, statusFilter].filter(Boolean).length;
 
   useEffect(() => {
-    supabase.from('reservations').select('seller_name, project').eq('status', 'Reserved-paid').limit(5000)
+    supabase.from('reservations').select('seller_name, project').eq('finance_status', 'proof-submitted').limit(5000)
       .then(({ data }) => {
         if (!data) return;
         setSellerOptions([...new Set(data.map(r => r.seller_name).filter(Boolean))] as string[]);
@@ -86,7 +86,7 @@ export default function BuyersFolderingPage() {
       .select(`reservation_id, client_name, project, inventory_code, unit_type, seller_name,
         payment_proof_url, proof_of_billing_urls, proof_of_income_urls, proof_of_valid_id_urls,
         co_owner_id_urls, atty_in_fact_id_urls, spouse_id_urls`)
-      .eq('status', 'Reserved-paid')
+      .eq('finance_status', 'proof-submitted')
       .order('created_at', { ascending: false })
       .limit(5000);
 

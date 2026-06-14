@@ -1369,7 +1369,7 @@ export default function CollectionPostingPage() {
       const { data: reservations, error } = await supabase
         .from('reservations')
         .select('reservation_id, date_of_reservation_fee, status')
-        .in('status', ['Reserved', 'Booked', 'Pending Review']);
+        .in('status', ['Reserved', 'Booked']);
       if (error) throw error;
 
       let generated = 0;
