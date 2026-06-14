@@ -29,8 +29,9 @@ const PAYMENT_SCHEMES = [
 ] as const;
 type PaymentScheme = typeof PAYMENT_SCHEMES[number]['value'];
 
-const RETENTION_FEE       = 50_000;
-const OTHER_CHARGES_RATE  = 0.07;
+const RETENTION_FEE          = 50_000;
+const OTHER_CHARGES_RATE     = 0.07;
+const EMPLOYEE_DISCOUNT_RATE = 0.10;
 
 function calcMonthlyAmort(principal: number, annualRate: number, years: number): number {
   if (principal <= 0) return 0;
@@ -67,11 +68,11 @@ interface ComparisonItem {
   reservationFee: number;
 }
 
-type CompRow = { label: string; value: (c: ComparisonItem) => string; bold?: boolean; coral?: boolean; green?: boolean; };
+type CompRow = { label: string; value: (c: ComparisonItem) => string | null; bold?: boolean; coral?: boolean; green?: boolean; };
 
 const COMP_SECTIONS: { title: string; rows: CompRow[] }[] = [
   { title: 'Unit Info', rows: [
-    { label: 'Unit',     value: c => `${c.floor}${c.unitNo}` },
+    { label: 'Unit',     value: c => `${String(parseInt(c.floor)||0).padStart(2,'0')}${String(parseInt(c.unitNo)||0).padStart(2,'0')}` },
     { label: 'Tower',    value: c => c.tower },
     { label: 'Floor',    value: c => c.floor },
     { label: 'Type',     value: c => c.unitType || '—' },
@@ -81,14 +82,16 @@ const COMP_SECTIONS: { title: string; rows: CompRow[] }[] = [
   ]},
   { title: 'Price Computation', rows: [
     { label: 'List Price',    value: c => `₱${c.listPrice.toLocaleString()}` },
-    { label: 'Promo Disc.',   value: c => c.promoAmount > 0   ? `(₱${c.promoAmount.toLocaleString()})` : '—', green: true },
-    { label: 'Payterm Disc.', value: c => c.paytermAmount > 0 ? `(₱${c.paytermAmount.toLocaleString()})` : '—', green: true },
+    { label: 'Promo Disc.',    value: c => c.promoAmount > 0    ? `(₱${c.promoAmount.toLocaleString()})` : '—', green: true },
+    { label: 'Employee Disc.', value: c => c.employeeAmount > 0 ? `(₱${c.employeeAmount.toLocaleString()})` : '—', green: true },
+    { label: 'Payterm Disc.',  value: c => c.paytermAmount > 0  ? `(₱${c.paytermAmount.toLocaleString()})` : '—', green: true },
     { label: 'HIC Disc.',     value: c => c.hicDiscount > 0   ? `(₱${c.hicDiscount.toLocaleString()})` : '—', green: true },
     { label: 'Net List Price', value: c => `₱${c.netListPrice.toLocaleString()}`, bold: true },
   ]},
   { title: 'Taxes & Charges', rows: [
     { label: 'VAT',            value: c => `₱${c.vat.toLocaleString()}` },
     { label: 'Other (7%)',     value: c => `₱${c.otherCharges.toLocaleString()}` },
+    { label: 'HIC Discount',   value: c => c.hicDiscount > 0 ? `₱${c.hicDiscount.toLocaleString()}` : null, green: true },
     { label: 'Total Contract', value: c => `₱${c.totalContractPrice.toLocaleString()}`, bold: true, coral: true },
   ]},
   { title: 'Fees', rows: [
@@ -248,6 +251,8 @@ const STEP_HEADERS = [
   { title: 'Comparison',              subtitle: 'Compare different payment schemes' },
 ];
 
+const pad2 = (s: string) => String(parseInt(s) || 0).padStart(2, '0');
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function SampleComputationPage() {
   const router = useRouter();
@@ -270,6 +275,7 @@ export default function SampleComputationPage() {
   const [duplicateAlert, setDuplicateAlert] = useState(false);
   const [showAddSheet, setShowAddSheet] = useState(false);
   const [useHIC,       setUseHIC]       = useState(false);
+  const [isMegawide,   setIsMegawide]   = useState(false);
   const [userRole,     setUserRole]     = useState('');
   const [reservationFee, setReservationFee] = useState(0);
 
@@ -337,7 +343,9 @@ export default function SampleComputationPage() {
     setClientEmail('');
   }
 
-  const compHeaderRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const compHeaderRefs  = useRef<(HTMLDivElement | null)[]>([]);
+  const compScrollRef   = useRef<HTMLDivElement>(null);
+  const [compScrollPct, setCompScrollPct] = useState(0);
 
   const generateComparisonPDF = async () => {
     const { jsPDF } = await import('jspdf');
@@ -525,7 +533,7 @@ export default function SampleComputationPage() {
       y += 3.5;
       doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(...dark);
       doc.text(c.project, r1c1, y); doc.text(c.tower,  r1c2, y);
-      doc.text(c.floor,   r1c3, y); doc.text(c.unitNo, r1c4, y);
+      doc.text(pad2(c.floor), r1c3, y); doc.text(pad2(c.unitNo), r1c4, y);
       y += RH;
 
       // Row 2: Unit Type | Area | Payment Scheme (3 columns)
@@ -555,8 +563,9 @@ export default function SampleComputationPage() {
       const p = (n: number) => 'PHP ' + n.toLocaleString();
       secLabel('Price Computation');
       row('List Price', p(c.listPrice));
-      if (c.promoAmount > 0)   row(`Less: Promo Discount (${Math.round(c.promoPct)}%)`, p(c.promoAmount), false, grn);
-      if (c.paytermAmount > 0) row(`Less: Payterm Discount (${Number(c.paytermPctDisplay).toFixed(1)}%)`, p(c.paytermAmount), false, grn);
+      if (c.promoAmount > 0)    row(`Less: Promo Discount (${Math.round(c.promoPct)}%)`, p(c.promoAmount), false, grn);
+      if (c.employeeAmount > 0) row('Less: Employee Discount (10%)', p(c.employeeAmount), false, grn);
+      if (c.paytermAmount > 0)  row(`Less: Payterm Discount (${Number(c.paytermPctDisplay).toFixed(1)}%)`, p(c.paytermAmount), false, grn);
       if (c.hicDiscount > 0)   row('Less: HIC Discount', p(c.hicDiscount), false, [94, 92, 230]);
       subHr();
       row('Net List Price', p(c.netListPrice), true);
@@ -566,6 +575,7 @@ export default function SampleComputationPage() {
       secLabel('Taxes & Charges');
       row(c.vat === 0 ? 'VAT (Exempt)' : 'VAT (12%)', p(c.vat));
       row('Other Charges (7%)', p(c.otherCharges));
+      if (c.hicDiscount > 0) row('HIC Discount', p(c.hicDiscount), false, [94, 92, 230]);
       subHr();
       row('Total Contract Price', p(c.totalContractPrice), true, coral);
       hr();
@@ -584,7 +594,7 @@ export default function SampleComputationPage() {
         if (c.paymentScheme === 'deferred_cash')
           row(`Monthly Deferred (${c.termMonths} mo)`, p(c.monthlyDeferred) + '/mo', true, coral);
       } else if (c.paymentScheme === 'spot_dp') {
-        row(`DP (${c.dpRate})`, p(c.dpAmount));
+        row(`DP (${c.dpRate}%)`, p(c.dpAmount));
         row(`Net ${c.schemeName}`, p(c.netSpotDP));
         row('Balance for Financing', p(c.balanceForFinancing));
         hr();
@@ -592,7 +602,7 @@ export default function SampleComputationPage() {
         row('Bank (6.5% p.a., 20 yrs)', p(c.bankMonthly) + '/mo');
         row('HDMF (6.25% p.a., 25 yrs)', p(c.hdmfMonthly) + '/mo');
       } else if (c.paymentScheme === 'stretched_dp') {
-        row(`DP (${c.dpRate})`, p(c.dpAmount));
+        row(`DP (${c.dpRate}%)`, p(c.dpAmount));
         row(`Net ${c.schemeName}`, p(c.netSpotDP));
         row(`Monthly DP (${c.termMonths} mo)`, p(c.monthlyStretchedDP) + '/mo', true, coral);
         row('Balance for Financing', p(c.balanceForFinancing));
@@ -1164,7 +1174,7 @@ export default function SampleComputationPage() {
 
             const uniqueFloors  = [...new Set(filtered.map(u => u.floor))].filter(Boolean)
               .sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }));
-            const uniqueUnitNos = [...new Set(filtered.map(u => u.unit_no))].filter(Boolean).sort();
+            const uniqueUnitNos = [...new Set(filtered.map(u => u.unit_no))].filter(Boolean).sort((a, b) => (parseInt(a) || 0) - (parseInt(b) || 0));
             const naCount = uniqueFloors.length * uniqueUnitNos.length - filtered.length;
             const unitMap = new Map<string, Map<string, string>>();
             filtered.forEach(u => {
@@ -1243,7 +1253,7 @@ export default function SampleComputationPage() {
                                     }}
                                     className={`px-1 py-2.5 border-b border-r border-white/60 text-center whitespace-nowrap min-w-[64px] font-medium ${hasUnit ? statusColor(status) + (status?.toLowerCase() === 'available' ? ' cursor-pointer active:opacity-60' : ' cursor-not-allowed') : 'bg-[#374151]'}`}
                                   >
-                                    {hasUnit ? unitNo : ''}
+                                    {hasUnit ? pad2(fl) + pad2(unitNo) : ''}
                                   </td>
                                 );
                               })}
@@ -1280,7 +1290,7 @@ export default function SampleComputationPage() {
                             })()}
                             <div className="flex items-center gap-1 min-w-0 pr-10">
                               {catIcon && <span className="text-[#C03D25] shrink-0" style={{ fontSize: 12 }}>{catIcon}</span>}
-                              <span className="text-sm font-bold text-[#1C1C1E] leading-tight truncate">{u.floor}{u.unit_no}</span>
+                              <span className="text-sm font-bold text-[#1C1C1E] leading-tight truncate">{pad2(u.floor)}{pad2(u.unit_no)}</span>
                             </div>
                             <div className="space-y-0.5">
                               <p className="text-[10px] text-[#8E8E93]">Tower: <span className="text-[#1C1C1E] font-medium">{tower}</span></p>
@@ -1356,7 +1366,8 @@ export default function SampleComputationPage() {
           : paymentScheme === 'stretched_dp' ? stretchedDpDiscount
           : spotCashDiscount;
         const paytermAmount      = Math.round(listPrice * paytermRate);
-        const nlpBeforeHIC       = listPrice - promoAmount - paytermAmount;
+        const employeeAmount     = isMegawide ? Math.round(listPrice * EMPLOYEE_DISCOUNT_RATE) : 0;
+        const nlpBeforeHIC       = listPrice - promoAmount - employeeAmount - paytermAmount;
         const showHIC            = userRole === 'All Access' && unitCategory === 'Residential' && selectedUnit.hic === true && hicTarget != null;
         const hicDiscount        = (useHIC && showHIC && hicTarget != null) ? Math.max(0, nlpBeforeHIC - hicTarget) : 0;
         const netListPrice       = nlpBeforeHIC - hicDiscount;
@@ -1388,7 +1399,7 @@ export default function SampleComputationPage() {
             unitType: selectedUnit.unit_type || '', unitArea: selectedUnit.unit_area,
             unitCategory, paymentScheme, schemeName, dpRate, paymentTerm,
             termMonths: paymentScheme === 'stretched_dp' ? stretchedTermMonths : termMonths,
-            listPrice, promoAmount, promoPct, employeeAmount: 0, paytermAmount, paytermPctDisplay,
+            listPrice, promoAmount, promoPct, employeeAmount, paytermAmount, paytermPctDisplay,
             hicDiscount,
             netListPrice, vat, otherCharges, totalContractPrice,
             netAmount, monthlyDeferred, dpAmount, netSpotDP,
@@ -1425,7 +1436,7 @@ export default function SampleComputationPage() {
               )}
               <div className="flex items-center gap-2 py-3 pr-12 border-b border-black/[0.06]">
                 {catIcon && <span className="text-[#C03D25] shrink-0">{catIcon}</span>}
-                <span className="text-base font-bold text-[#1C1C1E]">{selectedUnit.floor}{selectedUnit.unit_no}</span>
+                <span className="text-base font-bold text-[#1C1C1E]">{pad2(selectedUnit.floor)}{pad2(selectedUnit.unit_no)}</span>
               </div>
               <div className="flex gap-4 py-3 border-b border-black/[0.06]">
                 <div className="flex-1 flex flex-col gap-1">
@@ -1526,6 +1537,25 @@ export default function SampleComputationPage() {
                 </div>
               )}
 
+              {/* Employee Discount Checkbox */}
+              <button
+                type="button"
+                onClick={() => setIsMegawide(p => !p)}
+                className={`w-full flex items-center gap-3 p-3 rounded-2xl border-2 transition-all ${
+                  isMegawide ? 'border-[#166534] bg-[#166534]/10' : 'border-[#E5E5EA] bg-white'
+                }`}
+              >
+                <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
+                  isMegawide ? 'border-[#166534] bg-[#166534]' : 'border-[#C7C7CC]'
+                }`}>
+                  {isMegawide && <Check size={12} className="text-white" />}
+                </div>
+                <div className="flex-1 text-left">
+                  <p className={`text-sm font-semibold ${isMegawide ? 'text-[#166534]' : 'text-[#1C1C1E]'}`}>Megawide Employee</p>
+                  <p className="text-[10px] text-[#8E8E93]">10% discount on List Price</p>
+                </div>
+              </button>
+
               {/* HIC Checkbox — Sales Director + Residential only */}
               {showHIC && (
                 <button
@@ -1559,7 +1589,7 @@ export default function SampleComputationPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-[#1C1C1E]">{schemeName}</p>
-                    <p className="text-[#6C6C70] text-xs mt-0.5">{selectedUnit.floor}{selectedUnit.unit_no} · {selectedUnit.unit_area} sqm</p>
+                    <p className="text-[#6C6C70] text-xs mt-0.5">{pad2(selectedUnit.floor)}{pad2(selectedUnit.unit_no)} · {selectedUnit.unit_area} sqm</p>
                   </div>
                   <span className="bg-[#F2F2F7] text-[#6C6C70] text-xs font-medium px-2.5 py-1 rounded-full shrink-0">{unitCategory}</span>
                 </div>
@@ -1575,6 +1605,12 @@ export default function SampleComputationPage() {
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-[#166534]">Less: Promo Discount ({promoPct}%)</span>
                       <span className="text-sm font-medium text-[#166534]">(₱{promoAmount.toLocaleString()})</span>
+                    </div>
+                  )}
+                  {employeeAmount > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[#166534]">Less: Employee Discount (10%)</span>
+                      <span className="text-sm font-medium text-[#166534]">(₱{employeeAmount.toLocaleString()})</span>
                     </div>
                   )}
                   {paytermAmount > 0 && (
@@ -1735,6 +1771,15 @@ export default function SampleComputationPage() {
       {/* ── Step 4: Comparison ── */}
       {step === 3 && (
         <>
+          <style>{`
+            .comp-hscroll::-webkit-scrollbar { display: none; }
+            .comp-hscroll { scrollbar-width: none; }
+            @keyframes bubble-hint {
+              0%, 60%, 100% { transform: translateY(-50%) translateX(0); opacity: 1; }
+              80% { transform: translateY(-50%) translateX(10px); opacity: 0.7; }
+            }
+            .bubble-hint { animation: bubble-hint 1.8s ease-in-out infinite; }
+          `}</style>
           {comparisons.length === 0 ? (
             <GlassCard className="p-8 text-center space-y-3">
               <GitCompare size={32} className="text-[#C7C7CC] mx-auto" />
@@ -1743,10 +1788,19 @@ export default function SampleComputationPage() {
               <button onClick={() => goToStep(2)} className="text-[#C03D25] text-sm font-semibold">← Back to Computation</button>
             </GlassCard>
           ) : (
-            <div className="overflow-x-auto pb-2" style={{ WebkitOverflowScrolling: 'touch' }}>
-              <div className="flex gap-2" style={{ minWidth: `${comparisons.length * 172 + (comparisons.length - 1) * 8}px` }}>
+            <div
+              ref={comparisons.length > 3 ? compScrollRef : undefined}
+              onScroll={comparisons.length > 3 ? e => { const el = e.currentTarget; setCompScrollPct(el.scrollLeft / (el.scrollWidth - el.clientWidth) || 0); } : undefined}
+              className={comparisons.length > 3 ? 'comp-hscroll overflow-x-auto' : ''}
+              style={comparisons.length > 3 ? { WebkitOverflowScrolling: 'touch', display: 'grid', gridAutoFlow: 'column', gridAutoColumns: 'calc((100% - 16px) / 3)', gap: '8px' } : undefined}
+            >
+              <div className={comparisons.length <= 3 ? 'flex gap-2' : 'contents'}>
                 {comparisons.map((c, ci) => (
-                  <div key={c.id} className="shrink-0 w-[172px] bg-white rounded-2xl border border-black/[0.06] shadow-md flex flex-col overflow-hidden" style={{ maxHeight: '72vh' }}>
+                  <div
+                    key={c.id}
+                    className="shrink-0 bg-white rounded-2xl border border-black/[0.06] shadow-md flex flex-col overflow-hidden"
+                    style={{ width: comparisons.length <= 3 ? `calc((100% - ${(comparisons.length - 1) * 8}px) / ${comparisons.length})` : undefined, maxHeight: '72vh' }}
+                  >
                     <div ref={el => { compHeaderRefs.current[ci] = el; }} className="relative flex-shrink-0 px-4 pt-4 pb-3 bg-[rgba(192,61,37,0.06)] border-b border-black/[0.08]">
                       <button
                         type="button"
@@ -1767,9 +1821,9 @@ export default function SampleComputationPage() {
                         {Math.round(c.promoPct)}% discount
                       </p>
                     </div>
-                    <div className="overflow-y-auto flex-1">
+                    <div className="overflow-y-auto overflow-x-hidden flex-1">
                       {COMP_SECTIONS.map(section => {
-                        const visibleRows = section.rows.filter(row => row.value(c) !== '—');
+                        const visibleRows = section.rows.filter(row => { const v = row.value(c); return v !== null && v !== '—'; });
                         if (visibleRows.length === 0) return null;
                         return (
                           <div key={section.title}>
@@ -1793,6 +1847,24 @@ export default function SampleComputationPage() {
                     </div>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {comparisons.length > 3 && (
+            <div className="flex justify-center items-center mt-1">
+              <div className="relative w-20 h-2 rounded-full bg-black/[0.06]">
+                <div
+                  className={compScrollPct === 0 ? 'bubble-hint' : ''}
+                  style={{
+                    position: 'absolute', top: '50%', transform: 'translateY(-50%)',
+                    left: `${compScrollPct * (80 - 8)}px`,
+                    width: 8, height: 8,
+                    borderRadius: '50%',
+                    background: '#C7C7CC',
+                    transition: 'left 0.12s ease',
+                  }}
+                />
               </div>
             </div>
           )}

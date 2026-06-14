@@ -37,7 +37,7 @@ const TERMS = [
   {
     title: 'RESERVATION PROVISION',
     items: [
-      `1. As proof of my interest to purchase the Property, I hereby tender the sum of: PHP 10,000 as Reservation Fee, exclusive of VAT, in order to reserve the Property for our intended purchase which shall be effective for a period of thirty (30) days from delivery of the Reservation Fee. I understand and acknowledge that the Reservation Fee is non-refundable. Should I decide to cancel my reservation; fail to submit all the documentary requirements, including this Reservation Agreement; or fail to pay the amounts due on the prescribed due dates, for any reason whatsoever, I agree that my reservation shall lapse and my Reservation Fee shall be forfeited in favor of the Company. I will hold the Company free and harmless for thereafter releasing and offering the Property to other interested buyers.`,
+      `1. As proof of my interest to purchase the Property, I hereby tender the sum of: PHP {{RESERVATION_FEE}} as Reservation Fee, exclusive of VAT, in order to reserve the Property for our intended purchase which shall be effective for a period of thirty (30) days from delivery of the Reservation Fee. I understand and acknowledge that the Reservation Fee is non-refundable. Should I decide to cancel my reservation; fail to submit all the documentary requirements, including this Reservation Agreement; or fail to pay the amounts due on the prescribed due dates, for any reason whatsoever, I agree that my reservation shall lapse and my Reservation Fee shall be forfeited in favor of the Company. I will hold the Company free and harmless for thereafter releasing and offering the Property to other interested buyers.`,
       `2. I acknowledge that the Company reserves the right to accept or deny this request for reservation and that it is non-transferable. Subject to a written request by me, the Company, at its sole discretion, may extend this reservation for a period of more than fifteen (15) days within which to make the down payment, provided that I shall incur a penalty charge of three percent (3%) per month, or a fraction thereof.`,
       `3. In the event the Property is found unavailable for sale for any reason whatsoever, I agree to hold the Company free and harmless from any liability and it shall have the option of exchanging the Property with another similar unit/lot/property, as applicable, or otherwise cancel this Reservation Agreement. Should there be no substitution or should the substituted Property be unacceptable to me, I shall hold the Company free and harmless from any liability for canceling the Reservation Agreement, subject to reimbursement to me of all payments made, without interest.`,
     ],
@@ -274,13 +274,16 @@ export default function ReservationAgreementPage() {
         {TERMS.map(({ title, items }) => (
           <div key={title} className="space-y-3">
             <p className="text-xs font-bold text-[#1C1C1E] uppercase tracking-wide">{title}</p>
-            {items.map((item, i) => (
-              <div key={i} className="space-y-1">
-                {item.split('\n\n').map((para, j) => (
-                  <p key={j} className="text-xs text-[#3A3A3C] leading-relaxed whitespace-pre-line">{para.trim()}</p>
-                ))}
-              </div>
-            ))}
+            {items.map((item, i) => {
+              const resolved = item.replace('{{RESERVATION_FEE}}', (data?.reservationFee ?? 0).toLocaleString('en-PH'));
+              return (
+                <div key={i} className="space-y-1">
+                  {resolved.split('\n\n').map((para, j) => (
+                    <p key={j} className="text-xs text-[#3A3A3C] leading-relaxed whitespace-pre-line">{para.trim()}</p>
+                  ))}
+                </div>
+              );
+            })}
           </div>
         ))}
       </GlassCard>

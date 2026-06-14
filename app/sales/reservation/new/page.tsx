@@ -13,7 +13,7 @@ import { fetchReservationFee, fetchVatThreshold, computeVat, fetchHicTarget } fr
 import { getSession } from '@/lib/auth';
 import {
   Check, ChevronDown, Calculator,
-  User, Phone, Mail, Briefcase,
+  User, Phone, Mail,
   Users, UserCog, UserCheck, UserPlus,
   Building2, Layers, Home, Car, Bike, LayoutGrid,
   BarChart3, Grid3X3,
@@ -21,6 +21,7 @@ import {
   Search, ChevronLeft, Loader2,
 } from 'lucide-react';
 import { COUNTRY_CODES } from '@/lib/client-form-options';
+import { supabase } from '@/lib/supabase';
 
 // ─── Payment Schemes ──────────────────────────────────────────────────────────
 const PAYMENT_SCHEMES = [
@@ -72,7 +73,7 @@ interface ComparisonItem {
   reservationFee: number;
 }
 
-type CompRow = { label: string; value: (c: ComparisonItem) => string; bold?: boolean; coral?: boolean; green?: boolean; };
+type CompRow = { label: string; value: (c: ComparisonItem) => string | null; bold?: boolean; coral?: boolean; green?: boolean; };
 
 function calcDueDate(addMonths = 0): string {
   const today = new Date();
@@ -102,6 +103,7 @@ const COMP_SECTIONS: { title: string; rows: CompRow[] }[] = [
   { title: 'Taxes & Charges', rows: [
     { label: 'VAT',            value: c => `₱${c.vat.toLocaleString()}` },
     { label: 'Other (7%)',     value: c => `₱${c.otherCharges.toLocaleString()}` },
+    { label: 'HIC Discount',   value: c => c.hicDiscount > 0 ? `₱${c.hicDiscount.toLocaleString()}` : null, green: true },
     { label: 'Total Contract', value: c => `₱${c.totalContractPrice.toLocaleString()}`, bold: true, coral: true },
   ]},
   { title: 'Fees', rows: [
@@ -342,11 +344,14 @@ const STEP_HEADERS = [
   { title: 'Comparison',                subtitle: 'Compare different payment schemes' },
 ];
 
+const pad2 = (s: string) => String(parseInt(s) || 0).padStart(2, '0');
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function NewReservationPage() {
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [reservationTarget, setReservationTarget] = useState<ComparisonItem | null>(null);
+  const [isPickMode, setIsPickMode] = useState(false);
 
   // Client Info
   const [fullName,    setFullName]    = useState('');
@@ -396,7 +401,9 @@ export default function NewReservationPage() {
   // undefined = loading, null = not configured, number = ok
   const [vatThreshold, setVatThreshold] = useState<number | null | undefined>(undefined);
   const [hicTarget,    setHicTarget]    = useState<number | null>(null);
-  const compHeaderRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const compHeaderRefs  = useRef<(HTMLDivElement | null)[]>([]);
+  const compScrollRef   = useRef<HTMLDivElement>(null);
+  const [compScrollPct, setCompScrollPct] = useState(0);
 
   // Equalize comparison card header heights to the tallest one
   useLayoutEffect(() => {
@@ -603,6 +610,7 @@ export default function NewReservationPage() {
 
   function goToStep(n: number) {
     setStep(n);
+    setIsPickMode(false);
     document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -736,6 +744,188 @@ export default function NewReservationPage() {
   const filteredPayterms = (project && tower)
     ? allPayterms.filter(p => p.project === project && p.tower === tower)
     : [];
+
+  const generateComparisonPDF = async () => {
+    const { jsPDF } = await import('jspdf');
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageW = 210, pageH = 297, mg = 15;
+    const HDR = 32, STRIP = 13, CLIENT_STRIP = 13;
+    const BODY_T = HDR + STRIP + CLIENT_STRIP + 7;
+    const DISC_Y = pageH - 28;
+    const coral: [number,number,number] = [192, 61, 37];
+    const dark:  [number,number,number] = [28, 28, 30];
+    const lt:    [number,number,number] = [142, 142, 147];
+    const grn:   [number,number,number] = [22, 101, 52];
+
+    const now     = new Date();
+    const dateStr = now.toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
+    const timeStr = now.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
+
+    let sellerName = sellerRecord?.seller_name ?? '';
+    let sellerContact = '';
+    let sellerMobile = '';
+    if (sellerName) {
+      try {
+        const { data } = await supabase
+          .from('Salesperson')
+          .select('"Mobile Number", "Email Address"')
+          .eq('Seller Name', sellerName)
+          .maybeSingle();
+        sellerMobile  = (data as any)?.['Mobile Number']  ?? '';
+        sellerContact = (data as any)?.['Email Address']  ?? '';
+      } catch {}
+    }
+
+    let logoB64 = '';
+    try {
+      const res  = await fetch('/document logo.png');
+      const blob = await res.blob();
+      logoB64 = await new Promise<string>(resolve => {
+        const r = new FileReader();
+        r.onloadend = () => resolve(r.result as string);
+        r.readAsDataURL(blob);
+      });
+    } catch {}
+
+    const drawHeader = () => {
+      doc.setFillColor(...coral);
+      doc.rect(0, 0, pageW, HDR, 'F');
+      if (logoB64) doc.addImage(logoB64, 'PNG', mg, 5, 22, 22);
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
+      doc.text('SAMPLE COMPUTATION', pageW - mg, 15, { align: 'right' });
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+      doc.text(`${dateStr}  ·  ${timeStr}`, pageW - mg, 24, { align: 'right' });
+
+      const colSellerMobile = mg + 100;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(...lt);
+      doc.text('SELLER', mg, HDR + 5);
+      doc.text('MOBILE NO.', colSellerMobile, HDR + 5);
+      if (sellerContact) doc.text('EMAIL ADDRESS', pageW - mg, HDR + 5, { align: 'right' });
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...dark);
+      doc.text(sellerName || '—', mg, HDR + 10.5);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...dark);
+      doc.text(sellerMobile || '—', colSellerMobile, HDR + 10.5);
+      if (sellerContact) doc.text(sellerContact, pageW - mg, HDR + 10.5, { align: 'right' });
+
+      const clientFullName = [clientFirstName, clientMiddleName, clientLastName].filter(Boolean).join(' ') +
+        (clientSuffix ? `, ${clientSuffix}` : '');
+      const clientMobileStr = clientMobileRaw ? `${clientCountryCode} ${clientMobileRaw}` : '';
+      const cs = HDR + STRIP;
+      const colMobile = mg + 100;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(...lt);
+      doc.text('CLIENT', mg, cs + 5);
+      if (clientMobileStr) doc.text('MOBILE NO.', colMobile, cs + 5);
+      if (clientEmailField) doc.text('EMAIL ADDRESS', pageW - mg, cs + 5, { align: 'right' });
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...dark);
+      doc.text(clientFullName || '—', mg, cs + 10.5);
+      if (clientMobileStr) { doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...dark); doc.text(clientMobileStr, colMobile, cs + 10.5); }
+      if (clientEmailField) { doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...dark); doc.text(clientEmailField, pageW - mg, cs + 10.5, { align: 'right' }); }
+
+      const lineY = HDR + STRIP + CLIENT_STRIP + 1;
+      doc.setDrawColor(210, 210, 220); doc.setLineWidth(0.4);
+      doc.line(mg, lineY, pageW - mg, lineY);
+    };
+
+    const drawFooter = () => {
+      const boxW = pageW - mg * 2;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(...coral);
+      doc.text('DISCLAIMER', mg, DISC_Y);
+      const discText = 'This is a computer-generated document. Prices, discounts, terms, and availability are subject to change without prior notice. This computation is for reference purposes only and does not constitute a binding offer or contract.';
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...lt);
+      doc.text(doc.splitTextToSize(discText, boxW), mg, DISC_Y + 4.5);
+      doc.setDrawColor(...coral); doc.setLineWidth(0.4);
+      doc.line(mg, DISC_Y + 16, pageW - mg, DISC_Y + 16);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...lt);
+      doc.text(`Generated: ${dateStr}  at  ${timeStr}`, mg, DISC_Y + 21);
+    };
+
+    let y = BODY_T;
+    const RH = 6;
+    const secLabel = (t: string) => { doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(...lt); doc.text(t.toUpperCase(), mg, y); y += 5.5; };
+    const row = (label: string, value: string, bold = false, color: [number,number,number] = dark) => { doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.setFontSize(9.5); doc.setTextColor(...color); doc.text(label, mg, y); doc.text(value, pageW - mg, y, { align: 'right' }); y += RH; };
+    const hr    = () => { doc.setDrawColor(229, 229, 234); doc.setLineWidth(0.25); doc.line(mg, y + 1, pageW - mg, y + 1); y += 6; };
+    const subHr = () => { doc.setDrawColor(229, 229, 234); doc.setLineWidth(0.25); doc.line(mg, y - 2, pageW - mg, y - 2); y += 4; };
+    const p = (n: number) => 'PHP ' + n.toLocaleString();
+
+    comparisons.forEach((c, idx) => {
+      if (idx > 0) doc.addPage();
+      drawHeader(); drawFooter();
+      y = BODY_T;
+
+      secLabel(`Computation ${idx + 1}`);
+      const r1c1 = mg, r1c2 = mg + 60, r1c3 = mg + 105, r1c4 = mg + 145;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...lt);
+      doc.text('Project', r1c1, y); doc.text('Tower', r1c2, y); doc.text('Floor', r1c3, y); doc.text('Unit No.', r1c4, y);
+      y += 3.5;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(...dark);
+      doc.text(c.project, r1c1, y); doc.text(c.tower, r1c2, y); doc.text(pad2(c.floor), r1c3, y); doc.text(pad2(c.unitNo), r1c4, y);
+      y += RH;
+
+      const r2c1 = mg, r2c2 = mg + 60, r2c3 = mg + 115;
+      let termDetail = '';
+      if (c.paymentScheme === 'deferred_cash')  termDetail = `${c.termMonths} months`;
+      else if (c.paymentScheme === 'spot_dp')       termDetail = `DP ${c.dpRate}%`;
+      else if (c.paymentScheme === 'stretched_dp')  termDetail = `DP ${c.dpRate}%  ·  ${c.termMonths} months`;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...lt);
+      doc.text('Unit Type', r2c1, y); doc.text('Area', r2c2, y); doc.text('Payment Scheme', r2c3, y);
+      y += 3.5;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(...dark);
+      doc.text(c.unitType || '—', r2c1, y); doc.text(`${c.unitArea} sqm`, r2c2, y);
+      doc.setTextColor(...coral); doc.text(c.schemeName, r2c3, y);
+      if (termDetail) { doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...lt); doc.text(termDetail, r2c3, y + 4); }
+      y += RH + (termDetail ? 3 : 0);
+      hr();
+
+      secLabel('Price Computation');
+      row('List Price', p(c.listPrice));
+      if (c.promoAmount > 0)    row(`Less: Promo Discount (${Math.round(c.promoPct)}%)`, p(c.promoAmount), false, grn);
+      if (c.employeeAmount > 0) row('Less: Employee Discount (10%)', p(c.employeeAmount), false, grn);
+      if (c.paytermAmount > 0)  row(`Less: Payterm Discount (${Number(c.paytermPctDisplay).toFixed(1)}%)`, p(c.paytermAmount), false, grn);
+      if (c.hicDiscount > 0)    row('Less: HIC Discount', p(c.hicDiscount), false, [94, 92, 230]);
+      subHr();
+      row('Net List Price', p(c.netListPrice), true);
+      hr();
+
+      secLabel('Taxes & Charges');
+      row(c.vat === 0 ? 'VAT (Exempt)' : 'VAT (12%)', p(c.vat));
+      row('Other Charges (7%)', p(c.otherCharges));
+      if (c.hicDiscount > 0) row('HIC Discount', p(c.hicDiscount), false, [94, 92, 230]);
+      subHr();
+      row('Total Contract Price', p(c.totalContractPrice), true, coral);
+      hr();
+
+      secLabel('Fees');
+      row('Reservation Fee', p(c.reservationFee));
+      if (!['spot_dp', 'stretched_dp'].includes(c.paymentScheme)) row('Retention Fee', p(RETENTION_FEE));
+      hr();
+
+      secLabel('Payment Summary');
+      if (c.paymentScheme === 'spot_cash' || c.paymentScheme === 'deferred_cash') {
+        row(`Net ${c.schemeName}`, p(c.netAmount));
+        if (c.paymentScheme === 'deferred_cash') row(`Monthly Deferred (${c.termMonths} mo)`, p(c.monthlyDeferred) + '/mo', true, coral);
+      } else if (c.paymentScheme === 'spot_dp') {
+        row(`DP (${c.dpRate}%)`, p(c.dpAmount));
+        row(`Net ${c.schemeName}`, p(c.netSpotDP));
+        row('Balance for Financing', p(c.balanceForFinancing));
+        hr();
+        secLabel('Indicative Financing');
+        row('Bank (6.5% p.a., 20 yrs)', p(c.bankMonthly) + '/mo');
+        row('HDMF (6.25% p.a., 25 yrs)', p(c.hdmfMonthly) + '/mo');
+      } else if (c.paymentScheme === 'stretched_dp') {
+        row(`DP (${c.dpRate}%)`, p(c.dpAmount));
+        row(`Net ${c.schemeName}`, p(c.netSpotDP));
+        row(`Monthly DP (${c.termMonths} mo)`, p(c.monthlyStretchedDP) + '/mo', true, coral);
+        row('Balance for Financing', p(c.balanceForFinancing));
+        hr();
+        secLabel('Indicative Financing');
+        row('Bank (6.5% p.a., 20 yrs)', p(c.bankMonthly) + '/mo');
+        row('HDMF (6.25% p.a., 25 yrs)', p(c.hdmfMonthly) + '/mo');
+      }
+    });
+
+    doc.save(`SampleComputation_${Date.now()}.pdf`);
+  };
 
   return (
     <PageShell
@@ -907,20 +1097,6 @@ export default function NewReservationPage() {
                   )}
                 </div>
 
-                {/* Megawide */}
-                <button
-                  type="button"
-                  onClick={() => setIsMegawide(p => !p)}
-                  className="w-full flex items-center gap-3 py-3 px-1 text-left active:opacity-70"
-                >
-                  <span className="text-[#C03D25] shrink-0"><Briefcase size={16} /></span>
-                  <span className="flex-1 text-[#1C1C1E] text-sm font-medium">Megawide Employee</span>
-                  <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 ${
-                    isMegawide ? 'bg-[#C03D25] border-[#C03D25]' : 'border-[#C7C7CC]'
-                  }`}>
-                    {isMegawide && <Check size={11} className="text-white" />}
-                  </div>
-                </button>
               </>
             )}
           </GlassCard>
@@ -1157,7 +1333,7 @@ export default function NewReservationPage() {
 
             const uniqueFloors = [...new Set(filtered.map(u => u.floor))].filter(Boolean)
               .sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }));
-            const uniqueUnitNos = [...new Set(filtered.map(u => u.unit_no))].filter(Boolean).sort();
+            const uniqueUnitNos = [...new Set(filtered.map(u => u.unit_no))].filter(Boolean).sort((a, b) => (parseInt(a) || 0) - (parseInt(b) || 0));
             const naCount = uniqueFloors.length * uniqueUnitNos.length - filtered.length;
             const unitMap = new Map<string, Map<string, string>>();
             filtered.forEach(u => {
@@ -1238,7 +1414,7 @@ export default function NewReservationPage() {
                                     }}
                                     className={`px-1 py-2.5 border-b border-r border-white/60 text-center whitespace-nowrap min-w-[64px] font-medium ${hasUnit ? statusColor(status) + (status?.toLowerCase() === 'available' ? ' cursor-pointer active:opacity-60' : ' cursor-not-allowed') : 'bg-[#374151]'}`}
                                   >
-                                    {hasUnit ? unitNo : ''}
+                                    {hasUnit ? pad2(fl) + pad2(unitNo) : ''}
                                   </td>
                                 );
                               })}
@@ -1276,7 +1452,7 @@ export default function NewReservationPage() {
                             })()}
                             <div className="flex items-center gap-1 min-w-0 pr-10">
                               {catIcon && <span className="text-[#C03D25] shrink-0" style={{ fontSize: 12 }}>{catIcon}</span>}
-                              <span className="text-sm font-bold text-[#1C1C1E] leading-tight truncate">{u.floor}{u.unit_no}</span>
+                              <span className="text-sm font-bold text-[#1C1C1E] leading-tight truncate">{pad2(u.floor)}{pad2(u.unit_no)}</span>
                             </div>
                             <div className="space-y-0.5">
                               <p className="text-[10px] text-[#8E8E93]">Tower: <span className="text-[#1C1C1E] font-medium">{tower}</span></p>
@@ -1555,6 +1731,25 @@ export default function NewReservationPage() {
                 </div>
               )}
 
+              {/* Employee Discount Checkbox */}
+              <button
+                type="button"
+                onClick={() => setIsMegawide(p => !p)}
+                className={`w-full flex items-center gap-3 p-3 rounded-2xl border-2 transition-all ${
+                  isMegawide ? 'border-[#166534] bg-[#166534]/10' : 'border-[#E5E5EA] bg-white'
+                }`}
+              >
+                <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
+                  isMegawide ? 'border-[#166534] bg-[#166534]' : 'border-[#C7C7CC]'
+                }`}>
+                  {isMegawide && <Check size={12} className="text-white" />}
+                </div>
+                <div className="flex-1 text-left">
+                  <p className={`text-sm font-semibold ${isMegawide ? 'text-[#166534]' : 'text-[#1C1C1E]'}`}>Megawide Employee</p>
+                  <p className="text-[10px] text-[#8E8E93]">10% discount on List Price</p>
+                </div>
+              </button>
+
               {/* HIC Checkbox — Sales Director + Residential only */}
               {showHIC && (
                 <button
@@ -1770,7 +1965,17 @@ export default function NewReservationPage() {
 
       {/* ── Step 4: Comparison ── */}
       {step === 3 && (
-        comparisons.length === 0 ? (
+        <>
+          <style>{`
+            .comp-hscroll::-webkit-scrollbar { display: none; }
+            .comp-hscroll { scrollbar-width: none; }
+            @keyframes bubble-hint {
+              0%, 60%, 100% { transform: translateY(-50%) translateX(0); opacity: 1; }
+              80% { transform: translateY(-50%) translateX(10px); opacity: 0.7; }
+            }
+            .bubble-hint { animation: bubble-hint 1.8s ease-in-out infinite; }
+          `}</style>
+          {comparisons.length === 0 ? (
           <GlassCard className="p-8 text-center space-y-3">
             <GitCompare size={32} className="text-[#C7C7CC] mx-auto" />
             <p className="text-[#6C6C70] text-sm">No comparisons yet.</p>
@@ -1778,10 +1983,26 @@ export default function NewReservationPage() {
             <button onClick={() => goToStep(2)} className="text-[#C03D25] text-sm font-semibold">← Back to Computation</button>
           </GlassCard>
         ) : (
-          <div className="overflow-x-auto pb-2" style={{ WebkitOverflowScrolling: 'touch' }}>
-            <div className="flex gap-2" style={{ minWidth: `${comparisons.length * 172 + (comparisons.length - 1) * 8}px` }}>
+          <div
+            ref={comparisons.length > 3 ? compScrollRef : undefined}
+            onScroll={comparisons.length > 3 ? e => { const el = e.currentTarget; setCompScrollPct(el.scrollLeft / (el.scrollWidth - el.clientWidth) || 0); } : undefined}
+            className={comparisons.length > 3 ? 'comp-hscroll overflow-x-auto' : ''}
+            style={comparisons.length > 3 ? { WebkitOverflowScrolling: 'touch', display: 'grid', gridAutoFlow: 'column', gridAutoColumns: 'calc((100% - 16px) / 3)', gap: '8px' } : undefined}
+          >
+            <div className={comparisons.length <= 3 ? 'flex gap-2' : 'contents'}>
               {comparisons.map((c, ci) => (
-                <div key={c.id} onClick={() => setReservationTarget(c)} className="shrink-0 w-[172px] bg-white rounded-2xl border border-black/[0.06] shadow-md flex flex-col overflow-hidden cursor-pointer active:opacity-70" style={{ height: '72vh' }}>
+                <div
+                  key={c.id}
+                  onClick={() => { if (isPickMode) { setReservationTarget(c); setIsPickMode(false); } }}
+                  className={`relative shrink-0 bg-white rounded-2xl shadow-md flex flex-col overflow-hidden transition-all ${isPickMode ? 'cursor-pointer border-2 border-[#C03D25] shadow-[0_0_0_3px_rgba(192,61,37,0.15)]' : 'border border-black/[0.06]'}`}
+                  style={{ width: comparisons.length <= 3 ? `calc((100% - ${(comparisons.length - 1) * 8}px) / ${comparisons.length})` : undefined, height: '72vh' }}
+                >
+                  {/* Pick mode overlay badge */}
+                  {isPickMode && (
+                    <div className="absolute inset-x-0 top-0 z-10 flex justify-center pointer-events-none" style={{ position: 'absolute' }}>
+                      <span className="mt-2 px-2 py-0.5 rounded-full bg-[#C03D25] text-white text-[10px] font-bold tracking-wide shadow">Tap to select</span>
+                    </div>
+                  )}
 
                   {/* Card header */}
                   <div ref={el => { compHeaderRefs.current[ci] = el; }} className="relative flex-shrink-0 px-4 pt-4 pb-3 bg-[rgba(192,61,37,0.06)] border-b border-black/[0.08]">
@@ -1806,9 +2027,9 @@ export default function NewReservationPage() {
                   </div>
 
                   {/* Scrollable body */}
-                  <div className="overflow-y-auto flex-1">
+                  <div className="overflow-y-auto overflow-x-hidden flex-1">
                     {COMP_SECTIONS.map(section => {
-                      const visibleRows = section.rows.filter(row => row.value(c) !== '—');
+                      const visibleRows = section.rows.filter(row => { const v = row.value(c); return v !== null && v !== '—'; });
                       if (visibleRows.length === 0) return null;
                       return (
                         <div key={section.title}>
@@ -1835,7 +2056,58 @@ export default function NewReservationPage() {
               ))}
             </div>
           </div>
-        )
+        )}
+
+        {comparisons.length > 3 && (
+          <div className="flex justify-center items-center mt-1">
+            <div className="relative w-20 h-2 rounded-full bg-black/[0.06]">
+              <div
+                className={compScrollPct === 0 ? 'bubble-hint' : ''}
+                style={{
+                  position: 'absolute', top: '50%', transform: 'translateY(-50%)',
+                  left: `${compScrollPct * (80 - 8)}px`,
+                  width: 8, height: 8,
+                  borderRadius: '50%',
+                  background: '#C7C7CC',
+                  transition: 'left 0.12s ease',
+                }}
+              />
+            </div>
+          </div>
+        )}
+        </>
+      )}
+
+      {step === 3 && comparisons.length > 0 && (
+        <>
+          <button
+            type="button"
+            onClick={generateComparisonPDF}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-[#C03D25] text-[#C03D25] text-sm font-semibold active:bg-[#C03D25]/10 transition-colors"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
+            </svg>
+            Export PDF
+          </button>
+          {isPickMode ? (
+            <button
+              type="button"
+              onClick={() => setIsPickMode(false)}
+              className="w-full py-4 rounded-2xl border-2 border-[#8E8E93] text-[#8E8E93] text-sm font-bold active:opacity-70 transition-opacity"
+            >
+              Cancel
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsPickMode(true)}
+              className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity"
+            >
+              Reserve Now
+            </button>
+          )}
+        </>
       )}
 
       {/* ── Futuristic Floating Add Button (Comparison step) ── */}

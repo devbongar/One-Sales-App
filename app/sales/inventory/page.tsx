@@ -101,6 +101,8 @@ function loadSession() {
   } catch { return { filters: {}, towers: [], units: [] }; }
 }
 
+const pad2 = (s: string) => String(parseInt(s) || 0).padStart(2, '0');
+
 export default function InventoryPage() {
   const saved = loadSession();
 
@@ -287,7 +289,7 @@ export default function InventoryPage() {
                     onClick={() => handleUnitClick(unit)}
                   >
                     <p className="text-[#1C1C1E] font-bold text-sm leading-tight">
-                      {unit.floor}{unit.unit_no}
+                      {pad2(unit.floor)}{pad2(unit.unit_no)}
                     </p>
                     <p className="text-[#6C6C70] text-[10px] leading-tight">
                       {unit.unit_type}{unit.unit_area != null ? ` (${unit.unit_area} sqm)` : ''}
