@@ -349,6 +349,7 @@ export default function NewReservationPage() {
   const [contact,     setContact]     = useState('');
   const [email,       setEmail]       = useState('');
   const [isMegawide,  setIsMegawide]  = useState(false);
+  const [firstPaymentAgreed, setFirstPaymentAgreed] = useState(false);
 
   // Client search / form fields
   const [allClients,            setAllClients]            = useState<ClientRecord[]>([]);
@@ -1524,7 +1525,7 @@ export default function NewReservationPage() {
         const paytermAmount   = Math.round(listPrice * paytermRate);
         const employeeAmount  = isMegawide ? Math.round(listPrice * EMPLOYEE_DISCOUNT_RATE) : 0;
         const nlpBeforeHIC    = listPrice - promoAmount - employeeAmount - paytermAmount;
-        const showHIC         = userRole === 'All Access' && unitCategory === 'Residential' && selectedUnit.hic === true && hicTarget != null;
+        const showHIC         = (userRole === 'All Access' || userRole === 'Sales Director') && unitCategory === 'Residential' && selectedUnit.hic === true && hicTarget != null;
         const hicDiscount     = (useHIC && showHIC && hicTarget != null) ? Math.max(0, nlpBeforeHIC - hicTarget) : 0;
         const netListPrice    = nlpBeforeHIC - hicDiscount;
         const vat          = (vatThreshold != null) ? computeVat(netListPrice, vatThreshold) : 0;
@@ -1663,7 +1664,7 @@ export default function NewReservationPage() {
                     <button
                       key={value}
                       type="button"
-                      onClick={() => setPaymentScheme(value)}
+                      onClick={() => { setPaymentScheme(value); setFirstPaymentAgreed(false); }}
                       className={`flex flex-col items-center gap-1.5 py-3 px-1 rounded-2xl border-2 text-[10px] font-semibold transition-all text-center leading-tight ${
                         active
                           ? 'bg-[#C03D25]/10 border-[#C03D25] text-[#C03D25]'
@@ -1714,24 +1715,49 @@ export default function NewReservationPage() {
                 </div>
               )}
 
-              {/* Employee Discount Checkbox */}
-              <button
-                type="button"
-                onClick={() => setIsMegawide(p => !p)}
-                className={`w-full flex items-center gap-3 p-3 rounded-2xl border-2 transition-all ${
-                  isMegawide ? 'border-[#166534] bg-[#166534]/10' : 'border-[#E5E5EA] bg-white'
-                }`}
-              >
-                <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
-                  isMegawide ? 'border-[#166534] bg-[#166534]' : 'border-[#C7C7CC]'
-                }`}>
-                  {isMegawide && <Check size={12} className="text-white" />}
-                </div>
-                <div className="flex-1 text-left">
-                  <p className={`text-sm font-semibold ${isMegawide ? 'text-[#166534]' : 'text-[#1C1C1E]'}`}>Megawide Employee</p>
-                  <p className="text-[10px] text-[#8E8E93]">10% discount on List Price</p>
-                </div>
-              </button>
+              {/* First Payment Agreement Checkbox — deferred cash, spot cash, stretched DP */}
+              {['deferred_cash', 'spot_dp', 'stretched_dp'].includes(paymentScheme) && (
+                <button
+                  type="button"
+                  onClick={() => setFirstPaymentAgreed(p => !p)}
+                  className={`w-full flex items-center gap-3 p-3 rounded-2xl border-2 transition-all ${
+                    firstPaymentAgreed ? 'border-[#C03D25] bg-[#C03D25]/10' : 'border-[#E5E5EA] bg-white'
+                  }`}
+                >
+                  <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
+                    firstPaymentAgreed ? 'border-[#C03D25] bg-[#C03D25]' : 'border-[#C7C7CC]'
+                  }`}>
+                    {firstPaymentAgreed && <Check size={12} className="text-white" />}
+                  </div>
+                  <div className="flex-1 text-left">
+                    <p className={`text-sm font-semibold ${firstPaymentAgreed ? 'text-[#C03D25]' : 'text-[#1C1C1E]'}`}>
+                      First Payment Agreed
+                    </p>
+                    <p className="text-[10px] text-[#8E8E93]">The buyer agrees to pay the first deferred cash in advance</p>
+                  </div>
+                </button>
+              )}
+
+              {/* Employee Discount Checkbox — Sales Director + All Access only */}
+              {(userRole === 'All Access' || userRole === 'Sales Director') && (
+                <button
+                  type="button"
+                  onClick={() => setIsMegawide(p => !p)}
+                  className={`w-full flex items-center gap-3 p-3 rounded-2xl border-2 transition-all ${
+                    isMegawide ? 'border-[#166534] bg-[#166534]/10' : 'border-[#E5E5EA] bg-white'
+                  }`}
+                >
+                  <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
+                    isMegawide ? 'border-[#166534] bg-[#166534]' : 'border-[#C7C7CC]'
+                  }`}>
+                    {isMegawide && <Check size={12} className="text-white" />}
+                  </div>
+                  <div className="flex-1 text-left">
+                    <p className={`text-sm font-semibold ${isMegawide ? 'text-[#166534]' : 'text-[#1C1C1E]'}`}>Megawide Employee</p>
+                    <p className="text-[10px] text-[#8E8E93]">10% discount on List Price</p>
+                  </div>
+                </button>
+              )}
 
               {/* HIC Checkbox — Sales Director + Residential only */}
               {showHIC && (
@@ -2365,6 +2391,7 @@ export default function NewReservationPage() {
                     salesManager: sellerRecord?.sales_manager ?? '',
                     salesDirector: sellerRecord?.sales_director ?? '',
                     salesDivisionHead: sellerRecord?.sales_division_head ?? '',
+                    firstPaymentAgreed,
                   }));
                   setReservationTarget(null);
                   router.push('/sales/reservation/agreement');

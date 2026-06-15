@@ -54,6 +54,7 @@ export interface ReservationPayload {
   // Client & Seller IDs
   client_id: string | null;
   seller_id: string | null;
+  created_by_uuid?: string | null;
   // Seller
   seller_name: string;
   sales_manager: string;
@@ -61,6 +62,8 @@ export interface ReservationPayload {
   sales_division_head: string;
   // Status
   status: string;
+  // Buyer agreement
+  first_payment_agreed?: boolean;
 }
 
 export async function saveReservation(payload: ReservationPayload): Promise<void> {

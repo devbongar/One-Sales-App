@@ -27,7 +27,8 @@ export async function generateReceivableLines(
        net_list_price, vat, other_charges, total_contract_price,
        hic_discount, reservation_fee, retention_fee,
        net_amount, dp_amount, net_spot_dp,
-       monthly_deferred, monthly_stretched_dp, balance_for_financing`
+       monthly_deferred, monthly_stretched_dp, balance_for_financing,
+       first_payment_agreed`
     )
     .eq('reservation_id', reservationId)
     .single();
@@ -41,6 +42,7 @@ export async function generateReceivableLines(
     hic_discount, reservation_fee, retention_fee,
     net_amount, dp_amount: _dp_amount, net_spot_dp,
     monthly_deferred, monthly_stretched_dp, balance_for_financing,
+    first_payment_agreed,
   } = res;
 
   // Turnover date drives the Retention Fee due date (falls back to computed date)
@@ -91,6 +93,18 @@ export async function generateReceivableLines(
     while (month1 > 12) { month1 -= 12; year++; }
     const day = Math.min(dueDay, lastDayOf(year, month1));
     return toDateStr(year, month1, day);
+  }
+
+  /**
+   * Due date for the i-th installment (0-indexed).
+   * When first_payment_agreed is true, installment 0 is due on the RF payment date
+   * (same day as the Reservation Fee), and subsequent installments shift one slot earlier.
+   */
+  function installmentDueDate(i: number): string {
+    if (first_payment_agreed) {
+      return i === 0 ? paymentDate : nthDueDate(i - 1);
+    }
+    return nthDueDate(i);
   }
 
   /**
@@ -175,7 +189,7 @@ export async function generateReceivableLines(
       lines.push({
         ...base,
         type_of_payment:  `Monthly Deferred ${i + 1}/${term_months}`,
-        due_date:         nthDueDate(i),
+        due_date:         installmentDueDate(i),
         total_amount_due: monthly_deferred,
         ...breakdown(monthly_deferred),
       });
@@ -183,11 +197,13 @@ export async function generateReceivableLines(
     // Retention due date:
     // - term > 12 (e.g. 54 months): month after the last installment, regardless of turnover date
     // - all other terms: turnover date with due-day applied (fallback: month after last installment)
+    // When first_payment_agreed, the last installment shifted one slot earlier, so retention shifts too.
+    const retentionSlot = first_payment_agreed ? term_months - 1 : term_months;
     const retentionDueDate = term_months > 12
-      ? nthDueDate(term_months)
+      ? nthDueDate(retentionSlot)
       : turnoverDate
         ? applyDueDayToTurnover(turnoverDate)
-        : nthDueDate(term_months);
+        : nthDueDate(retentionSlot);
     lines.push({
       ...base,
       type_of_payment:  'Retention Fee',
@@ -203,7 +219,7 @@ export async function generateReceivableLines(
     lines.push({
       ...base,
       type_of_payment:  'Downpayment',
-      due_date:         nthDueDate(0),
+      due_date:         installmentDueDate(0),
       total_amount_due: net_spot_dp,
       ...breakdown(net_spot_dp),
     });
@@ -220,7 +236,7 @@ export async function generateReceivableLines(
       lines.push({
         ...base,
         type_of_payment:  `Monthly DP ${i + 1}/${term_months}`,
-        due_date:         nthDueDate(i),
+        due_date:         installmentDueDate(i),
         total_amount_due: monthly_stretched_dp,
         ...breakdown(monthly_stretched_dp),
       });

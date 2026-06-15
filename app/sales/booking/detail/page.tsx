@@ -183,6 +183,7 @@ export default function BookingDetailPage() {
   } | null>(null);
   const [financeStatus,      setFinanceStatus]      = useState<string | null>(null);
   const [reservationStatus,  setReservationStatus]  = useState<string | null>(null);
+  const [directorFilled,     setDirectorFilled]     = useState(false);
   const [progress,        setProgress]        = useState<BookingProgress | null>(null);
   const [loading,         setLoading]         = useState(true);
   const [hasCoOwnership,  setHasCoOwnership]  = useState(false);
@@ -232,15 +233,16 @@ export default function BookingDetailPage() {
         .catch(err => { console.error('[detail] progress error:', err); setProgress(null); })
         .finally(() => setLoading(false));
       getActivityLog(r.reservation_id).then(setActivityLog).catch(e => console.error('[activity-log]', e));
-      // Fetch finance_status and check commission schedule if Booked
+      // Fetch finance_status, director_filled and check commission schedule if Booked
       supabase
         .from('reservations')
-        .select('status, finance_status')
+        .select('status, finance_status, director_filled')
         .eq('reservation_id', r.reservation_id)
         .single()
         .then(({ data }) => {
           setFinanceStatus((data as any)?.finance_status ?? null);
           setReservationStatus((data as any)?.status ?? null);
+          setDirectorFilled((data as any)?.director_filled ?? false);
           if (data?.status === 'Booked') {
             supabase
               .from('commission_schedule')
@@ -297,6 +299,23 @@ export default function BookingDetailPage() {
     } finally {
       setWithdrawing(false);
       setShowWithdrawConfirm(false);
+    }
+  }
+
+  async function handleDirectorSubmit() {
+    if (!reservation?.reservation_id) return;
+    setSubmitting(true);
+    try {
+      await directorReview(reservation.reservation_id, true);
+      await supabase.from('reservations').update({ director_filled: true }).eq('reservation_id', reservation.reservation_id);
+      setDirectorFilled(true);
+      await addActivityLog(reservation.reservation_id, 'director-approved', displayName).catch(e => console.error('[activity-log]', e));
+      setProgress(prev => prev ? { ...prev, booking_review_status: 'director-approved' } : prev);
+      getActivityLog(reservation.reservation_id).then(setActivityLog).catch(e => console.error('[activity-log]', e));
+    } catch (e) {
+      console.error('[director-submit] Failed:', e);
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -445,7 +464,7 @@ export default function BookingDetailPage() {
   const isBooked     = reservationStatus === 'Booked';
   const isDirector     = userRoleName === 'Sales Director';
   const isAMD          = userRoleName === 'Account Management';
-  const stage1Locked   = isDirector || isAMD || rs === 'submitted' || dirApproved;
+  const stage1Locked   = isAMD || rs === 'submitted' || dirApproved;
   const stage2Complete = docsReady;
   const currentStage   = !stage1Complete ? 1 : !stage2Complete ? 2 : !dirApproved ? 3 : !amdApproved ? 4 : 5;
 
@@ -660,20 +679,21 @@ export default function BookingDetailPage() {
                 <ChevronRight size={8} className="text-[#C7C7CC]" style={{ marginLeft: -2 }} />
                 <Banknote size={11} className={
                   rfRejected   ? 'text-[#FF3B30]'
-                  : rfVerified || dpVerified ? 'text-[#34C759]'
+                  : dpVerified   ? 'text-[#34C759]'
+                  : rfVerified   ? 'text-[#FF9500]'
                   : proofPending ? 'text-[#FF9500]'
                   : 'text-[#C7C7CC]'
                 } />
                 <span className={`text-[9px] font-medium ${
                   rfRejected   ? 'text-[#FF3B30]'
                   : dpVerified   ? 'text-[#1A7F37]'
-                  : rfVerified   ? 'text-[#1A7F37]'
+                  : rfVerified   ? 'text-[#A05A00]'
                   : proofPending ? 'text-[#A05A00]'
                   : 'text-[#8E8E93]'
                 }`}>
                   Finance ·{' '}
                   {dpVerified   ? '1st DP Verified'
-                  : rfVerified   ? 'RF Verified'
+                  : rfVerified   ? 'Awaiting 1st DP'
                   : rfRejected   ? 'RF Rejected'
                   : proofPending ? 'Pending RF'
                   : 'Awaiting Proof'}
@@ -685,7 +705,7 @@ export default function BookingDetailPage() {
 
             {/* Stage 1 — Buyer's Information */}
             <StageCard number={1} title="Buyer's Information" icon={<User size={15} />} complete={stage1Complete} viewOnly={stage1Locked}>
-              {!isDirector && !isAMD && (
+              {!isAMD && (
                 <>
                   <ToggleRow
                     icon={<UserCheck size={15} />}
@@ -905,6 +925,36 @@ export default function BookingDetailPage() {
                 >
                   {reviewing ? <Loader2 size={15} className="animate-spin" /> : <ThumbsUp size={15} />}
                   Approve
+                </button>
+              </div>
+            )}
+
+            {/* ── Director submit / resubmit directly to AMD ── */}
+            {isDirector && docsReady && (rs === null || (rs === 'amd-rejected' && directorFilled)) && (
+              <div className="space-y-3">
+                {rs === 'amd-rejected' && (
+                  <GlassCard className="px-4 py-3 space-y-2 overflow-hidden border border-red-200">
+                    <div className="flex items-center gap-2">
+                      <XCircle size={13} className="text-red-500" />
+                      <p className="text-xs font-semibold text-red-600">Rejected by Account Management</p>
+                    </div>
+                    {progress?.amd_notes && (
+                      <p className="text-xs text-[#3A3A3C] bg-red-50 rounded-xl px-3 py-2 leading-relaxed">
+                        {progress.amd_notes}
+                      </p>
+                    )}
+                  </GlassCard>
+                )}
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={handleDirectorSubmit}
+                  className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.3)] active:opacity-80 disabled:opacity-40 flex items-center justify-center gap-2"
+                >
+                  {submitting
+                    ? <><Loader2 size={15} className="animate-spin" /> Submitting…</>
+                    : <><Send size={15} /> {rs === 'amd-rejected' ? 'Resubmit to AMD' : 'Submit to AMD'}</>
+                  }
                 </button>
               </div>
             )}

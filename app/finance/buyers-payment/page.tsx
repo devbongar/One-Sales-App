@@ -121,7 +121,7 @@ export default function BuyersPaymentPage() {
       tower, floor, unit_no, unit_area, payment_proof_url, proof_of_valid_id_urls,
       finance_verified_at, acknowledgement_receipt_no, sales_invoice_no, date_of_reservation_fee,
       proof_of_1st_dp_urls, dp_acknowledgement_receipt_no, dp_sales_invoice_no, date_of_1st_dp, dp_verified_at,
-      finance_status
+      finance_status, rf_payment_mode, subsequent_mode, ada_bank, first_payment_agreed, proof_of_fdp_urls
     `;
 
     let q;

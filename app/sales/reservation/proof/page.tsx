@@ -18,6 +18,11 @@ import { updateInventoryUnitStatus } from '@/lib/inventory';
 const MAX_FILES     = 5;
 const MAX_DOC_FILES = 3;
 
+const RESERVATION_PAYMENT_MODES = [
+  'Debit/ Credit Card',
+  'Bills Payment',
+] as const;
+
 const PAYMENT_MODES = [
   'Post-Dated Checks (PDC)',
   'Straight Cash or Check Payment',
@@ -32,7 +37,7 @@ const ADA_BANKS = [
   'Philippine National Bank (PNB)',
 ] as const;
 
-type UploadTarget = 'payment' | 'valid-id';
+type UploadTarget = 'payment' | 'valid-id' | 'fdp';
 
 interface SelectedReservation {
   reservation_id: string;
@@ -105,14 +110,22 @@ export default function ProofOfPaymentPage() {
   // New-blob uploads
   const [files,       setFiles]       = useState<UploadedFile[]>([]);
   const [validIdFiles, setValidIdFiles] = useState<UploadedFile[]>([]);
+  const [fdpFiles,     setFdpFiles]    = useState<UploadedFile[]>([]);
 
   // Existing remote URLs (pre-loaded on edit)
   const [existingPaymentUrls, setExistingPaymentUrls] = useState<string[]>([]);
   const [existingValidIdUrls, setExistingValidIdUrls] = useState<string[]>([]);
+  const [existingFdpUrls,     setExistingFdpUrls]     = useState<string[]>([]);
+
+  // First payment agreed flag (loaded from DB)
+  const [firstPaymentAgreed, setFirstPaymentAgreed] = useState(false);
   // Preserved (not displayed — managed by booking documents page)
   const [preservedBillingUrls, setPreservedBillingUrls] = useState<string[]>([]);
   const [preservedIncomeUrls,  setPreservedIncomeUrls]  = useState<string[]>([]);
 
+  const [financeRejectionReason, setFinanceRejectionReason] = useState('');
+  const [reservationPaymentMode,   setReservationPaymentMode]   = useState('');
+  const [rfModeDropdownOpen,       setRfModeDropdownOpen]       = useState(false);
   const [subsequentMode,      setSubsequentMode]      = useState('');
   const [adaBank,             setAdaBank]             = useState('');
   const [modeDropdownOpen,    setModeDropdownOpen]    = useState(false);
@@ -137,8 +150,9 @@ export default function ProofOfPaymentPage() {
   const cameraScanRef  = useRef<HTMLInputElement>(null);
   const galleryRef     = useRef<HTMLInputElement>(null);
 
-  const alreadyPaid = reservation?.status === 'Reserved';
-  const isApproved = reservation?.finance_status === 'rf-verified';
+  const alreadyPaid = reservation?.status === 'Reserved' || reservation?.status === 'Booked';
+  const isBooked    = reservation?.status === 'Booked';
+  const isApproved  = reservation?.finance_status === 'rf-verified' || reservation?.finance_status === 'dp-verified';
 
   useEffect(() => {
     const id  = sessionStorage.getItem('currentReservationId');
@@ -146,13 +160,27 @@ export default function ProofOfPaymentPage() {
     const raw = sessionStorage.getItem('selectedReservation');
     if (raw) { try { setReservation(JSON.parse(raw)); } catch {} }
     setFromList(sessionStorage.getItem('proofEntrySource') === 'list');
+
+    // Always fetch fresh status from DB to avoid stale sessionStorage
+    if (id) {
+      supabase.from('reservations')
+        .select('status, finance_status, first_payment_agreed')
+        .eq('reservation_id', id)
+        .single()
+        .then(({ data }) => {
+          if (data) {
+            setReservation(prev => prev ? { ...prev, status: data.status, finance_status: data.finance_status } : prev);
+            setFirstPaymentAgreed(data.first_payment_agreed ?? false);
+          }
+        });
+    }
   }, []);
 
   // ── Shared helper: fetch full row and populate all existing-URL + payment states ──
   async function loadExistingData(id: string) {
     const { data, error } = await supabase
       .from('reservations')
-      .select('subsequent_mode, ada_bank, payment_proof_url, proof_of_billing_urls, proof_of_income_urls, proof_of_valid_id_urls, payment_date')
+      .select('subsequent_mode, ada_bank, payment_proof_url, proof_of_billing_urls, proof_of_income_urls, proof_of_valid_id_urls, payment_date, rf_payment_mode, proof_of_fdp_urls, finance_rejection_reason')
       .eq('reservation_id', id)
       .single();
     if (error) throw error;
@@ -160,6 +188,8 @@ export default function ProofOfPaymentPage() {
     const parse = (v: string | null): string[] => {
       try { return JSON.parse(v ?? '[]') ?? []; } catch { return []; }
     };
+    setFinanceRejectionReason(data.finance_rejection_reason ?? '');
+    setReservationPaymentMode(data.rf_payment_mode ?? '');
     setSubsequentMode(data.subsequent_mode ?? '');
     setAdaBank(data.ada_bank ?? '');
     if (data.payment_date) setPaymentDate(data.payment_date);
@@ -167,11 +197,12 @@ export default function ProofOfPaymentPage() {
     setPreservedBillingUrls(parse(data.proof_of_billing_urls));
     setPreservedIncomeUrls(parse(data.proof_of_income_urls));
     setExistingValidIdUrls(parse(data.proof_of_valid_id_urls));
+    setExistingFdpUrls(parse(data.proof_of_fdp_urls));
   }
 
-  // ── Auto-fetch when viewing a paid / pending-review reservation ──
+  // ── Auto-fetch when viewing a paid / pending-review / booked reservation ──
   useEffect(() => {
-    if (!reservationId || reservation?.status !== 'Reserved') return;
+    if (!reservationId || (reservation?.status !== 'Reserved' && reservation?.status !== 'Booked')) return;
     loadExistingData(reservationId).catch(e => console.error('[auto-fetch]', e));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reservationId, reservation?.status]);
@@ -184,9 +215,11 @@ export default function ProofOfPaymentPage() {
     const maxAllowed   = activeUploadTarget === 'payment' ? MAX_FILES : MAX_DOC_FILES;
     const existingCount =
       activeUploadTarget === 'payment' ? existingPaymentUrls.length :
+      activeUploadTarget === 'fdp'     ? existingFdpUrls.length :
       existingValidIdUrls.length;
     const newCount =
       activeUploadTarget === 'payment' ? files.length :
+      activeUploadTarget === 'fdp'     ? fdpFiles.length :
       validIdFiles.length;
 
     const remaining  = maxAllowed - existingCount - newCount;
@@ -206,6 +239,7 @@ export default function ProofOfPaymentPage() {
 
     if (activeUploadTarget === 'payment')       setFiles(prev => [...prev, ...processed]);
     else if (activeUploadTarget === 'valid-id') setValidIdFiles(prev => [...prev, ...processed]);
+    else if (activeUploadTarget === 'fdp')      setFdpFiles(prev => [...prev, ...processed]);
 
     e.target.value = '';
   }
@@ -218,6 +252,8 @@ export default function ProofOfPaymentPage() {
   function removeNewFile(target: UploadTarget, index: number) {
     if (target === 'payment') {
       setFiles(prev => { URL.revokeObjectURL(prev[index].preview); return prev.filter((_, i) => i !== index); });
+    } else if (target === 'fdp') {
+      setFdpFiles(prev => { URL.revokeObjectURL(prev[index].preview); return prev.filter((_, i) => i !== index); });
     } else {
       setValidIdFiles(prev => { URL.revokeObjectURL(prev[index].preview); return prev.filter((_, i) => i !== index); });
     }
@@ -245,10 +281,11 @@ export default function ProofOfPaymentPage() {
     setRecalling(true);
     setActionError('');
     try {
-      await supabase.from('reservations').update({ finance_status: 'proof-submitted' }).eq('reservation_id', reservationId);
-      const updated = { ...reservation!, finance_status: 'proof-submitted' };
+      await supabase.from('reservations').update({ finance_status: null }).eq('reservation_id', reservationId);
+      const updated = { ...reservation!, finance_status: null };
       setReservation(updated);
       sessionStorage.setItem('selectedReservation', JSON.stringify(updated));
+      setEditMode(true);
     } catch (e: any) {
       setActionError(e.message ?? 'Failed to recall. Please try again.');
     } finally {
@@ -279,7 +316,13 @@ export default function ProofOfPaymentPage() {
     setCancelling(true);
     setActionError('');
     try {
-      await updateReservationStatus(reservationId, 'Cancelled');
+      await supabase.from('reservations')
+        .update({ status: 'Cancelled', finance_status: null })
+        .eq('reservation_id', reservationId);
+
+      const inventoryCode = getInventoryCode();
+      if (inventoryCode) await updateInventoryUnitStatus(inventoryCode, 'Available');
+
       sessionStorage.removeItem('currentReservationId');
       sessionStorage.removeItem('selectedReservation');
       router.push('/sales/reservation');
@@ -298,18 +341,22 @@ export default function ProofOfPaymentPage() {
     setSaveError('');
     try {
       // Upload only new blobs; existing URLs are kept as-is
-      const [newPaymentUrls, newValidIdUrls] = await Promise.all([
+      const [newPaymentUrls, newValidIdUrls, newFdpUrls] = await Promise.all([
         Promise.all(files.map((f, i) =>
           uploadPaymentProof(reservationId, f.blob, `${Date.now()}_${i + 1}_${f.name}`)
         )),
         Promise.all(validIdFiles.map((f, i) =>
           uploadDocumentFile(reservationId, 'valid-id', f.blob, `${Date.now()}_${i + 1}_${f.name}`)
         )),
+        Promise.all(fdpFiles.map((f, i) =>
+          uploadDocumentFile(reservationId, 'fdp', f.blob, `${Date.now()}_${i + 1}_${f.name}`)
+        )),
       ]);
 
       // Merge kept existing URLs with newly uploaded URLs
       const mergedPayment = [...existingPaymentUrls, ...newPaymentUrls];
       const mergedValidId = [...existingValidIdUrls, ...newValidIdUrls];
+      const mergedFdp     = [...existingFdpUrls, ...newFdpUrls];
 
       await updateReservationPayment(reservationId, paymentDate, mergedPayment, {
         subsequentMode,
@@ -318,6 +365,13 @@ export default function ProofOfPaymentPage() {
         incomeUrls:  preservedIncomeUrls.length  > 0 ? preservedIncomeUrls  : undefined,
         validIdUrls: mergedValidId,
       });
+
+      await supabase.from('reservations')
+        .update({
+          rf_payment_mode:   reservationPaymentMode || null,
+          proof_of_fdp_urls: firstPaymentAgreed ? JSON.stringify(mergedFdp) : null,
+        })
+        .eq('reservation_id', reservationId);
 
       const inventoryCode = getInventoryCode();
       if (inventoryCode) await updateInventoryUnitStatus(inventoryCode, 'Reserved');
@@ -382,10 +436,12 @@ export default function ProofOfPaymentPage() {
               <img src="/approved-stamp.png" alt="Approved" className="w-20 h-20 object-contain shrink-0" />
             ) : (
               <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
-                reservation.finance_status === 'rf-rejected' ? 'bg-red-100 text-red-700'
-                : alreadyPaid ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                isBooked ? 'bg-green-100 text-green-700'
+                : reservation.finance_status === 'rf-rejected' ? 'bg-red-100 text-red-700'
+                : alreadyPaid ? 'bg-teal-100 text-teal-700' : 'bg-amber-100 text-amber-700'
               }`}>
-                {reservation.finance_status === 'rf-rejected' ? 'RF Rejected'
+                {isBooked ? 'Booked'
+                 : reservation.finance_status === 'rf-rejected' ? 'RF Rejected'
                  : alreadyPaid ? 'Reserved'
                  : 'Pending Proof'}
               </span>
@@ -422,164 +478,285 @@ export default function ProofOfPaymentPage() {
           </div>
         )}
 
-        <p className="text-xs text-[#8E8E93] leading-relaxed">
-          {isApproved
-            ? 'This reservation has been approved. All details are read-only.'
-            : reservation?.finance_status === 'rf-rejected' && !editMode
-            ? 'This submission was returned. You may edit and resubmit, or cancel the reservation.'
-            : reservation?.finance_status === 'rf-rejected' && editMode
-            ? 'Update the payment details below and resubmit for verification.'
-            : reservation?.finance_status === 'proof-submitted'
-            ? 'This reservation has been submitted for verification and is currently under review.'
-            : 'Upload your proof of payment and valid ID, then tap Submit for Verification. Your reservation will be sent for review immediately.'
-          }
-        </p>
+        {!isBooked && (
+          <p className="text-xs text-[#8E8E93] leading-relaxed">
+            {isApproved
+              ? 'This reservation has been approved. All details are read-only.'
+              : reservation?.finance_status === 'rf-rejected' && !editMode
+              ? 'This submission was returned. You may edit and resubmit, or cancel the reservation.'
+              : reservation?.finance_status === 'rf-rejected' && editMode
+              ? 'Update the payment details below and resubmit for verification.'
+              : reservation?.finance_status === 'proof-submitted'
+              ? 'This reservation has been submitted for verification and is currently under review.'
+              : 'Upload your proof of payment and valid ID, then tap Submit for Verification. Your reservation will be sent for review immediately.'
+            }
+          </p>
+        )}
+        {reservation?.finance_status === 'rf-rejected' && financeRejectionReason && (
+          <div className="flex items-start gap-2.5 bg-red-50 border border-red-100 rounded-2xl px-3 py-2.5">
+            <AlertTriangle size={14} className="text-[#FF3B30] shrink-0 mt-0.5" />
+            <div>
+              <p className="text-[10px] font-bold text-[#FF3B30] uppercase tracking-wider mb-0.5">Rejection Reason</p>
+              <p className="text-xs text-[#3C3C43] leading-relaxed">{financeRejectionReason}</p>
+            </div>
+          </div>
+        )}
       </GlassCard>
 
-      {/* Read-only proof thumbnails */}
-      {alreadyPaid && existingPaymentUrls.length > 0 && (
-        <GlassCard className="px-4 py-3 space-y-3">
-          <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">
-            Payment Proof ({existingPaymentUrls.length} file{existingPaymentUrls.length > 1 ? 's' : ''})
-          </p>
-          <div className="grid grid-cols-3 gap-2">
-            {existingPaymentUrls.map((url, i) => {
-              const isPdf = url.toLowerCase().includes('.pdf');
-              return isPdf ? (
-                <button key={i} type="button" onClick={() => setLightboxUrl(url)}
-                  className="aspect-square rounded-xl bg-[#F2F2F7] border border-black/[0.08] flex flex-col items-center justify-center gap-1 active:opacity-70">
-                  <FileText size={22} className="text-[#C03D25]" />
-                  <span className="text-[9px] font-semibold text-[#8E8E93]">PDF {i + 1}</span>
-                </button>
-              ) : (
-                <button key={i} type="button" onClick={() => setLightboxUrl(url)}
-                  className="aspect-square rounded-xl overflow-hidden border border-black/[0.08] block active:opacity-70">
-                  <img src={url} alt={`Proof ${i + 1}`} className="w-full h-full object-cover" />
-                </button>
-              );
-            })}
-          </div>
-        </GlassCard>
-      )}
+      {/* ── Read-only view: mirrors edit form layout ── */}
+      {alreadyPaid && !editMode && !!reservation?.finance_status && (
+        <>
+          {/* Card 1: RF Mode + Valid ID + Payment Date + Proof + FDP */}
+          <GlassCard className="px-4 py-1">
 
-      {/* Read-only subsequent mode of payment */}
-      {alreadyPaid && subsequentMode && (
-        <GlassCard className="px-4 py-3 space-y-1.5">
-          <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Subsequent Mode of Payment</p>
-          <p className="text-sm font-semibold text-[#1C1C1E]">{subsequentMode}</p>
-          {adaBank && (
-            <p className="text-xs text-[#6C6C70]">Bank / Platform: <span className="font-medium text-[#1C1C1E]">{adaBank}</span></p>
+            {/* Reservation Mode of Payment */}
+            <div className="border-b border-black/[0.06] py-3 px-1 space-y-2">
+              <p className="text-xs font-semibold text-[#8E8E93] flex items-center gap-1.5">
+                <CreditCard size={11} className="text-[#8E8E93]" />
+                Reservation Mode of Payment
+              </p>
+              <div className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.06] bg-white">
+                <span className={`text-sm ${reservationPaymentMode ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
+                  {reservationPaymentMode || '—'}
+                </span>
+              </div>
+            </div>
+
+            {/* Valid ID */}
+            <div className="border-b border-black/[0.06] py-3 px-1 space-y-2">
+              <div className="flex items-center gap-3">
+                <ShieldCheck size={16} className="text-[#C03D25] shrink-0" />
+                <span className="text-sm font-medium text-[#1C1C1E] flex-1">Proof of Valid ID</span>
+                {existingValidIdUrls.length > 0 && (
+                  <span className="text-xs text-[#8E8E93]">{existingValidIdUrls.length} file{existingValidIdUrls.length > 1 ? 's' : ''}</span>
+                )}
+              </div>
+              {existingValidIdUrls.length > 0 ? (
+                <div className="grid grid-cols-3 gap-2">
+                  {existingValidIdUrls.map((url, i) => {
+                    const isPdf = url.toLowerCase().includes('.pdf');
+                    return isPdf ? (
+                      <button key={i} type="button" onClick={() => setLightboxUrl(url)}
+                        className="aspect-square rounded-xl bg-[#F2F2F7] border border-black/[0.08] flex flex-col items-center justify-center gap-1 active:opacity-70">
+                        <FileText size={22} className="text-[#C03D25]" />
+                        <span className="text-[9px] font-semibold text-[#8E8E93]">PDF {i + 1}</span>
+                      </button>
+                    ) : (
+                      <button key={i} type="button" onClick={() => setLightboxUrl(url)}
+                        className="aspect-square rounded-xl overflow-hidden border border-black/[0.08] block active:opacity-70">
+                        <img src={url} alt={`Valid ID ${i + 1}`} className="w-full h-full object-cover" />
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-[#C7C7CC] px-1">No files uploaded</p>
+              )}
+            </div>
+
+            {/* Payment Date */}
+            <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
+              <CalendarDays size={16} className="text-[#C03D25] shrink-0" />
+              <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Payment Date</span>
+              <span className="text-sm text-[#6C6C70]">{paymentDate || '—'}</span>
+            </div>
+
+            {/* Proof of Payment */}
+            <div className={`py-3 px-1 space-y-2 ${firstPaymentAgreed ? 'border-b border-black/[0.06]' : ''}`}>
+              <div className="flex items-center gap-3">
+                <Receipt size={16} className="text-[#C03D25] shrink-0" />
+                <span className="text-sm font-medium text-[#1C1C1E] flex-1">Proof of Payment</span>
+                {existingPaymentUrls.length > 0 && (
+                  <span className="text-xs text-[#8E8E93]">{existingPaymentUrls.length} file{existingPaymentUrls.length > 1 ? 's' : ''}</span>
+                )}
+              </div>
+              {existingPaymentUrls.length > 0 ? (
+                <div className="grid grid-cols-3 gap-2">
+                  {existingPaymentUrls.map((url, i) => {
+                    const isPdf = url.toLowerCase().includes('.pdf');
+                    return isPdf ? (
+                      <button key={i} type="button" onClick={() => setLightboxUrl(url)}
+                        className="aspect-square rounded-xl bg-[#F2F2F7] border border-black/[0.08] flex flex-col items-center justify-center gap-1 active:opacity-70">
+                        <FileText size={22} className="text-[#C03D25]" />
+                        <span className="text-[9px] font-semibold text-[#8E8E93]">PDF {i + 1}</span>
+                      </button>
+                    ) : (
+                      <button key={i} type="button" onClick={() => setLightboxUrl(url)}
+                        className="aspect-square rounded-xl overflow-hidden border border-black/[0.08] block active:opacity-70">
+                        <img src={url} alt={`Proof ${i + 1}`} className="w-full h-full object-cover" />
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-[#C7C7CC] px-1">No files uploaded</p>
+              )}
+            </div>
+
+            {/* Proof of First Downpayment */}
+            {firstPaymentAgreed && (
+              <div className="py-3 px-1 space-y-2">
+                <div className="flex items-center gap-3">
+                  <Receipt size={16} className="text-[#C03D25] shrink-0" />
+                  <span className="text-sm font-medium text-[#1C1C1E] flex-1">Proof of First Downpayment</span>
+                  {existingFdpUrls.length > 0 && (
+                    <span className="text-xs text-[#8E8E93]">{existingFdpUrls.length} file{existingFdpUrls.length > 1 ? 's' : ''}</span>
+                  )}
+                </div>
+                {existingFdpUrls.length > 0 ? (
+                  <div className="grid grid-cols-3 gap-2">
+                    {existingFdpUrls.map((url, i) => {
+                      const isPdf = url.toLowerCase().includes('.pdf');
+                      return isPdf ? (
+                        <button key={i} type="button" onClick={() => setLightboxUrl(url)}
+                          className="aspect-square rounded-xl bg-[#F2F2F7] border border-black/[0.08] flex flex-col items-center justify-center gap-1 active:opacity-70">
+                          <FileText size={22} className="text-[#C03D25]" />
+                          <span className="text-[9px] font-semibold text-[#8E8E93]">PDF {i + 1}</span>
+                        </button>
+                      ) : (
+                        <button key={i} type="button" onClick={() => setLightboxUrl(url)}
+                          className="aspect-square rounded-xl overflow-hidden border border-black/[0.08] block active:opacity-70">
+                          <img src={url} alt={`FDP ${i + 1}`} className="w-full h-full object-cover" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-[#C7C7CC] px-1">No files uploaded</p>
+                )}
+              </div>
+            )}
+
+          </GlassCard>
+
+          {/* Card 2: Subsequent Mode + ADA Bank */}
+          {subsequentMode && (
+            <GlassCard className="px-4 py-1">
+              <div className={`py-3 px-1 space-y-2 ${adaBank ? 'border-b border-black/[0.06]' : ''}`}>
+                <p className="text-xs font-semibold text-[#8E8E93] flex items-center gap-1.5">
+                  <CreditCard size={11} className="text-[#8E8E93]" />
+                  Subsequent Mode of Payment
+                </p>
+                <div className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.06] bg-white">
+                  <span className="text-sm text-[#1C1C1E]">{subsequentMode}</span>
+                </div>
+                {subsequentMode === 'Straight Cash or Check Payment' && (
+                  <p className="text-[11px] text-[#8E8E93] bg-[#F2F2F7] rounded-xl px-3 py-2">
+                    Please make a check payable to the company.
+                  </p>
+                )}
+                {subsequentMode === 'Post-Dated Checks (PDC)' && (
+                  <p className="text-[11px] text-[#8E8E93] bg-[#F2F2F7] rounded-xl px-3 py-2">
+                    Please submit all the PDC payable to the company.
+                  </p>
+                )}
+              </div>
+              {adaBank && (
+                <div className="py-3 px-1 space-y-2">
+                  <p className="text-xs font-semibold text-[#8E8E93] flex items-center gap-1.5">
+                    <Building2 size={11} className="text-[#8E8E93]" />
+                    Preferred Bank
+                  </p>
+                  <div className="w-full flex items-center px-3 py-2.5 rounded-xl border border-black/[0.06] bg-white">
+                    <span className="text-sm text-[#1C1C1E]">{adaBank}</span>
+                  </div>
+                </div>
+              )}
+            </GlassCard>
           )}
-        </GlassCard>
-      )}
-
-      {/* Read-only document files — valid-id */}
-      {alreadyPaid && existingValidIdUrls.length > 0 && (
-        <GlassCard className="px-4 py-3 space-y-2">
-          <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">
-            Proof of Valid ID ({existingValidIdUrls.length} file{existingValidIdUrls.length > 1 ? 's' : ''})
-          </p>
-          <div className="grid grid-cols-3 gap-2">
-            {existingValidIdUrls.map((url, i) => {
-              const isPdf = url.toLowerCase().includes('.pdf');
-              return isPdf ? (
-                <button key={i} type="button" onClick={() => setLightboxUrl(url)}
-                  className="aspect-square rounded-xl bg-[#F2F2F7] border border-black/[0.08] flex flex-col items-center justify-center gap-1 active:opacity-70">
-                  <FileText size={22} className="text-[#C03D25]" />
-                  <span className="text-[9px] font-semibold text-[#8E8E93]">PDF {i + 1}</span>
-                </button>
-              ) : (
-                <button key={i} type="button" onClick={() => setLightboxUrl(url)}
-                  className="aspect-square rounded-xl overflow-hidden border border-black/[0.08] block active:opacity-70">
-                  <img src={url} alt={`Valid ID ${i + 1}`} className="w-full h-full object-cover" />
-                </button>
-              );
-            })}
-          </div>
-        </GlassCard>
+        </>
       )}
 
       {/* Editable fields — new reservation OR edit mode */}
-      {(!alreadyPaid || editMode) && !isApproved && (
+      {(!alreadyPaid || editMode || (alreadyPaid && !reservation?.finance_status)) && !isApproved && (
         <GlassCard className="px-4 py-1">
 
-          {/* Subsequent Mode of Payment */}
+          {/* Reservation Mode of Payment */}
           <div className="border-b border-black/[0.06] py-3 px-1 space-y-2">
             <p className="text-xs font-semibold text-[#8E8E93] flex items-center gap-1.5">
               <CreditCard size={11} className="text-[#8E8E93]" />
-              Subsequent Mode of Payment
-              <span className="text-[#C03D25] text-xs leading-none">*</span>
+              Reservation Mode of Payment
             </p>
             <button
               type="button"
-              onClick={() => setModeDropdownOpen(p => !p)}
+              onClick={() => setRfModeDropdownOpen(p => !p)}
               className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7]"
             >
-              <span className={`text-sm ${subsequentMode ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
-                {subsequentMode || 'Select mode of payment'}
+              <span className={`text-sm ${reservationPaymentMode ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
+                {reservationPaymentMode || 'Select mode of payment'}
               </span>
-              <ChevronDown size={14} className={`text-[#C7C7CC] shrink-0 transition-transform duration-200 ${modeDropdownOpen ? 'rotate-180' : ''}`} />
+              <ChevronDown size={14} className={`text-[#C7C7CC] shrink-0 transition-transform duration-200 ${rfModeDropdownOpen ? 'rotate-180' : ''}`} />
             </button>
-            {modeDropdownOpen && (
+            {rfModeDropdownOpen && (
               <div className="space-y-0.5">
-                {PAYMENT_MODES.map(mode => (
+                {RESERVATION_PAYMENT_MODES.map(mode => (
                   <button key={mode} type="button"
-                    onClick={() => {
-                      setSubsequentMode(mode);
-                      if (mode !== 'Auto-Debit Arrangement (ADA)') setAdaBank('');
-                      setModeDropdownOpen(false);
-                    }}
+                    onClick={() => { setReservationPaymentMode(mode); setRfModeDropdownOpen(false); }}
                     className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm ${
-                      subsequentMode === mode
+                      reservationPaymentMode === mode
                         ? 'bg-[#C03D25]/10 text-[#C03D25] font-semibold'
                         : 'text-[#1C1C1E] hover:bg-gray-50 active:bg-gray-100'
                     }`}
                   >
                     {mode}
-                    {subsequentMode === mode && <Check size={14} className="shrink-0" />}
+                    {reservationPaymentMode === mode && <Check size={14} className="shrink-0" />}
                   </button>
                 ))}
               </div>
             )}
-          </div>
-
-          {/* ADA Bank */}
-          {adaSelected && (
-            <div className="border-b border-black/[0.06] py-3 px-1 space-y-2">
-              <p className="text-xs font-semibold text-[#8E8E93] flex items-center gap-1.5">
-                <Building2 size={11} className="text-[#8E8E93]" />
-                ADA Bank / Platform
-                <span className="text-[#C03D25] text-xs leading-none">*</span>
-              </p>
-              <button
-                type="button"
-                onClick={() => setAdaBankDropdownOpen(p => !p)}
-                className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7]"
-              >
-                <span className={`text-sm ${adaBank ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
-                  {adaBank || 'Select bank or platform'}
-                </span>
-                <ChevronDown size={14} className={`text-[#C7C7CC] shrink-0 transition-transform duration-200 ${adaBankDropdownOpen ? 'rotate-180' : ''}`} />
-              </button>
-              {adaBankDropdownOpen && (
-                <div className="space-y-0.5">
-                  {ADA_BANKS.map(bank => (
-                    <button key={bank} type="button"
-                      onClick={() => { setAdaBank(bank); setAdaBankDropdownOpen(false); }}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm ${
-                        adaBank === bank
-                          ? 'bg-[#C03D25]/10 text-[#C03D25] font-semibold'
-                          : 'text-[#1C1C1E] hover:bg-gray-50 active:bg-gray-100'
-                      }`}
-                    >
-                      {bank}
-                      {adaBank === bank && <Check size={14} className="shrink-0" />}
-                    </button>
+            {reservationPaymentMode === 'Debit/ Credit Card' && (
+              <div className="bg-[#F2F2F7] rounded-2xl p-3 space-y-2">
+                <p className="text-xs font-bold text-[#1C1C1E]">How to pay via your Debit/Credit Card thru POS Terminal</p>
+                <ol className="space-y-1.5 list-none">
+                  {[
+                    'Please proceed to the cashier\'s counter.',
+                    'Present your preferred debit or credit card.',
+                    'The cashier will enter your payment details in the POS system.',
+                    'Swipe, insert, or tap your card on the POS Terminal when prompted.',
+                    'Enter your PIN or provide your signature if required and wait for the system to process your transaction.',
+                    'Once approved, the cashier will provide you with the Acknowledgement Receipt.',
+                  ].map((step, i) => (
+                    <li key={i} className="flex gap-2 text-[11px] text-[#3C3C43] leading-relaxed">
+                      <span className="font-bold text-[#C03D25] shrink-0">{i + 1}.</span>
+                      <span>{step}</span>
+                    </li>
                   ))}
-                </div>
-              )}
-            </div>
-          )}
+                </ol>
+                <p className="text-[11px] text-[#8E8E93] italic">Note: Please keep your receipt for confirmation of your payment.</p>
+              </div>
+            )}
+            {reservationPaymentMode === 'Bills Payment' && (
+              <div className="bg-[#F2F2F7] rounded-2xl p-3 space-y-2">
+                <p className="text-xs font-bold text-[#1C1C1E]">How to pay via Bank Bills Payment</p>
+                <ol className="space-y-1.5 list-none">
+                  {(['Log in to your bank\'s mobile app or online banking portal.', 'From the main menu, go to Pay Bills or Bills Payment.', 'Select Biller/Company'] as string[]).map((step, i) => (
+                    <li key={i} className="flex gap-2 text-[11px] text-[#3C3C43] leading-relaxed">
+                      <span className="font-bold text-[#C03D25] shrink-0">{i + 1}.</span>
+                      <span>{step}</span>
+                    </li>
+                  ))}
+                  <li className="flex gap-2 text-[11px] text-[#3C3C43] leading-relaxed">
+                    <span className="font-bold text-[#C03D25] shrink-0">4.</span>
+                    <div className="space-y-0.5">
+                      <p>Enter the following details:</p>
+                      <div className="pl-2 space-y-0.5 text-[#6C6C70]">
+                        <p>Subscriber/Account Number: <span className="font-semibold text-[#1C1C1E]">Unit/Inventory Code</span></p>
+                        <p>Subscriber/Account Name: <span className="font-semibold text-[#1C1C1E]">Full Name</span></p>
+                        <p>Amount to Pay: <span className="font-semibold text-[#1C1C1E]">Exact amount due</span></p>
+                      </div>
+                    </div>
+                  </li>
+                  {(['Review all details carefully before confirming.', 'Complete the payment and wait for the transaction confirmation screen.', 'Take a screenshot or download the receipt as proof of payment.', 'Send the proof of payment to your company\'s email / upload portal for validation and posting.'] as string[]).map((step, i) => (
+                    <li key={i + 4} className="flex gap-2 text-[11px] text-[#3C3C43] leading-relaxed">
+                      <span className="font-bold text-[#C03D25] shrink-0">{i + 5}.</span>
+                      <span>{step}</span>
+                    </li>
+                  ))}
+                </ol>
+                <p className="text-[11px] text-[#8E8E93] italic">Note: Make sure to input the correct Client ID/Unit No. so payment is posted correctly. Keep the receipt until payment is confirmed.</p>
+              </div>
+            )}
+          </div>
 
           {/* Doc section: valid-id */}
           {docSections.map(({ target, label, icon, existingUrls, setExisting, newFiles }) => {
@@ -623,12 +800,6 @@ export default function ProofOfPaymentPage() {
             );
           })}
 
-        </GlassCard>
-      )}
-
-      {/* Payment date + proof upload */}
-      {(!alreadyPaid || editMode) && !isApproved && (
-        <GlassCard className="px-4 py-1">
           {/* Payment Date */}
           <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
             <CalendarDays size={16} className="text-[#C03D25] shrink-0" />
@@ -662,7 +833,7 @@ export default function ProofOfPaymentPage() {
 
           {/* Upload button */}
           {totalPaymentFiles < MAX_FILES ? (
-            <div className="py-3 px-1">
+            <div className="py-3 px-1 border-b border-black/[0.06]">
               <button type="button" onClick={() => openUpload('payment')}
                 className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-dashed border-[#C03D25]/40 text-[#C03D25] text-sm font-semibold active:bg-[#C03D25]/5">
                 <Upload size={16} />
@@ -670,14 +841,149 @@ export default function ProofOfPaymentPage() {
               </button>
             </div>
           ) : (
-            <p className="text-center text-xs text-[#8E8E93] py-3">Maximum {MAX_FILES} files uploaded</p>
+            <p className="text-center text-xs text-[#8E8E93] py-3 border-b border-black/[0.06]">Maximum {MAX_FILES} files uploaded</p>
+          )}
+
+          {/* Proof of First Downpayment — only if first_payment_agreed */}
+          {firstPaymentAgreed && (() => {
+            const totalFdp = existingFdpUrls.length + fdpFiles.length;
+            const canAddFdp = totalFdp < MAX_FILES;
+            return (
+              <div className="py-3 px-1 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Receipt size={13} className="text-[#C03D25] shrink-0" />
+                  <span className="text-xs font-semibold text-[#8E8E93] flex-1">Proof of First Downpayment</span>
+                  {totalFdp > 0 && <span className="text-xs text-[#8E8E93]">{totalFdp}/{MAX_FILES}</span>}
+                </div>
+                {totalFdp > 0 && (
+                  <div className="grid grid-cols-3 gap-2">
+                    {existingFdpUrls.map((url, i) => (
+                      <ExistingThumb key={`ex-fdp-${i}`} url={url}
+                        onRemove={() => setExistingFdpUrls(prev => prev.filter((_, j) => j !== i))} />
+                    ))}
+                    {fdpFiles.map((f, i) => (
+                      <div key={`new-fdp-${i}`} className="relative aspect-square rounded-xl overflow-hidden border border-black/[0.08]">
+                        <img src={f.preview} alt={f.name} className="w-full h-full object-cover" />
+                        <button type="button" onClick={() => removeNewFile('fdp', i)}
+                          className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center">
+                          <X size={10} className="text-white" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {canAddFdp && (
+                  <button type="button" onClick={() => openUpload('fdp')}
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-dashed border-[#C03D25]/40 text-[#C03D25] text-sm font-semibold active:bg-[#C03D25]/5">
+                    <Upload size={16} />
+                    {totalFdp === 0 ? 'Upload Proof of First Downpayment' : `Add More (${totalFdp}/${MAX_FILES})`}
+                  </button>
+                )}
+              </div>
+            );
+          })()}
+        </GlassCard>
+      )}
+
+      {/* Subsequent Mode of Payment + ADA Bank */}
+      {(!alreadyPaid || editMode || (alreadyPaid && !reservation?.finance_status)) && !isApproved && (
+        <GlassCard className="px-4 py-1">
+          <div className="border-b border-black/[0.06] py-3 px-1 space-y-2">
+            <p className="text-xs font-semibold text-[#8E8E93] flex items-center gap-1.5">
+              <CreditCard size={11} className="text-[#8E8E93]" />
+              Subsequent Mode of Payment
+              <span className="text-[#C03D25] text-xs leading-none">*</span>
+            </p>
+            <button
+              type="button"
+              onClick={() => setModeDropdownOpen(p => !p)}
+              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7]"
+            >
+              <span className={`text-sm ${subsequentMode ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
+                {subsequentMode || 'Select mode of payment'}
+              </span>
+              <ChevronDown size={14} className={`text-[#C7C7CC] shrink-0 transition-transform duration-200 ${modeDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {modeDropdownOpen && (
+              <div className="space-y-0.5">
+                {PAYMENT_MODES.map(mode => (
+                  <button key={mode} type="button"
+                    onClick={() => {
+                      setSubsequentMode(mode);
+                      if (mode !== 'Auto-Debit Arrangement (ADA)') setAdaBank('');
+                      setModeDropdownOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm ${
+                      subsequentMode === mode
+                        ? 'bg-[#C03D25]/10 text-[#C03D25] font-semibold'
+                        : 'text-[#1C1C1E] hover:bg-gray-50 active:bg-gray-100'
+                    }`}
+                  >
+                    {mode}
+                    {subsequentMode === mode && <Check size={14} className="shrink-0" />}
+                  </button>
+                ))}
+              </div>
+            )}
+            {subsequentMode === 'Straight Cash or Check Payment' && (
+              <p className="text-[11px] text-[#8E8E93] bg-[#F2F2F7] rounded-xl px-3 py-2">
+                Please make a check payable to the company.
+              </p>
+            )}
+            {subsequentMode === 'Post-Dated Checks (PDC)' && (
+              <p className="text-[11px] text-[#8E8E93] bg-[#F2F2F7] rounded-xl px-3 py-2">
+                Please submit all the PDC payable to the company.
+              </p>
+            )}
+          </div>
+          {adaSelected && (
+            <div className="py-3 px-1 space-y-2">
+              <p className="text-[11px] text-[#8E8E93] bg-[#F2F2F7] rounded-xl px-3 py-2">
+                Please accomplish the ADA Form.
+              </p>
+              <p className="text-xs font-semibold text-[#8E8E93] flex items-center gap-1.5">
+                <Building2 size={11} className="text-[#8E8E93]" />
+                Preferred Bank
+                <span className="text-[#C03D25] text-xs leading-none">*</span>
+              </p>
+              <button
+                type="button"
+                onClick={() => setAdaBankDropdownOpen(p => !p)}
+                className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7]"
+              >
+                <span className={`text-sm ${adaBank ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
+                  {adaBank || 'Select preferred bank'}
+                </span>
+                <ChevronDown size={14} className={`text-[#C7C7CC] shrink-0 transition-transform duration-200 ${adaBankDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {adaBankDropdownOpen && (
+                <div className="space-y-0.5">
+                  {ADA_BANKS.map(bank => (
+                    <button key={bank} type="button"
+                      onClick={() => { setAdaBank(bank); setAdaBankDropdownOpen(false); }}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm ${
+                        adaBank === bank
+                          ? 'bg-[#C03D25]/10 text-[#C03D25] font-semibold'
+                          : 'text-[#1C1C1E] hover:bg-gray-50 active:bg-gray-100'
+                      }`}
+                    >
+                      {bank}
+                      {adaBank === bank && <Check size={14} className="shrink-0" />}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </GlassCard>
       )}
 
       {/* Save / Confirm button */}
-      {(!alreadyPaid || editMode) && !isApproved && (
+      {(!alreadyPaid || editMode || (alreadyPaid && !reservation?.finance_status)) && !isApproved && (
         <div className="space-y-2.5">
+          <p className="text-[11px] text-[#8E8E93] leading-relaxed text-center px-2">
+            Please ensure that you have selected the correct mode of payment for the reservation and subsequent payments, including the corresponding preferred bank of the client. All required documents must be uploaded before proceeding with the payment.
+          </p>
           <button
             type="button"
             disabled={!canConfirm}
@@ -688,7 +994,7 @@ export default function ProofOfPaymentPage() {
           >
             {editMode ? 'Resubmit for Verification' : 'Submit for Verification'}
           </button>
-          {editMode && (
+          {editMode && !!reservation?.finance_status && (
             <button type="button" onClick={() => setEditMode(false)}
               className="w-full py-4 rounded-2xl border-2 border-black/10 text-[#6C6C70] text-sm font-semibold active:opacity-70">
               Cancel Edit
@@ -806,10 +1112,6 @@ export default function ProofOfPaymentPage() {
                 <span className="text-xs text-[#8E8E93]">Payment Date</span>
                 <span className="text-xs font-semibold text-[#1C1C1E]">{paymentDate}</span>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-[#8E8E93]">Proof Files</span>
-                <span className="text-xs font-semibold text-[#1C1C1E]">{totalPaymentFiles} file{totalPaymentFiles > 1 ? 's' : ''}</span>
-              </div>
             </div>
             {saveError && <p className="text-red-500 text-xs text-center px-6 pt-3">{saveError}</p>}
             <div className="px-6 pb-7 pt-4 flex flex-col gap-2.5">
@@ -891,8 +1193,8 @@ export default function ProofOfPaymentPage() {
                 <span className="text-xs font-bold text-[#C03D25]">{reservationId}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-[#8E8E93]">New Status</span>
-                <span className="text-xs font-semibold text-[#1C1C1E]">Pending Proof</span>
+                <span className="text-xs text-[#8E8E93]">Action</span>
+                <span className="text-xs font-semibold text-[#1C1C1E]">Withdrawn from verification</span>
               </div>
             </div>
             {actionError && <p className="text-red-500 text-xs text-center px-6 pt-3">{actionError}</p>}

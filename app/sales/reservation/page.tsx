@@ -9,6 +9,7 @@ import {
   FilePlus, ChevronRight, Building2, User,
   CheckCircle2, Clock, ShieldCheck, ListChecks,
 } from 'lucide-react';
+import { getSession } from '@/lib/auth';
 
 interface RecentReservation {
   reservation_id: string;
@@ -47,11 +48,22 @@ export default function ReservationPage() {
 
   useEffect(() => {
     async function load() {
-      const { data } = await supabase
+      const session = await getSession();
+      const roleName = session?.role_name ?? null;
+      const isPrivileged = roleName === 'All Access' || roleName === 'Sales Director' || roleName === 'Account Management';
+
+      let query = supabase
         .from('reservations')
         .select('reservation_id, client_name, project, inventory_code, status, finance_status')
         .neq('status', 'Booked')
+        .neq('status', 'Cancelled')
         .order('created_at', { ascending: false });
+
+      if (!isPrivileged && session?.id) {
+        query = query.eq('created_by_uuid', session.id);
+      }
+
+      const { data } = await query;
 
       if (data) {
         setCounts({

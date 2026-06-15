@@ -52,6 +52,25 @@ const NAV: NavGroup[] = [
   },
 ];
 
+const PRIVILEGED_ROLES = ['All Access', 'Sales Director', 'Account Management'];
+
+const SELLER_ALLOWED_HREFS = new Set([
+  '/sales/client-registration',
+  '/sales/reservation',
+  '/sales/booking',
+  '/sales/sales-commission',
+  '/account/buyers-foldering',
+  '/account/request-inquiry',
+]);
+
+const DIRECTOR_ALLOWED_HREFS = new Set([
+  '/sales/client-registration',
+  '/sales/reservation',
+  '/sales/booking',
+  '/sales/sales-commission',
+  '/account/buyers-foldering',
+]);
+
 const ICONS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
   UserPlus, CalendarCheck, BookOpen, DollarSign,
   ShieldCheck, FolderOpen, MessageSquare, Receipt, CreditCard,
@@ -111,6 +130,13 @@ export default function Sidebar({ open, onClose, userName, displayName, userRole
   if (!open) return null;
 
   const initials = getInitials(displayName || userName);
+  const isSeller   = !PRIVILEGED_ROLES.includes(userRole ?? '');
+  const isDirector = userRole === 'Sales Director';
+  const allowedHrefs = isSeller ? SELLER_ALLOWED_HREFS : isDirector ? DIRECTOR_ALLOWED_HREFS : null;
+  const visibleGroups = NAV.map((group) => ({
+    ...group,
+    items: allowedHrefs ? group.items.filter((item) => allowedHrefs.has(item.href)) : group.items,
+  })).filter((group) => group.items.length > 0);
 
   return (
     <>
@@ -206,7 +232,7 @@ export default function Sidebar({ open, onClose, userName, displayName, userRole
 
           {/* ── Nav groups ── */}
           <nav className="flex-1 px-3 space-y-0.5 pb-4">
-            {NAV.map((group) => {
+            {visibleGroups.map((group) => {
               const isOpen    = openGroups[group.title];
               const hasActive = group.items.some((i) => pathname === i.href);
 
@@ -306,15 +332,17 @@ export default function Sidebar({ open, onClose, userName, displayName, userRole
             className="px-4 pb-10 pt-3 space-y-1"
             style={{ borderTop: '1px solid rgba(255,255,255,0.10)' }}
           >
-            <Link
-              href="/settings"
-              onClick={handleClose}
-              className="sb-footer w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-[13px] font-medium text-white/75 active:scale-[0.97]"
-              style={{ transition: 'background-color 150ms ease, color 150ms ease, transform 100ms ease-out' }}
-            >
-              <Settings size={15} className="text-white/50 shrink-0" />
-              System Settings
-            </Link>
+            {!isSeller && !isDirector && (
+              <Link
+                href="/settings"
+                onClick={handleClose}
+                className="sb-footer w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-[13px] font-medium text-white/75 active:scale-[0.97]"
+                style={{ transition: 'background-color 150ms ease, color 150ms ease, transform 100ms ease-out' }}
+              >
+                <Settings size={15} className="text-white/50 shrink-0" />
+                System Settings
+              </Link>
+            )}
             <button
               onClick={handleLogout}
               className="sb-footer w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-[13px] font-medium active:scale-[0.97]"

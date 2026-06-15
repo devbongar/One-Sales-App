@@ -1374,7 +1374,7 @@ export default function SampleComputationPage() {
         const paytermAmount      = Math.round(listPrice * paytermRate);
         const employeeAmount     = isMegawide ? Math.round(listPrice * EMPLOYEE_DISCOUNT_RATE) : 0;
         const nlpBeforeHIC       = listPrice - promoAmount - employeeAmount - paytermAmount;
-        const showHIC            = userRole === 'All Access' && unitCategory === 'Residential' && selectedUnit.hic === true && hicTarget != null;
+        const showHIC            = (userRole === 'All Access' || userRole === 'Sales Director') && unitCategory === 'Residential' && selectedUnit.hic === true && hicTarget != null;
         const hicDiscount        = (useHIC && showHIC && hicTarget != null) ? Math.max(0, nlpBeforeHIC - hicTarget) : 0;
         const netListPrice       = nlpBeforeHIC - hicDiscount;
         const vat                = (vatThreshold != null) ? computeVat(netListPrice, vatThreshold) : 0;
@@ -1543,24 +1543,26 @@ export default function SampleComputationPage() {
                 </div>
               )}
 
-              {/* Employee Discount Checkbox */}
-              <button
-                type="button"
-                onClick={() => setIsMegawide(p => !p)}
-                className={`w-full flex items-center gap-3 p-3 rounded-2xl border-2 transition-all ${
-                  isMegawide ? 'border-[#166534] bg-[#166534]/10' : 'border-[#E5E5EA] bg-white'
-                }`}
-              >
-                <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
-                  isMegawide ? 'border-[#166534] bg-[#166534]' : 'border-[#C7C7CC]'
-                }`}>
-                  {isMegawide && <Check size={12} className="text-white" />}
-                </div>
-                <div className="flex-1 text-left">
-                  <p className={`text-sm font-semibold ${isMegawide ? 'text-[#166534]' : 'text-[#1C1C1E]'}`}>Megawide Employee</p>
-                  <p className="text-[10px] text-[#8E8E93]">10% discount on List Price</p>
-                </div>
-              </button>
+              {/* Employee Discount Checkbox — Sales Director + All Access only */}
+              {(userRole === 'All Access' || userRole === 'Sales Director') && (
+                <button
+                  type="button"
+                  onClick={() => setIsMegawide(p => !p)}
+                  className={`w-full flex items-center gap-3 p-3 rounded-2xl border-2 transition-all ${
+                    isMegawide ? 'border-[#166534] bg-[#166534]/10' : 'border-[#E5E5EA] bg-white'
+                  }`}
+                >
+                  <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
+                    isMegawide ? 'border-[#166534] bg-[#166534]' : 'border-[#C7C7CC]'
+                  }`}>
+                    {isMegawide && <Check size={12} className="text-white" />}
+                  </div>
+                  <div className="flex-1 text-left">
+                    <p className={`text-sm font-semibold ${isMegawide ? 'text-[#166534]' : 'text-[#1C1C1E]'}`}>Megawide Employee</p>
+                    <p className="text-[10px] text-[#8E8E93]">10% discount on List Price</p>
+                  </div>
+                </button>
+              )}
 
               {/* HIC Checkbox — Sales Director + Residential only */}
               {showHIC && (

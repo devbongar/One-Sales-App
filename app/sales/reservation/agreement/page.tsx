@@ -6,6 +6,7 @@ import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import { Check, Building2, Tag, LayoutGrid, Ruler, Banknote, Receipt, RotateCcw, AlertTriangle, Loader2 } from 'lucide-react';
 import { generateReservationId, saveReservation } from '@/lib/reservations';
+import { getSession } from '@/lib/auth';
 
 interface ReservationData {
   // Unit
@@ -82,6 +83,9 @@ export default function ReservationAgreementPage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [creatorUuid, setCreatorUuid] = useState<string | null>(null);
+
+  useEffect(() => { getSession().then(s => setCreatorUuid(s?.id ?? null)); }, []);
 
   // Signature pad
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -210,11 +214,13 @@ export default function ReservationAgreementPage() {
         hdmf_monthly: data.hdmfMonthly,
         client_id: data.clientId ?? null,
         seller_id: data.sellerId ?? null,
+        created_by_uuid: creatorUuid,
         seller_name: data.sellerName,
         sales_manager: data.salesManager,
         sales_director: data.salesDirector,
         sales_division_head: data.salesDivisionHead,
         status: 'Pending Proof',
+        first_payment_agreed: data.firstPaymentAgreed ?? false,
       });
       sessionStorage.setItem('currentReservationId', reservationId);
       sessionStorage.setItem('proofEntrySource', 'agreement');

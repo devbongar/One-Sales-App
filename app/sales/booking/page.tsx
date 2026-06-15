@@ -20,6 +20,8 @@ interface Reservation {
   unit_type: string;
   status: string;
   finance_status: string | null;
+  director_filled: boolean;
+  created_by_uuid: string | null;
   seller_name: string | null;
   payment_proof_url: string | null;
 }
@@ -64,6 +66,7 @@ function reviewBadge(bs: BookingStatus): { bg: string; color: string; label: str
     case 'amd-approved':      return { bg: 'rgba(52,199,89,0.18)',   color: '#1A7F37', label: 'AMD Approved' };
     case 'director-approved': return { bg: 'rgba(48,176,199,0.12)',  color: '#0E6E7E', label: 'Dir. Approved' };
     case 'director-rejected': return { bg: 'rgba(255,59,48,0.12)',   color: '#C0392B', label: 'Dir. Rejected' };
+    case 'amd-rejected':      return { bg: 'rgba(255,59,48,0.12)',   color: '#C0392B', label: 'AMD Rejected' };
     case 'submitted':         return { bg: 'rgba(0,122,255,0.12)',   color: '#0055B3', label: 'For Dir. Review' };
     case 'fully-complete':    return { bg: 'rgba(175,82,222,0.12)',  color: '#7B2FA8', label: 'Docs Complete' };
     case 'stage1-complete':   return { bg: 'rgba(0,122,255,0.10)',   color: '#0055B3', label: 'Docs Pending' };
@@ -100,12 +103,57 @@ export default function BookingPage() {
   const [statusFilter,  setStatusFilter]  = useState<BookingStatus | ''>('');
 
   const activeFilterCount = [sellerFilter, projectFilter, statusFilter].filter(Boolean).length;
-  const [userRoleName, setUserRoleName] = useState<string | null>(null);
-  const isDirector = userRoleName === 'Sales Director';
-  const isAMD      = userRoleName === 'Account Management';
+  const [userRoleName,   setUserRoleName]   = useState<string | null>(null);
+  const [sellerUuid, setSellerUuid] = useState<string | null>(null);
+  const isDirector  = userRoleName === 'Sales Director';
+  const isAMD       = userRoleName === 'Account Management';
   const isAllAccess = userRoleName === 'All Access';
+  const isSeller    = !isDirector && !isAMD && !isAllAccess && userRoleName !== null;
 
-  useEffect(() => { getSession().then(s => setUserRoleName(s?.role_name ?? null)); }, []);
+  type DirectorTab = 'for-review' | 'to-fill' | 'approved' | 'all';
+  const [directorTab, setDirectorTab] = useState<DirectorTab>('for-review');
+  const [dirForReviewCount, setDirForReviewCount] = useState(0);
+  const [dirToFillCount,    setDirToFillCount]    = useState(0);
+  type AMDTab = 'for-review' | 'approved' | 'rejected' | 'all';
+  const [amdTab, setAMDTab] = useState<AMDTab>('for-review');
+  const [amdForReviewCount, setAmdForReviewCount] = useState(0);
+  const [amdRejectedCount,  setAmdRejectedCount]  = useState(0);
+
+  type SellerTab = 'to-submit' | 'submitted' | 'rejected' | 'approved' | 'all';
+  const [sellerTab, setSellerTab] = useState<SellerTab>('to-submit');
+  const [sellerRejectedCount, setSellerRejectedCount] = useState(0);
+
+  useEffect(() => {
+    getSession().then(s => {
+      setUserRoleName(s?.role_name ?? null);
+      setSellerUuid(s?.id ?? null);
+    });
+  }, []);
+
+  // ── Seller tab counts ──────────────────────────────────────
+  useEffect(() => {
+    if (!isSeller || !sellerUuid) return;
+    supabase.from('reservations').select('*', { count: 'exact', head: true }).in('status', ['Reserved', 'Booked']).eq('created_by_uuid', sellerUuid).eq('booking_review_status', 'director-rejected')
+      .then(({ count }) => setSellerRejectedCount(count ?? 0));
+  }, [isSeller, sellerUuid]);
+
+  // ── Director tab counts ────────────────────────────────────
+  useEffect(() => {
+    if (!isDirector || !sellerUuid) return;
+    supabase.from('reservations').select('*', { count: 'exact', head: true }).in('status', ['Reserved', 'Booked']).eq('booking_review_status', 'submitted')
+      .then(({ count }) => setDirForReviewCount(count ?? 0));
+    supabase.from('reservations').select('*', { count: 'exact', head: true }).in('status', ['Reserved', 'Booked']).or(`director_filled.eq.true,created_by_uuid.eq.${sellerUuid}`).or('booking_review_status.is.null,booking_review_status.eq.amd-rejected')
+      .then(({ count }) => setDirToFillCount(count ?? 0));
+  }, [isDirector, sellerUuid]);
+
+  // ── AMD tab counts ─────────────────────────────────────────
+  useEffect(() => {
+    if (!isAMD) return;
+    supabase.from('reservations').select('*', { count: 'exact', head: true }).in('status', ['Reserved', 'Booked']).eq('booking_review_status', 'director-approved')
+      .then(({ count }) => setAmdForReviewCount(count ?? 0));
+    supabase.from('reservations').select('*', { count: 'exact', head: true }).in('status', ['Reserved', 'Booked']).eq('booking_review_status', 'amd-rejected')
+      .then(({ count }) => setAmdRejectedCount(count ?? 0));
+  }, [isAMD]);
 
   // ── Load dropdown options once ─────────────────────────────
   useEffect(() => {
@@ -127,19 +175,47 @@ export default function BookingPage() {
     setLoading(true);
     let query = supabase
       .from('reservations')
-      .select('reservation_id, client_name, project, inventory_code, unit_type, status, finance_status, seller_name, payment_proof_url')
+      .select('reservation_id, client_name, project, inventory_code, unit_type, status, finance_status, director_filled, created_by_uuid, seller_name, payment_proof_url')
       .in('status', ['Reserved', 'Booked'])
       .order('created_at', { ascending: false })
       .limit(5000);
 
     if (isDirector) {
-      query = query.eq('booking_review_status', 'submitted');
+      if (directorTab === 'for-review') {
+        query = query.eq('booking_review_status', 'submitted');
+      } else if (directorTab === 'to-fill') {
+        query = query
+          .or(`director_filled.eq.true,created_by_uuid.eq.${sellerUuid}`)
+          .or('booking_review_status.is.null,booking_review_status.eq.amd-rejected');
+      } else if (directorTab === 'approved') {
+        query = query.in('booking_review_status', ['director-approved', 'amd-approved']);
+      }
+      // 'all' — no booking_review_status filter
     } else if (isAMD) {
-      query = query.eq('booking_review_status', 'director-approved');
+      if (amdTab === 'for-review') {
+        query = query.eq('booking_review_status', 'director-approved');
+      } else if (amdTab === 'approved') {
+        query = query.eq('booking_review_status', 'amd-approved');
+      } else if (amdTab === 'rejected') {
+        query = query.eq('booking_review_status', 'amd-rejected');
+      }
+      // 'all' — no booking_review_status filter
+    } else if (isSeller && sellerUuid) {
+      query = query.eq('created_by_uuid', sellerUuid);
+      if (sellerTab === 'to-submit') {
+        query = query.or('booking_review_status.is.null,booking_review_status.eq.director-rejected');
+      } else if (sellerTab === 'submitted') {
+        query = query.eq('booking_review_status', 'submitted');
+      } else if (sellerTab === 'rejected') {
+        query = query.eq('booking_review_status', 'director-rejected');
+      } else if (sellerTab === 'approved') {
+        query = query.in('booking_review_status', ['director-approved', 'amd-approved']);
+      }
+      // 'all' — no booking_review_status filter
     }
     // All Access sees everything — no additional filter
 
-    if (sellerFilter)  query = query.eq('seller_name', sellerFilter);
+    if (!isSeller && sellerFilter) query = query.eq('seller_name', sellerFilter);
     if (projectFilter) query = query.eq('project', projectFilter);
 
     Promise.all([
@@ -150,7 +226,7 @@ export default function BookingPage() {
       setProgressMap(progress);
       setLoading(false);
     });
-  }, [sellerFilter, projectFilter, userRoleName, isDirector, isAMD, isAllAccess]);
+  }, [sellerFilter, projectFilter, userRoleName, isDirector, isAMD, isAllAccess, isSeller, sellerUuid, directorTab, amdTab, sellerTab]);
 
   // ── Client-side search + status filter ────────────────────
   const filtered = reservations.filter(r => {
@@ -211,6 +287,97 @@ export default function BookingPage() {
             )}
           </button>
         </div>
+
+        {/* ── AMD tab filter ─────────────────────────────── */}
+        {isAMD && (
+          <div className="flex gap-2 overflow-x-auto pb-0.5 no-scrollbar">
+            {([
+              { key: 'for-review', label: 'For Review', warn: amdForReviewCount > 0 },
+              { key: 'approved',   label: 'Approved',   warn: false },
+              { key: 'rejected',   label: 'Rejected',   warn: amdRejectedCount > 0 },
+              { key: 'all',        label: 'All',         warn: false },
+            ] as { key: AMDTab; label: string; warn: boolean }[]).map(tab => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setAMDTab(tab.key)}
+                className={`relative px-4 py-2 rounded-2xl text-xs font-bold shrink-0 transition-all ${
+                  amdTab === tab.key
+                    ? 'bg-[#C03D25] text-white shadow-sm'
+                    : 'bg-white/80 border border-black/[0.08] text-[#6C6C70]'
+                }`}
+              >
+                {tab.label}
+                {tab.warn && (
+                  <span className={`absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full border-2 ${
+                    amdTab === tab.key ? 'border-[#C03D25] bg-yellow-400' : 'border-white bg-yellow-400'
+                  }`} />
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* ── Director tab filter ────────────────────────── */}
+        {isDirector && (
+          <div className="flex gap-2 overflow-x-auto pb-0.5 no-scrollbar">
+            {([
+              { key: 'for-review', label: 'For Review', warn: dirForReviewCount > 0 },
+              { key: 'to-fill',    label: 'To Fill',    warn: dirToFillCount > 0 },
+              { key: 'approved',   label: 'Approved',   warn: false },
+              { key: 'all',        label: 'All',         warn: false },
+            ] as { key: DirectorTab; label: string; warn: boolean }[]).map(tab => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setDirectorTab(tab.key)}
+                className={`relative px-4 py-2 rounded-2xl text-xs font-bold shrink-0 transition-all ${
+                  directorTab === tab.key
+                    ? 'bg-[#C03D25] text-white shadow-sm'
+                    : 'bg-white/80 border border-black/[0.08] text-[#6C6C70]'
+                }`}
+              >
+                {tab.label}
+                {tab.warn && (
+                  <span className={`absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full border-2 ${
+                    directorTab === tab.key ? 'border-[#C03D25] bg-yellow-400' : 'border-white bg-yellow-400'
+                  }`} />
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* ── Seller tab filter ──────────────────────────── */}
+        {isSeller && (
+          <div className="flex gap-2 overflow-x-auto pb-0.5 no-scrollbar">
+            {([
+              { key: 'to-submit', label: 'To Submit', warn: false },
+              { key: 'submitted', label: 'Submitted',  warn: false },
+              { key: 'rejected',  label: 'Rejected',   warn: sellerRejectedCount > 0 },
+              { key: 'approved',  label: 'Approved',   warn: false },
+              { key: 'all',       label: 'All',        warn: false },
+            ] as { key: SellerTab; label: string; warn: boolean }[]).map(tab => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setSellerTab(tab.key)}
+                className={`relative px-4 py-2 rounded-2xl text-xs font-bold shrink-0 transition-all ${
+                  sellerTab === tab.key
+                    ? 'bg-[#C03D25] text-white shadow-sm'
+                    : 'bg-white/80 border border-black/[0.08] text-[#6C6C70]'
+                }`}
+              >
+                {tab.label}
+                {tab.warn && (
+                  <span className={`absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full border-2 ${
+                    sellerTab === tab.key ? 'border-[#C03D25] bg-yellow-400' : 'border-white bg-yellow-400'
+                  }`} />
+                )}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* ── List ───────────────────────────────────────── */}
         {loading ? (
@@ -382,7 +549,7 @@ export default function BookingPage() {
             )}
 
             {/* Seller */}
-            {sellerOptions.length > 0 && (
+            {!isSeller && sellerOptions.length > 0 && (
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Seller</p>
                 <select

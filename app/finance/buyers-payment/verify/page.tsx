@@ -49,6 +49,11 @@ interface FinanceBooking {
   dp_sales_invoice_no:          string | null;
   date_of_1st_dp:               string | null;
   dp_verified_at:               string | null;
+  rf_payment_mode:              string | null;
+  subsequent_mode:              string | null;
+  ada_bank:                     string | null;
+  first_payment_agreed:         boolean | null;
+  proof_of_fdp_urls:            string | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -161,6 +166,7 @@ export default function FinanceVerifyPage() {
   const [approving,          setApproving]          = useState(false);
   const [rejecting,          setRejecting]          = useState(false);
   const [actionError,        setActionError]        = useState('');
+  const [rejectComment,      setRejectComment]      = useState('');
   const [done,               setDone]               = useState<'approved' | 'rejected' | null>(null);
   const [commissionWarn,     setCommissionWarn]     = useState<CommissionGenerateResult | null>(null);
 
@@ -294,7 +300,9 @@ export default function FinanceVerifyPage() {
     setRejecting(true);
     setActionError('');
     try {
-      await supabase.from('reservations').update({ finance_status: 'rf-rejected' }).eq('reservation_id', booking.reservation_id);
+      await supabase.from('reservations')
+        .update({ finance_status: 'rf-rejected', finance_rejection_reason: rejectComment.trim() || null })
+        .eq('reservation_id', booking.reservation_id);
       setDone('rejected');
     } catch (e: any) {
       setActionError(e.message ?? 'Failed to reject. Please try again.');
@@ -304,24 +312,115 @@ export default function FinanceVerifyPage() {
     }
   }
 
-  const proofUrls    = parseJson(booking?.payment_proof_url ?? null);
-  const validIdUrls  = parseJson(booking?.proof_of_valid_id_urls ?? null);
+  async function handleApproveCombined() {
+    if (!booking) return;
+    setApproving(true);
+    setActionError('');
+    try {
+      const now = new Date().toISOString();
+
+      // RF verification
+      await approvePaymentReview(booking.reservation_id, ackReceiptNo.trim(), salesInvoiceNo.trim(), dateOfResFee);
+
+      // DP verification — check AMD status then write dp fields + jump straight to dp-verified
+      const { data: resRow } = await supabase
+        .from('reservations')
+        .select('booking_review_status')
+        .eq('reservation_id', booking.reservation_id)
+        .single();
+      const amdDone = resRow?.booking_review_status === 'amd-approved';
+      const { error } = await supabase
+        .from('reservations')
+        .update({
+          dp_acknowledgement_receipt_no: dpAckReceiptNo.trim(),
+          dp_sales_invoice_no:           dpSalesInvoiceNo.trim(),
+          date_of_1st_dp:               dpDate,
+          dp_verified_at:               now,
+          finance_status:               'dp-verified',
+          ...(amdDone ? { status: 'Booked' } : {}),
+        })
+        .eq('reservation_id', booking.reservation_id);
+      if (error) throw new Error(error.message);
+
+      await addActivityLog(booking.reservation_id, 'dp-verified', displayName).catch(e => console.error('[activity-log]', e));
+
+      if (booking.inventory_code) {
+        await updateInventoryUnitStatus(booking.inventory_code, 'Booked');
+      }
+
+      try {
+        const result = await generateCommissionSchedule(booking.reservation_id);
+        if (!result.ok && result.reason !== 'already-exists') setCommissionWarn(result);
+      } catch (e) {
+        console.error('[commission] Failed to generate schedule:', e);
+      }
+
+      // Mark 1st installment line as Paid
+      const { data: lines } = await supabase
+        .from('receivables_database')
+        .select('id, total_amount_due')
+        .eq('reservation_id', booking.reservation_id)
+        .neq('type_of_payment', 'Reservation Fee')
+        .order('due_date', { ascending: true })
+        .limit(1);
+      if (lines && lines.length > 0) {
+        await supabase
+          .from('receivables_database')
+          .update({
+            payment_status:             'Paid',
+            amount_paid:                (lines[0] as any).total_amount_due ?? null,
+            acknowledgement_receipt_no: dpAckReceiptNo.trim(),
+            sales_invoice_number:       dpSalesInvoiceNo.trim(),
+            posting_date:              dpDate,
+          })
+          .eq('id', lines[0].id);
+      }
+
+      const updated = {
+        ...booking,
+        status:                        amdDone ? 'Booked' : booking.status,
+        finance_status:                'dp-verified',
+        acknowledgement_receipt_no:    ackReceiptNo.trim(),
+        sales_invoice_no:              salesInvoiceNo.trim(),
+        date_of_reservation_fee:       dateOfResFee,
+        finance_verified_at:           now,
+        dp_acknowledgement_receipt_no: dpAckReceiptNo.trim(),
+        dp_sales_invoice_no:           dpSalesInvoiceNo.trim(),
+        date_of_1st_dp:               dpDate,
+        dp_verified_at:               now,
+      };
+      sessionStorage.setItem('financeBooking', JSON.stringify(updated));
+      setBooking(updated);
+      setDone('approved');
+    } catch (e: any) {
+      setActionError(e.message ?? 'Failed to verify. Please try again.');
+    } finally {
+      setApproving(false);
+      setShowApproveConfirm(false);
+    }
+  }
+
+  const proofUrls   = parseJson(booking?.payment_proof_url ?? null);
+  const validIdUrls = parseJson(booking?.proof_of_valid_id_urls ?? null);
+  const fdpUrls     = parseJson(booking?.proof_of_fdp_urls ?? null);
 
   const rfVerified  = !!booking?.finance_verified_at;
   const dpVerified  = !!booking?.dp_verified_at;
   const isDPPending = rfVerified && !dpVerified;
+  // When buyer agreed to pay 1st DP in advance, verify RF + 1st DP together in one step
+  const isCombined  = !!booking?.first_payment_agreed && !rfVerified && !dpVerified;
   const alreadyVerified = isDPPending ? dpVerified : rfVerified;
 
   const canApproveRF = !rfVerified && ackReceiptNo.trim().length > 0 && salesInvoiceNo.trim().length > 0 && !!dateOfResFee;
   const canApproveDP = !dpVerified && dpAckReceiptNo.trim().length > 0 && dpSalesInvoiceNo.trim().length > 0 && !!dpDate;
-  const canApprove   = isDPPending ? canApproveDP : canApproveRF;
+  const canApprove   = isCombined ? canApproveRF && canApproveDP : isDPPending ? canApproveDP : canApproveRF;
 
   // ── Done screens ──────────────────────────────────────────────────────────
 
   if (done === 'approved') {
-    const title = isDPPending ? '1st DP Verified' : 'Payment Approved';
-    const desc  = isDPPending
-      ? `The 1st down payment for ${booking?.client_name} has been verified.`
+    const title = dpVerified ? '1st DP Verified' : 'Payment Approved';
+    const desc  = dpVerified
+      ? `The reservation fee and 1st down payment for ${booking?.client_name} have been verified.`
       : `The reservation fee payment for ${booking?.client_name} has been approved.`;
     const commissionWarnMsg = commissionWarn && !commissionWarn.ok
       ? commissionWarn.reason === 'no-tranches'
@@ -392,44 +491,54 @@ export default function FinanceVerifyPage() {
     <PageShell title="Finance Verification" backButton onBack={() => router.push('/finance/buyers-payment')}>
       <div className="space-y-4 pb-6">
 
-        {/* Mode label */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {rfVerified && (
-            <span className="text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider bg-green-100 text-green-700">
-              RF Verified
-            </span>
-          )}
-          {dpVerified && (
-            <span className="text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider bg-green-100 text-green-700">
-              1st DP Verified
-            </span>
-          )}
-          {!rfVerified && !isDPPending && (
-            <span className="text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider bg-amber-100 text-amber-700">
-              Reservation Fee Verification
-            </span>
-          )}
-          {isDPPending && !dpVerified && (
-            <span className="text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider bg-purple-100 text-purple-700">
-              1st Down Payment Verification
-            </span>
-          )}
-        </div>
-
-        {/* Reservation info */}
-        <GlassCard className="px-4 py-1">
-          {([
-            [<Hash size={15}/>,      'Reservation ID', booking.reservation_id],
-            [<User size={15}/>,      'Client',         booking.client_name],
-            [<Building2 size={15}/>, 'Project',        booking.project],
-            [<Tag size={15}/>,       'Unit',           [booking.tower, booking.floor, booking.unit_no, booking.inventory_code].filter(Boolean).join(' · ') || '—'],
-          ] as [React.ReactNode, string, string][]).map(([icon, label, value]) => (
-            <div key={label} className="flex items-center gap-3 py-2.5 border-b border-black/[0.06] last:border-0">
-              <span className="text-[#C03D25] shrink-0">{icon}</span>
-              <span className="flex-1 text-sm font-medium text-[#1C1C1E]">{label}</span>
-              <span className="text-xs text-right text-[#6C6C70] max-w-[55%]">{value}</span>
+        {/* Hero card */}
+        <GlassCard className="p-5 space-y-4">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-full bg-[rgba(192,61,37,0.1)] flex items-center justify-center shrink-0">
+              {dpVerified
+                ? <CheckCircle2 size={24} className="text-green-600" />
+                : <Receipt size={24} className="text-[#C03D25]" />
+              }
             </div>
-          ))}
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] text-[#8E8E93] uppercase tracking-wider font-semibold">Reservation ID</p>
+              <p className="text-base font-bold text-[#C03D25] tracking-wider">{booking.reservation_id}</p>
+            </div>
+            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider shrink-0 ${
+              dpVerified            ? 'bg-green-100 text-green-700'
+              : rfVerified          ? 'bg-green-100 text-green-700'
+              : isDPPending         ? 'bg-purple-100 text-purple-700'
+              : 'bg-amber-100 text-amber-700'
+            }`}>
+              {dpVerified    ? '1st DP Verified'
+               : rfVerified  ? 'RF Verified'
+               : isDPPending ? '1st DP Pending'
+               : 'RF Verification'}
+            </span>
+          </div>
+
+          <div className="space-y-1.5 pt-1 border-t border-black/[0.06]">
+            <div className="flex items-center gap-2">
+              <User size={11} className="text-[#C7C7CC] shrink-0" />
+              <span className="text-sm font-semibold text-[#1C1C1E]">{booking.client_name}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Building2 size={11} className="text-[#C7C7CC] shrink-0" />
+              <span className="text-xs text-[#6C6C70]">{booking.project}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Tag size={11} className="text-[#C7C7CC] shrink-0" />
+              <span className="text-xs text-[#6C6C70]">
+                {[booking.tower, booking.floor, booking.unit_no, booking.inventory_code].filter(Boolean).join(' · ') || '—'}
+              </span>
+            </div>
+            {booking.seller_name && (
+              <div className="flex items-center gap-2">
+                <User size={11} className="text-[#C7C7CC] shrink-0" />
+                <span className="text-xs text-[#6C6C70]">{booking.seller_name}</span>
+              </div>
+            )}
+          </div>
         </GlassCard>
 
         {/* ── Reservation Fee Section (always shown) ── */}
@@ -475,6 +584,60 @@ export default function FinanceVerifyPage() {
           )}
         </GlassCard>
 
+        {/* Proof of First Downpayment */}
+        {booking.first_payment_agreed && (
+          <GlassCard className="px-4 py-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-bold text-[#1C1C1E] uppercase tracking-wider">Proof of First Downpayment</p>
+              {fdpUrls.length > 0 && (
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+                  {fdpUrls.length} file{fdpUrls.length > 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+            {fdpUrls.length === 0 ? (
+              <div className="py-7 flex flex-col items-center gap-2">
+                <FolderOpen size={22} className="text-[#C7C7CC]" />
+                <p className="text-xs text-[#C7C7CC]">No proof of first downpayment uploaded</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-2">
+                {fdpUrls.map(url => <FileTile key={url} url={url} />)}
+              </div>
+            )}
+          </GlassCard>
+        )}
+
+        {/* Payment Mode Info */}
+        {(booking.rf_payment_mode || booking.subsequent_mode) && (
+          <GlassCard className="px-4 py-1">
+            <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider py-2.5 border-b border-black/[0.06]">
+              Mode of Payment
+            </p>
+            {booking.rf_payment_mode && (
+              <div className="flex items-center gap-3 py-2.5 border-b border-black/[0.06]">
+                <Receipt size={15} className="text-[#C03D25] shrink-0" />
+                <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Reservation Payment</span>
+                <span className="text-xs text-right text-[#6C6C70]">{booking.rf_payment_mode}</span>
+              </div>
+            )}
+            {booking.subsequent_mode && (
+              <div className="flex items-center gap-3 py-2.5 border-b border-black/[0.06] last:border-0">
+                <CalendarDays size={15} className="text-[#C03D25] shrink-0" />
+                <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Subsequent Payment</span>
+                <span className="text-xs text-right text-[#6C6C70]">{booking.subsequent_mode}</span>
+              </div>
+            )}
+            {booking.ada_bank && (
+              <div className="flex items-center gap-3 py-2.5">
+                <Building2 size={15} className="text-[#C03D25] shrink-0" />
+                <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Preferred Bank</span>
+                <span className="text-xs text-right text-[#6C6C70]">{booking.ada_bank}</span>
+              </div>
+            )}
+          </GlassCard>
+        )}
+
         <GlassCard className="px-4 py-1">
           <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider py-2.5 border-b border-black/[0.06]">
             Reservation Fee Details
@@ -505,8 +668,8 @@ export default function FinanceVerifyPage() {
           />
         </GlassCard>
 
-        {/* ── 1st DP Section (shown when pending or already verified) ── */}
-        {(isDPPending || dpVerified) && (
+        {/* ── 1st DP Section (shown when pending, already verified, or combined mode) ── */}
+        {(isDPPending || dpVerified || isCombined) && (
           <>
             <GlassCard className="px-4 py-1">
               <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider py-2.5 border-b border-black/[0.06]">
@@ -573,7 +736,7 @@ export default function FinanceVerifyPage() {
               }`}
             >
               <CheckCircle2 size={15} />
-              {isDPPending ? 'Verify 1st DP' : 'Approve'}
+              {isCombined ? 'Approve RF & 1st DP' : isDPPending ? 'Verify 1st DP' : 'Approve'}
             </button>
             <button
               type="button"
@@ -598,10 +761,12 @@ export default function FinanceVerifyPage() {
                 <CheckCircle2 size={24} className="text-green-500" />
               </div>
               <p className="text-base font-bold text-[#1C1C1E] text-center">
-                {isDPPending ? 'Verify 1st Down Payment?' : 'Approve Payment?'}
+                {isCombined ? 'Approve RF & 1st DP?' : isDPPending ? 'Verify 1st Down Payment?' : 'Approve Payment?'}
               </p>
               <p className="text-sm text-[#8E8E93] mt-1 text-center leading-relaxed">
-                {isDPPending
+                {isCombined
+                  ? 'Both the reservation fee and 1st down payment will be verified together in one step.'
+                  : isDPPending
                   ? 'This will mark the 1st DP as verified and save the details.'
                   : 'This will mark the reservation fee payment as approved and save the RF details.'}
               </p>
@@ -615,7 +780,34 @@ export default function FinanceVerifyPage() {
                 <span className="text-xs text-[#8E8E93]">Client</span>
                 <span className="text-xs font-semibold text-[#1C1C1E]">{booking.client_name}</span>
               </div>
-              {isDPPending ? (
+              {isCombined ? (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-[#8E8E93]">RF Receipt No.</span>
+                    <span className="text-xs font-semibold text-[#1C1C1E]">{ackReceiptNo}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-[#8E8E93]">RF Invoice No.</span>
+                    <span className="text-xs font-semibold text-[#1C1C1E]">{salesInvoiceNo}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-[#8E8E93]">Date of RF</span>
+                    <span className="text-xs font-semibold text-[#1C1C1E]">{fmtDate(dateOfResFee)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-[#8E8E93]">1st DP Receipt No.</span>
+                    <span className="text-xs font-semibold text-[#1C1C1E]">{dpAckReceiptNo}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-[#8E8E93]">1st DP Invoice No.</span>
+                    <span className="text-xs font-semibold text-[#1C1C1E]">{dpSalesInvoiceNo}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-[#8E8E93]">Date of 1st DP</span>
+                    <span className="text-xs font-semibold text-[#1C1C1E]">{fmtDate(dpDate)}</span>
+                  </div>
+                </>
+              ) : isDPPending ? (
                 <>
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-[#8E8E93]">Ack. Receipt No.</span>
@@ -649,11 +841,11 @@ export default function FinanceVerifyPage() {
             </div>
             {actionError && <p className="text-red-500 text-xs text-center px-6 pt-3">{actionError}</p>}
             <div className="px-6 pb-7 pt-4 flex flex-col gap-2.5">
-              <button type="button" disabled={approving} onClick={isDPPending ? handleApproveDp : handleApprove}
+              <button type="button" disabled={approving} onClick={isCombined ? handleApproveCombined : isDPPending ? handleApproveDp : handleApprove}
                 className="w-full py-3.5 rounded-2xl bg-green-500 text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60 active:opacity-80">
                 {approving
-                  ? <><Loader2 size={15} className="animate-spin" /> {isDPPending ? 'Verifying...' : 'Approving...'}</>
-                  : <><CheckCircle2 size={15} /> {isDPPending ? 'Yes, Verify' : 'Yes, Approve'}</>
+                  ? <><Loader2 size={15} className="animate-spin" /> {isCombined ? 'Verifying...' : isDPPending ? 'Verifying...' : 'Approving...'}</>
+                  : <><CheckCircle2 size={15} /> {isCombined ? 'Yes, Approve Both' : isDPPending ? 'Yes, Verify' : 'Yes, Approve'}</>
                 }
               </button>
               <button type="button" disabled={approving} onClick={() => setShowApproveConfirm(false)}
@@ -689,10 +881,23 @@ export default function FinanceVerifyPage() {
                 <span className="text-xs font-semibold text-[#1C1C1E]">{booking.client_name}</span>
               </div>
             </div>
-            {actionError && <p className="text-red-500 text-xs text-center px-6 pt-3">{actionError}</p>}
-            <div className="px-6 pb-7 pt-4 flex flex-col gap-2.5">
-              <button type="button" disabled={rejecting} onClick={handleReject}
-                className="w-full py-3.5 rounded-2xl bg-[#FF3B30] text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60 active:opacity-80">
+            <div className="px-6 pt-4 pb-2 space-y-1.5">
+              <p className="text-xs font-semibold text-[#3C3C43]">
+                Rejection Reason
+                <span className="text-[#FF3B30] ml-0.5">*</span>
+              </p>
+              <textarea
+                rows={3}
+                value={rejectComment}
+                onChange={e => setRejectComment(e.target.value)}
+                placeholder="State the reason for rejection so the seller can correct and resubmit…"
+                className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] placeholder-[#C7C7CC] outline-none resize-none focus:border-[#FF3B30]/50"
+              />
+            </div>
+            {actionError && <p className="text-red-500 text-xs text-center px-6 pt-1">{actionError}</p>}
+            <div className="px-6 pb-7 pt-3 flex flex-col gap-2.5">
+              <button type="button" disabled={rejecting || !rejectComment.trim()} onClick={handleReject}
+                className="w-full py-3.5 rounded-2xl bg-[#FF3B30] text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-40 active:opacity-80">
                 {rejecting
                   ? <><Loader2 size={15} className="animate-spin" /> Rejecting...</>
                   : 'Yes, Reject'
