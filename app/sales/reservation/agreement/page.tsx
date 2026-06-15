@@ -32,6 +32,7 @@ interface ReservationData {
   salesManager: string;
   salesDirector: string;
   salesDivisionHead: string;
+  firstPaymentAgreed?: boolean;
 }
 
 const TERMS = [
