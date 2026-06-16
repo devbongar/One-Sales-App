@@ -587,6 +587,7 @@ export default function NewReservationPage() {
     if (!email.trim())                            e.email    = 'Email address is required.';
     else if (!email.includes('@'))                e.email    = 'Email must contain @.';
     else if (emailAlreadyUsed)                    e.email    = 'This email is already registered.';
+    if (!sellerRecord)                            e.seller   = 'Please select a seller.';
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -1187,6 +1188,9 @@ export default function NewReservationPage() {
               </>
             )}
           </GlassCard>
+          {errors.seller && (
+            <p className="text-xs text-[#FF3B30] px-1 -mt-2">{errors.seller}</p>
+          )}
 
           {/* Actions */}
           <GlassButton variant="primary" size="lg" onClick={handleContinue} disabled={savingClient}>

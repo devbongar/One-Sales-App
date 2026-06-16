@@ -462,9 +462,11 @@ export default function BookingDetailPage() {
   const rfRejected   = financeStatus === 'rf-rejected';
   const proofPending = financeStatus === 'proof-submitted';
   const isBooked     = reservationStatus === 'Booked';
-  const isDirector     = userRoleName === 'Sales Director';
-  const isAMD          = userRoleName === 'Account Management';
-  const stage1Locked   = isAMD || rs === 'submitted' || dirApproved;
+  const isAllAccess    = userRoleName === 'All Access';
+  const isDirector     = userRoleName === 'Sales Director' || isAllAccess;
+  const isAMD          = userRoleName === 'Account Management' || isAllAccess;
+  // Stage 1 locked for pure AMD role only — All Access can still fill the form
+  const stage1Locked   = userRoleName === 'Account Management' || rs === 'submitted' || dirApproved;
   const stage2Complete = docsReady;
   const currentStage   = !stage1Complete ? 1 : !stage2Complete ? 2 : !dirApproved ? 3 : !amdApproved ? 4 : 5;
 
