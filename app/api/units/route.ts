@@ -10,7 +10,8 @@ const COLS = `"Project ID","Project Name","Tower","Floor","Unit No.","Inventory 
 
 const PAGE = 1000;
 
-async function fetchAll(baseQuery: ReturnType<typeof supabase.from>) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchAll(baseQuery: any) {
   const rows: Record<string, unknown>[] = [];
   let from = 0;
   while (true) {
