@@ -27,8 +27,7 @@ export async function generateReceivableLines(
        net_list_price, vat, other_charges, total_contract_price,
        hic_discount, reservation_fee, retention_fee,
        net_amount, dp_amount, net_spot_dp,
-       monthly_deferred, monthly_stretched_dp, balance_for_financing,
-       first_payment_agreed`
+       monthly_deferred, monthly_stretched_dp, balance_for_financing`
     )
     .eq('reservation_id', reservationId)
     .single();
@@ -42,7 +41,6 @@ export async function generateReceivableLines(
     hic_discount, reservation_fee, retention_fee,
     net_amount, dp_amount: _dp_amount, net_spot_dp,
     monthly_deferred, monthly_stretched_dp, balance_for_financing,
-    first_payment_agreed,
   } = res;
 
   // Turnover date drives the Retention Fee due date (falls back to computed date)
@@ -95,15 +93,7 @@ export async function generateReceivableLines(
     return toDateStr(year, month1, day);
   }
 
-  /**
-   * Due date for the i-th installment (0-indexed).
-   * When first_payment_agreed is true, installment 0 is due on the RF payment date
-   * (same day as the Reservation Fee), and subsequent installments shift one slot earlier.
-   */
   function installmentDueDate(i: number): string {
-    if (first_payment_agreed) {
-      return i === 0 ? paymentDate : nthDueDate(i - 1);
-    }
     return nthDueDate(i);
   }
 
@@ -197,8 +187,7 @@ export async function generateReceivableLines(
     // Retention due date:
     // - term > 12 (e.g. 54 months): month after the last installment, regardless of turnover date
     // - all other terms: turnover date with due-day applied (fallback: month after last installment)
-    // When first_payment_agreed, the last installment shifted one slot earlier, so retention shifts too.
-    const retentionSlot = first_payment_agreed ? term_months - 1 : term_months;
+    const retentionSlot = term_months;
     const retentionDueDate = term_months > 12
       ? nthDueDate(retentionSlot)
       : turnoverDate
@@ -241,6 +230,13 @@ export async function generateReceivableLines(
         ...breakdown(monthly_stretched_dp),
       });
     }
+    lines.push({
+      ...base,
+      type_of_payment:  'Loan Take-out',
+      due_date:         installmentDueDate(term_months),
+      total_amount_due: balance_for_financing,
+      ...breakdown(balance_for_financing),
+    });
   }
 
   // ── Insert all lines ──────────────────────────────────────────────────────
@@ -248,6 +244,276 @@ export async function generateReceivableLines(
     .from('receivables_database')
     .insert(lines);
   if (insertError) throw insertError;
+}
+
+/* ─── Expected schedule (dry-run) ───────────────────────────────────────── */
+
+export interface ExpectedLine {
+  type_of_payment: string;
+  expected_due_date: string;
+}
+
+/**
+ * Re-derives what the collection schedule SHOULD look like for a reservation.
+ * Uses the stored Reservation Fee line's due_date as paymentDate so the
+ * comparison is self-consistent with how lines were originally generated.
+ */
+export async function computeExpectedSchedule(reservationId: string): Promise<ExpectedLine[]> {
+  // 1. Fetch reservation data
+  const { data: res, error } = await supabase
+    .from('reservations')
+    .select(
+      `project, tower, payment_scheme, term_months`
+    )
+    .eq('reservation_id', reservationId)
+    .single();
+  if (error || !res) throw error ?? new Error('Reservation not found');
+
+  const { project, tower, payment_scheme, term_months } = res;
+
+  // 2. Get the paymentDate from the stored Reservation Fee line
+  const { data: rfLine } = await supabase
+    .from('receivables_database')
+    .select('due_date')
+    .eq('reservation_id', reservationId)
+    .eq('type_of_payment', 'Reservation Fee')
+    .single();
+  if (!rfLine) throw new Error('Reservation Fee line not found in schedule');
+  const paymentDate = rfLine.due_date as string;
+
+  // 3. Replicate due-date helpers
+  const [resYear, resMonth1, resDay] = paymentDate.split('-').map(Number);
+  const turnoverDate = await fetchTurnoverDate(project, tower);
+  const { dueDay } = await resolveDueDate(resDay);
+
+  let turnoverDueDay = dueDay;
+  let turnoverSameMonth = false;
+  if (turnoverDate) {
+    const td = Number(turnoverDate.split('-')[2]);
+    const r = await resolveDueDate(td);
+    turnoverDueDay = r.dueDay;
+    turnoverSameMonth = r.sameMonth;
+  }
+
+  function toDateStr(y: number, m: number, d: number) {
+    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  }
+  function lastDayOf(y: number, m: number) { return new Date(y, m, 0).getDate(); }
+  function nthDueDate(n: number) {
+    let year = resYear; let month1 = resMonth1 + 1 + n;
+    while (month1 > 12) { month1 -= 12; year++; }
+    return toDateStr(year, month1, Math.min(dueDay, lastDayOf(year, month1)));
+  }
+  function installmentDueDate(i: number) { return nthDueDate(i); }
+  function applyDueDayToTurnover(dateStr: string) {
+    let [y, m] = dateStr.split('-').map(Number);
+    if (!turnoverSameMonth) { m++; if (m > 12) { m = 1; y++; } }
+    return toDateStr(y, m, Math.min(turnoverDueDay, lastDayOf(y, m)));
+  }
+
+  // 4. Build expected lines
+  const lines: ExpectedLine[] = [];
+  lines.push({ type_of_payment: 'Reservation Fee', expected_due_date: paymentDate });
+
+  if (payment_scheme === 'spot_cash') {
+    lines.push({
+      type_of_payment: 'Retention Fee',
+      expected_due_date: turnoverDate ? applyDueDayToTurnover(turnoverDate) : nthDueDate(0),
+    });
+    lines.push({ type_of_payment: 'Cash Out Balance', expected_due_date: nthDueDate(0) });
+
+  } else if (payment_scheme === 'deferred_cash') {
+    for (let i = 0; i < term_months; i++) {
+      lines.push({ type_of_payment: `Monthly Deferred ${i + 1}/${term_months}`, expected_due_date: installmentDueDate(i) });
+    }
+    const retentionSlot = term_months;
+    lines.push({
+      type_of_payment: 'Retention Fee',
+      expected_due_date: term_months > 12
+        ? nthDueDate(retentionSlot)
+        : turnoverDate ? applyDueDayToTurnover(turnoverDate) : nthDueDate(retentionSlot),
+    });
+
+  } else if (payment_scheme === 'spot_dp') {
+    lines.push({ type_of_payment: 'Downpayment', expected_due_date: installmentDueDate(0) });
+    lines.push({
+      type_of_payment: 'Loan Take-out',
+      expected_due_date: turnoverDate ? applyDueDayToTurnover(turnoverDate) : nthDueDate(0),
+    });
+
+  } else if (payment_scheme === 'stretched_dp') {
+    for (let i = 0; i < term_months; i++) {
+      lines.push({ type_of_payment: `Monthly DP ${i + 1}/${term_months}`, expected_due_date: installmentDueDate(i) });
+    }
+    lines.push({ type_of_payment: 'Loan Take-out', expected_due_date: installmentDueDate(term_months) });
+  }
+
+  return lines;
+}
+
+export interface RepairPreviewItem {
+  type_of_payment: string;
+  current_due_date: string | null;
+  correct_due_date: string;
+  total_amount_due: number;
+  action: 'update' | 'insert';
+}
+
+export interface RepairResult {
+  updatedDates: number;
+  insertedLines: number;
+}
+
+interface FullLine { type_of_payment: string; due_date: string; total_amount_due: number; principal: number; hic: number | null; vat: number; other_charges: number; }
+interface RepairPlan {
+  plan: RepairPreviewItem[];
+  toInsertRows: Record<string, unknown>[];
+  toUpdateIds: { id: string; due_date: string }[];
+}
+
+async function _buildRepairPlan(reservationId: string): Promise<RepairPlan> {
+  const { data: res, error } = await supabase
+    .from('reservations')
+    .select(
+      `client_id, client_name, inventory_code,
+       project, tower,
+       payment_scheme, term_months,
+       net_list_price, vat, other_charges, total_contract_price,
+       hic_discount, reservation_fee, retention_fee,
+       net_amount, dp_amount, net_spot_dp,
+       monthly_deferred, monthly_stretched_dp, balance_for_financing`
+    )
+    .eq('reservation_id', reservationId)
+    .single();
+  if (error || !res) throw error ?? new Error('Reservation not found');
+
+  const {
+    client_id, client_name, inventory_code, project, tower,
+    payment_scheme, term_months,
+    net_list_price, vat, other_charges, total_contract_price: tcp,
+    hic_discount, reservation_fee, retention_fee,
+    net_amount, net_spot_dp,
+    monthly_deferred, monthly_stretched_dp, balance_for_financing,
+  } = res;
+
+  const { data: rfLine } = await supabase
+    .from('receivables_database').select('due_date')
+    .eq('reservation_id', reservationId).eq('type_of_payment', 'Reservation Fee').single();
+  if (!rfLine) throw new Error('Reservation Fee line not found — cannot repair without it');
+  const paymentDate = rfLine.due_date as string;
+
+  const [resYear, resMonth1, resDay] = paymentDate.split('-').map(Number);
+  const turnoverDate = await fetchTurnoverDate(project, tower);
+  const { dueDay } = await resolveDueDate(resDay);
+  let turnoverDueDay = dueDay; let turnoverSameMonth = false;
+  if (turnoverDate) {
+    const r = await resolveDueDate(Number(turnoverDate.split('-')[2]));
+    turnoverDueDay = r.dueDay; turnoverSameMonth = r.sameMonth;
+  }
+  function toDateStr(y: number, m: number, d: number) { return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`; }
+  function lastDayOf(y: number, m: number) { return new Date(y, m, 0).getDate(); }
+  function nthDueDate(n: number) {
+    let y = resYear; let m = resMonth1 + 1 + n;
+    while (m > 12) { m -= 12; y++; }
+    return toDateStr(y, m, Math.min(dueDay, lastDayOf(y, m)));
+  }
+  function installmentDueDate(i: number) { return nthDueDate(i); }
+  function applyDueDayToTurnover(d: string) {
+    let [y, m] = d.split('-').map(Number);
+    if (!turnoverSameMonth) { m++; if (m > 12) { m = 1; y++; } }
+    return toDateStr(y, m, Math.min(turnoverDueDay, lastDayOf(y, m)));
+  }
+  const tcpRatio = tcp > 0 ? 1 / tcp : 0;
+  function breakdown(amount: number) {
+    return {
+      principal:     Math.round(amount * net_list_price * tcpRatio),
+      hic:           hic_discount > 0 ? Math.round(amount * hic_discount * tcpRatio) : null,
+      vat:           Math.round(amount * vat * tcpRatio),
+      other_charges: Math.round(amount * other_charges * tcpRatio),
+    };
+  }
+
+  const expected: FullLine[] = [];
+  const base = { reservation_id: reservationId, client_id: client_id ?? null, client_name, inventory_code, payment_scheme, payment_status: 'Unpaid', mode_of_payment: null, acknowledgement_receipt_no: null, posting_date: null };
+
+  expected.push({ type_of_payment: 'Reservation Fee', due_date: paymentDate, total_amount_due: reservation_fee, principal: reservation_fee, hic: null, vat: 0, other_charges: 0 });
+  if (payment_scheme === 'spot_cash') {
+    expected.push({ type_of_payment: 'Retention Fee', due_date: turnoverDate ? applyDueDayToTurnover(turnoverDate) : nthDueDate(0), total_amount_due: retention_fee, principal: retention_fee, hic: null, vat: 0, other_charges: 0 });
+    expected.push({ type_of_payment: 'Cash Out Balance', due_date: nthDueDate(0), total_amount_due: net_amount, ...breakdown(net_amount) });
+  } else if (payment_scheme === 'deferred_cash') {
+    for (let i = 0; i < term_months; i++) expected.push({ type_of_payment: `Monthly Deferred ${i+1}/${term_months}`, due_date: installmentDueDate(i), total_amount_due: monthly_deferred, ...breakdown(monthly_deferred) });
+    const retSlot = term_months;
+    expected.push({ type_of_payment: 'Retention Fee', due_date: term_months > 12 ? nthDueDate(retSlot) : turnoverDate ? applyDueDayToTurnover(turnoverDate) : nthDueDate(retSlot), total_amount_due: retention_fee, principal: retention_fee, hic: null, vat: 0, other_charges: 0 });
+  } else if (payment_scheme === 'spot_dp') {
+    expected.push({ type_of_payment: 'Downpayment', due_date: installmentDueDate(0), total_amount_due: net_spot_dp, ...breakdown(net_spot_dp) });
+    expected.push({ type_of_payment: 'Loan Take-out', due_date: turnoverDate ? applyDueDayToTurnover(turnoverDate) : nthDueDate(0), total_amount_due: balance_for_financing, ...breakdown(balance_for_financing) });
+  } else if (payment_scheme === 'stretched_dp') {
+    for (let i = 0; i < term_months; i++) expected.push({ type_of_payment: `Monthly DP ${i+1}/${term_months}`, due_date: installmentDueDate(i), total_amount_due: monthly_stretched_dp, ...breakdown(monthly_stretched_dp) });
+    expected.push({ type_of_payment: 'Loan Take-out', due_date: installmentDueDate(term_months), total_amount_due: balance_for_financing, ...breakdown(balance_for_financing) });
+  }
+
+  const { data: stored } = await supabase.from('receivables_database')
+    .select('id, type_of_payment, due_date, payment_status').eq('reservation_id', reservationId);
+  const storedMap = new Map((stored ?? []).map((l: any) => [l.type_of_payment as string, l as { id: string; due_date: string; payment_status: string }]));
+
+  const plan: RepairPreviewItem[] = [];
+  const toInsertRows: Record<string, unknown>[] = [];
+  const toUpdateIds: { id: string; due_date: string }[] = [];
+
+  for (const exp of expected) {
+    const s = storedMap.get(exp.type_of_payment);
+    if (!s) {
+      plan.push({ type_of_payment: exp.type_of_payment, current_due_date: null, correct_due_date: exp.due_date, total_amount_due: exp.total_amount_due, action: 'insert' });
+      toInsertRows.push({ ...base, ...exp });
+    } else if (s.due_date !== exp.due_date && s.payment_status !== 'Paid') {
+      plan.push({ type_of_payment: exp.type_of_payment, current_due_date: s.due_date, correct_due_date: exp.due_date, total_amount_due: exp.total_amount_due, action: 'update' });
+      toUpdateIds.push({ id: s.id, due_date: exp.due_date });
+    }
+  }
+
+  return { plan, toInsertRows, toUpdateIds };
+}
+
+/**
+ * Returns a preview of what repairSchedule would change — no DB writes.
+ * Excludes paid lines from updates (same rule as repairSchedule).
+ */
+export async function previewRepair(reservationId: string): Promise<RepairPreviewItem[]> {
+  const { plan } = await _buildRepairPlan(reservationId);
+  return plan;
+}
+
+/**
+ * Fixes a reservation's collection schedule for the selected line types only.
+ * - Updates stored lines whose due_date differs from expected (unpaid only)
+ * - Inserts any expected lines that are missing entirely
+ * Does NOT delete unexpected/extra lines.
+ * @param selectedTypes  If provided, only fixes those type_of_payment values.
+ */
+export async function repairSchedule(reservationId: string, selectedTypes?: Set<string>): Promise<RepairResult> {
+  const { toInsertRows, toUpdateIds, plan } = await _buildRepairPlan(reservationId);
+
+  const filteredUpdates = selectedTypes
+    ? toUpdateIds.filter((u) => {
+        const item = plan.find((p) => p.action === 'update' && p.correct_due_date === u.due_date);
+        return item ? selectedTypes.has(item.type_of_payment) : false;
+      })
+    : toUpdateIds;
+
+  const filteredInserts = selectedTypes
+    ? toInsertRows.filter((r) => selectedTypes.has(r.type_of_payment as string))
+    : toInsertRows;
+
+  await Promise.all(filteredUpdates.map(({ id, due_date }) =>
+    supabase.from('receivables_database').update({ due_date }).eq('id', id)
+  ));
+
+  if (filteredInserts.length > 0) {
+    const { error: insertErr } = await supabase.from('receivables_database').insert(filteredInserts);
+    if (insertErr) throw insertErr;
+  }
+
+  return { updatedDates: filteredUpdates.length, insertedLines: filteredInserts.length };
 }
 
 /* ─── Read / Update ──────────────────────────────────────────────────────── */

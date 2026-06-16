@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { AlertTriangle, Calendar, ChevronLeft, ChevronRight, CheckCircle2, DollarSign, CalendarDays, Loader2, Save, Plus, Trash2, Eraser, Building2, Layers, Percent, Home, ShieldCheck, GripVertical, Users, Crown, UserPlus, Network, FileCheck, Eye, KeyRound, Briefcase, Globe, Check } from 'lucide-react';
+import { AlertTriangle, Calendar, ChevronLeft, ChevronRight, CheckCircle2, DollarSign, CalendarDays, Loader2, Save, Plus, Trash2, Eraser, Building2, Layers, Percent, Home, ShieldCheck, GripVertical, Users, Crown, UserPlus, Network, FileCheck, Eye, KeyRound, Briefcase, Globe, Check, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import {
   DndContext, closestCenter, PointerSensor, TouchSensor,
@@ -48,7 +48,15 @@ import { fetchProjects, fetchTowers } from '@/lib/inventory';
 import {
   previewTurnoverDueDateFixes,
   applyTurnoverDueDateFixes,
+  fetchReceivableLines,
+  computeExpectedSchedule,
+  previewRepair,
+  repairSchedule,
   DueDateFixPreview,
+  ReceivableLine,
+  ExpectedLine,
+  RepairPreviewItem,
+  RepairResult,
 } from '@/lib/receivables';
 import { supabase } from '@/lib/supabase';
 
@@ -119,6 +127,12 @@ const SETUP_ITEMS: SetupItem[] = [
     label: 'Fix Turnover Due Dates',
     description: 'Correct retention/loan due dates after turnover date is set',
     icon: <Calendar size={22} />,
+  },
+  {
+    id: 'check-due-dates',
+    label: 'Check Due Dates',
+    description: 'Verify generated collection schedules are correct',
+    icon: <FileCheck size={22} />,
   },
 ];
 
@@ -2454,6 +2468,838 @@ function EditUserSheet({
   );
 }
 
+/* ─── Check Due Dates overlay ────────────────────────────────────────── */
+
+interface ResSummary {
+  reservation_id: string;
+  client_name: string;
+  inventory_code: string;
+  payment_scheme: string;
+  first_payment_agreed: boolean;
+  line_count: number;
+  first_due: string;
+  last_due: string;
+}
+
+function CheckDueDatesOverlay({ onClose }: { onClose: () => void }) {
+  const [mode, setMode] = useState<'all' | 'single'>('single');
+
+  // Single mode
+  const [query,        setQuery]        = useState('');
+  const [suggestions,  setSuggestions]  = useState<{ reservation_id: string; client_name: string; inventory_code: string }[]>([]);
+  const [showSug,      setShowSug]      = useState(false);
+  const [sugLoading,   setSugLoading]   = useState(false);
+  const sugTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [loading,            setLoading]           = useState(false);
+  const [lines,              setLines]             = useState<ReceivableLine[] | null>(null);
+  const [expected,           setExpected]          = useState<ExpectedLine[] | null>(null);
+  const [singleFpa,          setSingleFpa]         = useState<boolean>(false);
+  const [singleError,        setSingleError]       = useState<string | null>(null);
+  const [previewing,      setPreviewing]      = useState(false);
+  const [repairPreview,   setRepairPreview]   = useState<RepairPreviewItem[] | null>(null);
+  const [selectedFixes,   setSelectedFixes]   = useState<Set<string>>(new Set());
+  const [repairing,       setRepairing]       = useState(false);
+  const [repairResult,    setRepairResult]     = useState<RepairResult | null>(null);
+  const [repairError,     setRepairError]      = useState<string | null>(null);
+  const [lastCheckedId,   setLastCheckedId]   = useState<string | null>(null);
+
+  // All mode
+  const [allLoading,  setAllLoading]  = useState(false);
+  const [summaries,   setSummaries]   = useState<ResSummary[] | null>(null);
+  const [allError,    setAllError]    = useState<string | null>(null);
+  const [expandedId,       setExpandedId]       = useState<string | null>(null);
+  const [expandLines,      setExpandLines]      = useState<ReceivableLine[]>([]);
+  const [expandExpected,   setExpandExpected]   = useState<ExpectedLine[]>([]);
+  const [expandLoading,    setExpandLoading]    = useState(false);
+  const [checkedIds,       setCheckedIds]       = useState<Map<string, 'ok' | 'issues'>>(new Map());
+  const [checkingAll,      setCheckingAll]      = useState(false);
+  const [checkAllProgress, setCheckAllProgress] = useState({ current: 0, total: 0 });
+
+  function handleQueryChange(val: string) {
+    setQuery(val);
+    setLines(null);
+    setSingleError(null);
+    if (sugTimerRef.current) clearTimeout(sugTimerRef.current);
+    if (!val.trim()) { setSuggestions([]); setShowSug(false); return; }
+    sugTimerRef.current = setTimeout(async () => {
+      setSugLoading(true);
+      const q = val.trim().toUpperCase();
+      const { data } = await supabase
+        .from('reservations')
+        .select('reservation_id, client_name, inventory_code')
+        .or(`reservation_id.ilike.%${q}%,client_name.ilike.%${val.trim()}%,inventory_code.ilike.%${q}%`)
+        .limit(8);
+      setSuggestions((data ?? []) as { reservation_id: string; client_name: string; inventory_code: string }[]);
+      setShowSug(true);
+      setSugLoading(false);
+    }, 280);
+  }
+
+  async function loadSchedule(id: string) {
+    setQuery(id);
+    setShowSug(false);
+    setSuggestions([]);
+    setLoading(true); setSingleError(null); setLines(null); setExpected(null); setSingleFpa(false);
+    setRepairResult(null); setRepairError(null); setLastCheckedId(id);
+    try {
+      const [result, exp, resRow] = await Promise.all([
+        fetchReceivableLines(id),
+        computeExpectedSchedule(id),
+        supabase.from('reservations').select('first_payment_agreed').eq('reservation_id', id).single(),
+      ]);
+      if (result.length === 0) setSingleError(`No collection schedule found for ${id}.`);
+      else {
+        setLines(result);
+        setExpected(exp);
+        setSingleFpa(!!(resRow.data as any)?.first_payment_agreed);
+      }
+    } catch (e: any) {
+      setSingleError(e?.message ?? 'Fetch failed');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handlePreviewRepair() {
+    if (!lastCheckedId) return;
+    setPreviewing(true); setRepairError(null);
+    try {
+      const preview = await previewRepair(lastCheckedId);
+      setRepairPreview(preview);
+      setSelectedFixes(new Set(preview.map((p) => p.type_of_payment)));
+    } catch (e: any) {
+      setRepairError(e?.message ?? 'Preview failed');
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
+  async function handleConfirmRepair() {
+    if (!lastCheckedId || selectedFixes.size === 0) return;
+    setRepairing(true); setRepairError(null);
+    try {
+      const result = await repairSchedule(lastCheckedId, selectedFixes);
+      setRepairResult(result);
+      setRepairPreview(null);
+      const [updatedLines, updatedExp] = await Promise.all([
+        fetchReceivableLines(lastCheckedId),
+        computeExpectedSchedule(lastCheckedId),
+      ]);
+      // Refresh single mode view
+      setLines(updatedLines); setExpected(updatedExp);
+      // Refresh All mode expanded view if open
+      if (expandedId === lastCheckedId) {
+        setExpandLines(updatedLines); setExpandExpected(updatedExp);
+        setCheckedIds((prev) => new Map(prev).set(lastCheckedId, 'ok'));
+      }
+    } catch (e: any) {
+      setRepairError(e?.message ?? 'Repair failed');
+    } finally {
+      setRepairing(false);
+    }
+  }
+
+  async function handleSearch() {
+    const id = query.trim().toUpperCase();
+    if (!id) return;
+    await loadSchedule(id);
+  }
+
+  async function handleLoadAll() {
+    setAllLoading(true); setAllError(null); setSummaries(null);
+    try {
+      const [{ data, error }, { data: resData }] = await Promise.all([
+        supabase.from('receivables_database')
+          .select('reservation_id, client_name, inventory_code, due_date, payment_scheme')
+          .order('due_date'),
+        supabase.from('reservations')
+          .select('reservation_id, first_payment_agreed'),
+      ]);
+      if (error) throw error;
+      const fpaMap = new Map<string, boolean>(
+        ((resData ?? []) as { reservation_id: string; first_payment_agreed: boolean | null }[])
+          .map((r) => [r.reservation_id, !!r.first_payment_agreed])
+      );
+      const rows = (data ?? []) as { reservation_id: string; client_name: string; inventory_code: string; due_date: string; payment_scheme: string }[];
+      const map = new Map<string, ResSummary>();
+      for (const r of rows) {
+        if (!map.has(r.reservation_id)) {
+          map.set(r.reservation_id, {
+            reservation_id: r.reservation_id,
+            client_name: r.client_name,
+            inventory_code: r.inventory_code,
+            payment_scheme: r.payment_scheme,
+            first_payment_agreed: fpaMap.get(r.reservation_id) ?? false,
+            line_count: 0,
+            first_due: r.due_date,
+            last_due: r.due_date,
+          });
+        }
+        const s = map.get(r.reservation_id)!;
+        s.line_count++;
+        if (r.due_date < s.first_due) s.first_due = r.due_date;
+        if (r.due_date > s.last_due)  s.last_due  = r.due_date;
+      }
+      setSummaries([...map.values()]);
+    } catch (e: any) {
+      setAllError(e?.message ?? 'Fetch failed');
+    } finally {
+      setAllLoading(false);
+    }
+  }
+
+  async function handleExpand(resId: string) {
+    if (expandedId === resId) { setExpandedId(null); return; }
+    setExpandedId(resId);
+    setExpandLines([]); setExpandExpected([]);
+    setExpandLoading(true);
+    try {
+      const [stored, exp] = await Promise.all([
+        fetchReceivableLines(resId),
+        computeExpectedSchedule(resId),
+      ]);
+      setExpandLines(stored);
+      setExpandExpected(exp);
+      const hasIssues = exp.some((e) => {
+        const s = stored.find((l) => l.type_of_payment === e.type_of_payment);
+        if (!s) return true;
+        if (s.payment_status === 'Paid') return false;
+        return s.due_date !== e.expected_due_date;
+      });
+      setCheckedIds((prev) => new Map(prev).set(resId, hasIssues ? 'issues' : 'ok'));
+    } catch { setExpandLines([]); setExpandExpected([]); }
+    finally { setExpandLoading(false); }
+  }
+
+  function handleAllFix(resId: string) {
+    setLastCheckedId(resId);
+    setRepairResult(null); setRepairError(null);
+    handlePreviewRepairFor(resId);
+  }
+
+  async function handleCheckAll() {
+    if (!summaries || summaries.length === 0) return;
+    setCheckingAll(true);
+    setCheckAllProgress({ current: 0, total: summaries.length });
+    const results = new Map<string, 'ok' | 'issues'>();
+    for (let i = 0; i < summaries.length; i++) {
+      const resId = summaries[i].reservation_id;
+      try {
+        const [stored, exp] = await Promise.all([
+          fetchReceivableLines(resId),
+          computeExpectedSchedule(resId),
+        ]);
+        const hasIssues = exp.some((e) => {
+          const s = stored.find((l) => l.type_of_payment === e.type_of_payment);
+          if (!s) return true;
+          if (s.payment_status === 'Paid') return false;
+          return s.due_date !== e.expected_due_date;
+        });
+        results.set(resId, hasIssues ? 'issues' : 'ok');
+      } catch {
+        // skip on error
+      }
+      setCheckAllProgress({ current: i + 1, total: summaries.length });
+    }
+    setCheckedIds(results);
+    setCheckingAll(false);
+  }
+
+  async function handlePreviewRepairFor(resId: string) {
+    setPreviewing(true); setRepairError(null);
+    try {
+      const preview = await previewRepair(resId);
+      setRepairPreview(preview);
+      setSelectedFixes(new Set(preview.map((p) => p.type_of_payment)));
+    } catch (e: any) {
+      setRepairError(e?.message ?? 'Preview failed');
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
+  const schemeLabel: Record<string, string> = {
+    spot_cash: 'Spot Cash', deferred_cash: 'Deferred Cash',
+    spot_dp: 'Spot DP', stretched_dp: 'Stretched DP',
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-[#F2F2F7]" style={{ animation: 'overlaySlideUp 0.32s cubic-bezier(0.32,0.72,0,1) both' }}>
+      <style>{`@keyframes overlaySlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
+
+      {/* Nav */}
+      <div className="flex items-center justify-between px-4 pt-14 pb-4 shrink-0 bg-white border-b border-black/[0.06]">
+        <button onClick={onClose} className="p-2.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] active:scale-[0.92]" style={{ transition: 'transform 100ms ease-out' }}>
+          <ChevronLeft size={20} />
+        </button>
+        <p className="text-[#1C1C1E] font-bold text-sm">Check Due Dates</p>
+        <div className="w-10" />
+      </div>
+
+      {/* Mode toggle */}
+      <div className="px-4 py-3 bg-white border-b border-black/[0.06] shrink-0">
+        <div className="flex gap-2 p-1 rounded-2xl bg-[#F2F2F7]">
+          {(['single', 'all'] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className="flex-1 py-2 rounded-xl text-xs font-bold transition-all"
+              style={mode === m
+                ? { background: '#fff', color: '#1C1C1E', boxShadow: '0 1px 6px rgba(0,0,0,0.10)' }
+                : { color: '#8E8E93' }}
+            >
+              {m === 'single' ? 'Single Transaction' : 'All Transactions'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 pb-10">
+
+        {/* ── Single mode ── */}
+        {mode === 'single' && (
+          <>
+            <div className="relative">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => handleQueryChange(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                  onFocus={() => suggestions.length > 0 && setShowSug(true)}
+                  onBlur={() => setTimeout(() => setShowSug(false), 150)}
+                  placeholder="Search by reservation ID, client name, or unit…"
+                  className={overlayInputCls + ' flex-1'}
+                  autoComplete="off"
+                />
+                <button
+                  onClick={handleSearch}
+                  disabled={loading || !query.trim()}
+                  className="px-4 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-40 shrink-0"
+                  style={{ background: '#C03D25' }}
+                >
+                  {loading ? <Loader2 size={15} className="animate-spin" /> : 'Check'}
+                </button>
+              </div>
+
+              {/* Suggestions dropdown */}
+              {showSug && (
+                <div className="absolute left-0 right-14 top-full mt-1 z-10 rounded-2xl bg-white border border-black/[0.08] shadow-lg overflow-hidden">
+                  {sugLoading ? (
+                    <div className="flex justify-center py-3">
+                      <Loader2 size={16} className="text-[#C03D25] animate-spin" />
+                    </div>
+                  ) : suggestions.length === 0 ? (
+                    <p className="text-xs text-[#8E8E93] text-center py-3">No results</p>
+                  ) : (
+                    <div className="divide-y divide-black/[0.05] max-h-56 overflow-y-auto">
+                      {suggestions.map((s) => (
+                        <button
+                          key={s.reservation_id}
+                          type="button"
+                          onMouseDown={() => loadSchedule(s.reservation_id)}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-left active:bg-[#F2F2F7]"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-[#1C1C1E] truncate">{s.client_name}</p>
+                            <p className="text-xs text-[#8E8E93] truncate">{s.reservation_id} · {s.inventory_code}</p>
+                          </div>
+                          <ChevronRight size={14} className="text-[#C7C7CC] shrink-0" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {singleError && (
+              <div className="flex items-start gap-2 px-4 py-3 rounded-2xl bg-red-50 border border-red-200">
+                <AlertTriangle size={15} className="text-red-500 shrink-0 mt-0.5" />
+                <p className="text-sm text-red-700">{singleError}</p>
+              </div>
+            )}
+
+            {lines && expected && (() => {
+              const storedMap = new Map(lines.map((l) => [l.type_of_payment, l]));
+              const issues = expected.filter((e) => {
+                const stored = storedMap.get(e.type_of_payment);
+                if (!stored) return true; // missing
+                if (stored.payment_status === 'Paid') return false; // paid — skip
+                return stored.due_date !== e.expected_due_date;
+              });
+              const allOk = issues.length === 0;
+
+              return (
+                <>
+                  {/* Summary banner */}
+                  <div
+                    className="flex items-center gap-3 px-4 py-3 rounded-2xl"
+                    style={{
+                      background: allOk ? 'rgba(52,199,89,0.10)' : 'rgba(255,59,48,0.08)',
+                      border: `1px solid ${allOk ? 'rgba(52,199,89,0.25)' : 'rgba(255,59,48,0.20)'}`,
+                    }}
+                  >
+                    {allOk
+                      ? <CheckCircle2 size={18} className="text-[#34C759] shrink-0" />
+                      : <AlertTriangle size={18} className="text-[#FF3B30] shrink-0" />}
+                    <div>
+                      <p className="text-sm font-bold" style={{ color: allOk ? '#1A7F37' : '#C03D25' }}>
+                        {allOk ? 'All lines correct' : `${issues.length} issue${issues.length !== 1 ? 's' : ''} found`}
+                      </p>
+                      <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                        <p className="text-xs text-[#8E8E93]">
+                          {lines[0].client_name} · {lines[0].inventory_code} · {lines.length} lines
+                        </p>
+                        {singleFpa && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: 'rgba(0,122,255,0.10)', color: '#0066CC' }}>
+                            1st DP in advance
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Line-by-line */}
+                  <div className="rounded-3xl bg-white overflow-hidden" style={{ border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 2px 12px rgba(0,0,0,0.05)' }}>
+                    <div className="divide-y divide-black/[0.05]">
+
+                      {/* Expected lines — show each with status */}
+                      {expected.map((e) => {
+                        const stored = storedMap.get(e.type_of_payment);
+                        const missing = !stored;
+                        const isPaid = stored?.payment_status === 'Paid';
+                        const wrong = stored && stored.due_date !== e.expected_due_date;
+                        const wrongAndPaid = wrong && isPaid;
+                        const wrongAndUnpaid = wrong && !isPaid;
+                        const ok = !missing && !wrong;
+                        return (
+                          <div key={e.type_of_payment} className="px-4 py-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  {ok
+                                    ? <CheckCircle2 size={13} className="text-[#34C759] shrink-0" />
+                                    : missing
+                                      ? <AlertTriangle size={13} className="text-[#FF9500] shrink-0" />
+                                      : wrongAndPaid
+                                        ? <CheckCircle2 size={13} className="text-[#8E8E93] shrink-0" />
+                                        : <AlertTriangle size={13} className="text-[#FF3B30] shrink-0" />}
+                                  <p className="text-xs font-semibold text-[#1C1C1E] truncate">{e.type_of_payment}</p>
+                                </div>
+                                {missing && (
+                                  <p className="text-xs text-[#FF9500] mt-1 pl-5 font-medium">Line missing</p>
+                                )}
+                                {wrongAndUnpaid && stored && (
+                                  <div className="mt-1 pl-5 space-y-0.5">
+                                    <p className="text-xs text-[#FF3B30]">Stored: {fmtDate(stored.due_date)}</p>
+                                    <p className="text-xs text-[#1A7F37]">Expected: {fmtDate(e.expected_due_date)}</p>
+                                  </div>
+                                )}
+                                {wrongAndPaid && stored && (
+                                  <div className="mt-1 pl-5 space-y-0.5">
+                                    <p className="text-xs text-[#8E8E93]">Paid on: {fmtDate(stored.due_date)} · Expected: {fmtDate(e.expected_due_date)}</p>
+                                    <p className="text-[10px] text-[#8E8E93]">Already paid — date preserved</p>
+                                  </div>
+                                )}
+                                {ok && stored && (
+                                  <p className="text-xs text-[#8E8E93] mt-0.5 pl-5">{fmtDate(stored.due_date)}</p>
+                                )}
+                              </div>
+                              {stored && (
+                                <div className="text-right shrink-0">
+                                  <p className="text-xs font-bold text-[#1C1C1E]">₱{stored.total_amount_due.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                                  <span
+                                    className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                                    style={{
+                                      background: stored.payment_status === 'Paid' ? 'rgba(52,199,89,0.12)' : 'rgba(142,142,147,0.12)',
+                                      color: stored.payment_status === 'Paid' ? '#1A7F37' : '#6C6C70',
+                                    }}
+                                  >
+                                    {stored.payment_status}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {/* Extra lines in DB that aren't expected */}
+                      {lines.filter((l) => !expected.some((e) => e.type_of_payment === l.type_of_payment)).map((l) => (
+                        <div key={l.id} className="px-4 py-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <AlertTriangle size={13} className="text-[#FF9500] shrink-0" />
+                                <p className="text-xs font-semibold text-[#1C1C1E] truncate">{l.type_of_payment}</p>
+                              </div>
+                              <p className="text-xs text-[#FF9500] mt-1 pl-5 font-medium">Unexpected line</p>
+                              <p className="text-xs text-[#8E8E93] pl-5">{fmtDate(l.due_date)}</p>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <p className="text-xs font-bold text-[#1C1C1E]">₱{l.total_amount_due.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
+
+            {/* Repair feedback */}
+            {repairResult && (
+              <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-green-50 border border-green-200">
+                <CheckCircle2 size={16} className="text-[#34C759] shrink-0" />
+                <p className="text-sm text-[#1A7F37] font-medium">
+                  Fixed: {repairResult.updatedDates} date{repairResult.updatedDates !== 1 ? 's' : ''} corrected
+                  {repairResult.insertedLines > 0 ? `, ${repairResult.insertedLines} line${repairResult.insertedLines !== 1 ? 's' : ''} inserted` : ''}
+                </p>
+              </div>
+            )}
+
+            {repairError && (
+              <div className="flex items-start gap-2 px-4 py-3 rounded-2xl bg-red-50 border border-red-200">
+                <AlertTriangle size={15} className="text-red-500 shrink-0 mt-0.5" />
+                <p className="text-sm text-red-700">{repairError}</p>
+              </div>
+            )}
+
+            {/* Fix Issues button — shown when there are actionable issues */}
+            {lines && expected && (() => {
+              const hasIssues = expected.some((e) => {
+                const s = lines.find((l) => l.type_of_payment === e.type_of_payment);
+                if (!s) return true;
+                if (s.payment_status === 'Paid') return false;
+                return s.due_date !== e.expected_due_date;
+              });
+              if (!hasIssues) return null;
+              return (
+                <button
+                  onClick={handlePreviewRepair}
+                  disabled={previewing}
+                  className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-sm font-bold text-white disabled:opacity-50"
+                  style={{ background: '#C03D25' }}
+                >
+                  {previewing ? <><Loader2 size={16} className="animate-spin" /> Loading…</> : 'Fix Issues'}
+                </button>
+              );
+            })()}
+
+          </>
+        )}
+
+        {/* ── All mode ── */}
+        {mode === 'all' && (
+          <>
+            {!summaries && !allLoading && (
+              <button
+                onClick={handleLoadAll}
+                className="w-full py-3.5 rounded-2xl text-sm font-bold text-white"
+                style={{ background: '#C03D25' }}
+              >
+                Load All Transactions
+              </button>
+            )}
+
+            {allLoading && (
+              <div className="flex flex-col items-center justify-center py-20 gap-3">
+                <Loader2 size={28} className="text-[#C03D25] animate-spin" />
+                <p className="text-sm text-[#8E8E93]">Loading all schedules…</p>
+              </div>
+            )}
+
+            {allError && (
+              <div className="flex items-start gap-2 px-4 py-3 rounded-2xl bg-red-50 border border-red-200">
+                <AlertTriangle size={15} className="text-red-500 shrink-0 mt-0.5" />
+                <p className="text-sm text-red-700">{allError}</p>
+              </div>
+            )}
+
+            {summaries && (
+              <>
+                {/* Check All button + progress */}
+                {checkingAll ? (
+                  <div className="flex flex-col items-center justify-center py-10 gap-4">
+                    <Loader2 size={32} className="text-[#C03D25] animate-spin" />
+                    <div className="text-center">
+                      <p className="text-sm font-bold text-[#1C1C1E]">Checking schedules…</p>
+                      <p className="text-xs text-[#8E8E93] mt-1">{checkAllProgress.current} of {checkAllProgress.total}</p>
+                    </div>
+                    {/* Progress bar */}
+                    <div className="w-48 h-1.5 rounded-full bg-[#E5E5EA] overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-[#C03D25] transition-all"
+                        style={{ width: `${checkAllProgress.total > 0 ? (checkAllProgress.current / checkAllProgress.total) * 100 : 0}%` }}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between px-1">
+                    <p className="text-xs text-[#8E8E93]">{summaries.length} reservations with schedules</p>
+                    <button
+                      onClick={handleCheckAll}
+                      className="text-xs font-bold text-[#C03D25] active:opacity-70 px-3 py-1.5 rounded-xl bg-[#C03D25]/08"
+                      style={{ background: 'rgba(192,61,37,0.08)' }}
+                    >
+                      Check All for Issues
+                    </button>
+                  </div>
+                )}
+                {summaries.map((s) => {
+                  const status = checkedIds.get(s.reservation_id);
+                  const isExpanded = expandedId === s.reservation_id;
+                  return (
+                    <div key={s.reservation_id} className="rounded-3xl bg-white overflow-hidden" style={{ border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 2px 12px rgba(0,0,0,0.05)' }}>
+                      <button
+                        className="w-full flex items-start justify-between gap-3 px-4 py-3 text-left active:bg-[#F2F2F7]"
+                        onClick={() => handleExpand(s.reservation_id)}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            {status === 'ok'     && <CheckCircle2 size={13} className="text-[#34C759] shrink-0" />}
+                            {status === 'issues' && <AlertTriangle size={13} className="text-[#FF3B30] shrink-0" />}
+                            <p className="text-sm font-semibold text-[#1C1C1E] truncate">{s.client_name}</p>
+                          </div>
+                          <p className="text-xs text-[#8E8E93] truncate">{s.inventory_code} · {s.reservation_id}</p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-xs text-[#8E8E93]">{schemeLabel[s.payment_scheme] ?? s.payment_scheme} · {s.line_count} lines</p>
+                            {s.first_payment_agreed && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: 'rgba(0,122,255,0.10)', color: '#0066CC' }}>
+                                1st DP in advance
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-[#8E8E93]">{fmtDate(s.first_due)} → {fmtDate(s.last_due)}</p>
+                        </div>
+                        <ChevronRight
+                          size={16}
+                          className="text-[#C7C7CC] shrink-0 mt-1 transition-transform"
+                          style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}
+                        />
+                      </button>
+
+                      {isExpanded && (
+                        <div className="border-t border-black/[0.06]">
+                          {expandLoading ? (
+                            <div className="flex justify-center py-4">
+                              <Loader2 size={18} className="text-[#C03D25] animate-spin" />
+                            </div>
+                          ) : (() => {
+                            const storedMap = new Map(expandLines.map((l) => [l.type_of_payment, l]));
+                            const hasIssues = expandExpected.some((e) => {
+                              const st = storedMap.get(e.type_of_payment);
+                              if (!st) return true;
+                              if (st.payment_status === 'Paid') return false;
+                              return st.due_date !== e.expected_due_date;
+                            });
+
+                            return (
+                              <>
+                                <div className="divide-y divide-black/[0.05]">
+                                  {expandExpected.map((e) => {
+                                    const stored = storedMap.get(e.type_of_payment);
+                                    const missing = !stored;
+                                    const isPaid = stored?.payment_status === 'Paid';
+                                    const wrong = stored && stored.due_date !== e.expected_due_date;
+                                    const wrongAndPaid = wrong && isPaid;
+                                    const wrongAndUnpaid = wrong && !isPaid;
+                                    const ok = !missing && !wrong;
+                                    return (
+                                      <div key={e.type_of_payment} className="px-4 py-2.5">
+                                        <div className="flex items-start justify-between gap-3">
+                                          <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-1.5">
+                                              {ok          && <CheckCircle2 size={12} className="text-[#34C759] shrink-0" />}
+                                              {missing     && <AlertTriangle size={12} className="text-[#FF9500] shrink-0" />}
+                                              {wrongAndUnpaid && <AlertTriangle size={12} className="text-[#FF3B30] shrink-0" />}
+                                              {wrongAndPaid   && <CheckCircle2 size={12} className="text-[#8E8E93] shrink-0" />}
+                                              <p className="text-xs font-semibold text-[#1C1C1E] truncate">{e.type_of_payment}</p>
+                                            </div>
+                                            {missing && <p className="text-[10px] text-[#FF9500] pl-4 mt-0.5">Missing</p>}
+                                            {wrongAndUnpaid && stored && (
+                                              <div className="flex items-center gap-1.5 pl-4 mt-0.5">
+                                                <p className="text-[10px] text-[#FF3B30]">{fmtDate(stored.due_date)}</p>
+                                                <ChevronRight size={10} className="text-[#C7C7CC]" />
+                                                <p className="text-[10px] text-[#1A7F37] font-medium">{fmtDate(e.expected_due_date)}</p>
+                                              </div>
+                                            )}
+                                            {wrongAndPaid && stored && (
+                                              <p className="text-[10px] text-[#8E8E93] pl-4 mt-0.5">{fmtDate(stored.due_date)} · Paid — preserved</p>
+                                            )}
+                                            {ok && stored && (
+                                              <p className="text-[10px] text-[#8E8E93] pl-4 mt-0.5">{fmtDate(stored.due_date)}</p>
+                                            )}
+                                          </div>
+                                          {stored && (
+                                            <div className="text-right shrink-0">
+                                              <p className="text-xs font-bold text-[#1C1C1E]">₱{stored.total_amount_due.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+                                                style={{
+                                                  background: stored.payment_status === 'Paid' ? 'rgba(52,199,89,0.12)' : 'rgba(142,142,147,0.12)',
+                                                  color: stored.payment_status === 'Paid' ? '#1A7F37' : '#6C6C70',
+                                                }}>
+                                                {stored.payment_status}
+                                              </span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                  {/* Extra unexpected lines */}
+                                  {expandLines.filter((l) => !expandExpected.some((e) => e.type_of_payment === l.type_of_payment)).map((l) => (
+                                    <div key={l.id} className="px-4 py-2.5">
+                                      <div className="flex items-center gap-1.5">
+                                        <AlertTriangle size={12} className="text-[#FF9500] shrink-0" />
+                                        <p className="text-xs font-semibold text-[#1C1C1E] truncate">{l.type_of_payment}</p>
+                                      </div>
+                                      <p className="text-[10px] text-[#FF9500] pl-4">Unexpected · {fmtDate(l.due_date)}</p>
+                                    </div>
+                                  ))}
+                                </div>
+
+                                {hasIssues && (
+                                  <div className="px-4 py-3 border-t border-black/[0.06]">
+                                    <button
+                                      onClick={() => handleAllFix(s.reservation_id)}
+                                      disabled={previewing}
+                                      className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-bold text-white disabled:opacity-50"
+                                      style={{ background: '#C03D25' }}
+                                    >
+                                      {previewing && lastCheckedId === s.reservation_id
+                                        ? <><Loader2 size={15} className="animate-spin" /> Loading…</>
+                                        : 'Fix Issues'}
+                                    </button>
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* ── Repair confirmation sheet (shared, both modes) ── */}
+      {repairPreview && (
+        <div className="fixed inset-0 z-60 flex items-end" style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}>
+          <div className="w-full bg-white rounded-t-3xl px-5 pt-5 pb-10 max-h-[80vh] flex flex-col" style={{ animation: 'overlaySlideUp 0.28s cubic-bezier(0.32,0.72,0,1) both' }}>
+            <div className="flex items-center justify-between mb-4 shrink-0">
+              <p className="text-base font-bold text-[#1C1C1E]">Confirm Changes</p>
+              <button onClick={() => setRepairPreview(null)} className="p-2 rounded-xl bg-[#F2F2F7] active:scale-[0.92]">
+                <X size={16} className="text-[#1C1C1E]" />
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between mb-3 shrink-0">
+              <p className="text-xs text-[#8E8E93]">
+                {selectedFixes.size} of {repairPreview.length} selected · Paid lines excluded
+              </p>
+              <button
+                onClick={() => setSelectedFixes(
+                  selectedFixes.size === repairPreview.length
+                    ? new Set()
+                    : new Set(repairPreview.map((p) => p.type_of_payment))
+                )}
+                className="text-xs font-bold text-[#C03D25] active:opacity-70"
+              >
+                {selectedFixes.size === repairPreview.length ? 'Deselect All' : 'Select All'}
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2 mb-4">
+              {repairPreview.map((item) => {
+                const selected = selectedFixes.has(item.type_of_payment);
+                return (
+                  <button
+                    key={item.type_of_payment}
+                    type="button"
+                    onClick={() => setSelectedFixes((prev) => {
+                      const next = new Set(prev);
+                      selected ? next.delete(item.type_of_payment) : next.add(item.type_of_payment);
+                      return next;
+                    })}
+                    className="w-full rounded-2xl px-4 py-3 text-left transition-all active:scale-[0.98]"
+                    style={{
+                      border: selected ? '1.5px solid #C03D25' : '1px solid rgba(0,0,0,0.08)',
+                      background: selected ? 'rgba(192,61,37,0.04)' : '#fff',
+                    }}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div
+                        className="w-5 h-5 rounded-md shrink-0 mt-0.5 flex items-center justify-center"
+                        style={{ background: selected ? '#C03D25' : '#F2F2F7', border: selected ? 'none' : '1.5px solid #C7C7CC' }}
+                      >
+                        {selected && <Check size={11} className="text-white" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span
+                            className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0"
+                            style={{
+                              background: item.action === 'insert' ? 'rgba(52,199,89,0.12)' : 'rgba(255,149,0,0.12)',
+                              color: item.action === 'insert' ? '#1A7F37' : '#A05A00',
+                            }}
+                          >
+                            {item.action === 'insert' ? 'INSERT' : 'UPDATE'}
+                          </span>
+                          <p className="text-xs font-semibold text-[#1C1C1E] truncate">{item.type_of_payment}</p>
+                        </div>
+                        {item.action === 'update' && item.current_due_date && (
+                          <div className="flex items-center gap-2">
+                            <p className="text-xs text-[#FF3B30]">{fmtDate(item.current_due_date)}</p>
+                            <ChevronRight size={12} className="text-[#C7C7CC]" />
+                            <p className="text-xs text-[#1A7F37] font-medium">{fmtDate(item.correct_due_date)}</p>
+                          </div>
+                        )}
+                        {item.action === 'insert' && (
+                          <div className="space-y-0.5">
+                            <p className="text-xs text-[#1A7F37]">Due: {fmtDate(item.correct_due_date)}</p>
+                            <p className="text-xs text-[#8E8E93]">₱{item.total_amount_due.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="space-y-2 shrink-0">
+              <button
+                onClick={handleConfirmRepair}
+                disabled={repairing || selectedFixes.size === 0}
+                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-sm font-bold text-white disabled:opacity-50"
+                style={{ background: '#C03D25' }}
+              >
+                {repairing
+                  ? <><Loader2 size={16} className="animate-spin" /> Applying…</>
+                  : `Apply ${selectedFixes.size} Change${selectedFixes.size !== 1 ? 's' : ''}`}
+              </button>
+              <button
+                onClick={() => setRepairPreview(null)}
+                disabled={repairing}
+                className="w-full py-3.5 rounded-2xl text-sm font-bold text-[#1C1C1E] bg-[#F2F2F7] disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── Fix Turnover Due Dates overlay ─────────────────────────────────── */
 
 function fmtDate(d: string): string {
@@ -2632,6 +3478,9 @@ export default function AdminUserPage() {
       )}
       {activeOverlay === 'fix-due-dates' && (
         <FixDueDatesOverlay onClose={() => setActiveOverlay(null)} />
+      )}
+      {activeOverlay === 'check-due-dates' && (
+        <CheckDueDatesOverlay onClose={() => setActiveOverlay(null)} />
       )}
     </>
   );
