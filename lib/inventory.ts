@@ -91,15 +91,21 @@ export interface InventoryUnit {
 }
 
 export async function fetchInventoryUnits(projectName: string, tower: string): Promise<InventoryUnit[]> {
+  const PAGE = 1000;
+  const rows: InventoryUnit[] = [];
+  let from = 0;
   try {
-    const { data, error } = await supabase.rpc('get_inventory_units', {
-      p_project: projectName,
-      p_tower: tower,
-    });
-
-    if (error) throw error;
-
-    return (data as InventoryUnit[]) || [];
+    while (true) {
+      const { data, error } = await supabase.rpc('get_inventory_units', {
+        p_project: projectName,
+        p_tower: tower,
+      }).range(from, from + PAGE - 1);
+      if (error) throw error;
+      rows.push(...((data as InventoryUnit[]) ?? []));
+      if ((data ?? []).length < PAGE) break;
+      from += PAGE;
+    }
+    return rows;
   } catch (err) {
     console.error('Error fetching inventory units:', err);
     throw err;

@@ -335,7 +335,7 @@ const STEP_HEADERS = [
   { title: 'Comparison',                subtitle: 'Compare different payment schemes' },
 ];
 
-const pad2 = (s: string) => String(parseInt(s) || 0).padStart(2, '0');
+const pad2 = (s: string) => /^\d+$/.test(s ?? '') ? String(parseInt(s) || 0).padStart(2, '0') : (s ?? '');
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function NewReservationPage() {
@@ -1329,7 +1329,7 @@ export default function NewReservationPage() {
 
             const uniqueFloors = [...new Set(filtered.map(u => u.floor))].filter(Boolean)
               .sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }));
-            const uniqueUnitNos = [...new Set(filtered.map(u => u.unit_no))].filter(Boolean).sort((a, b) => (parseInt(a) || 0) - (parseInt(b) || 0));
+            const uniqueUnitNos = [...new Set(filtered.map(u => u.unit_no))].filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
             const naCount = uniqueFloors.length * uniqueUnitNos.length - filtered.length;
             const unitMap = new Map<string, Map<string, string>>();
             filtered.forEach(u => {
@@ -1392,6 +1392,14 @@ export default function NewReservationPage() {
                     </div>
                     <div className="overflow-auto rounded-xl border border-black/[0.06]" style={{ maxHeight: '400px' }}>
                       <table className="border-collapse text-xs" style={{ minWidth: `${(uniqueUnitNos.length + 1) * 70}px` }}>
+                        <thead>
+                          <tr>
+                            <th className="sticky left-0 z-20 bg-[#E5E7EB] font-bold text-[#374151] px-3 py-2 border-b-2 border-r border-black/[0.1] whitespace-nowrap min-w-[64px] text-center">Floor</th>
+                            {uniqueUnitNos.map((unitNo) => (
+                              <th key={unitNo} className="bg-[#E5E7EB] font-bold text-[#374151] px-1 py-2 border-b-2 border-r border-black/[0.1] whitespace-nowrap min-w-[64px] text-center">{pad2(unitNo)}</th>
+                            ))}
+                          </tr>
+                        </thead>
                         <tbody>
                           {uniqueFloors.map((fl) => (
                             <tr key={fl}>

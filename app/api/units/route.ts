@@ -8,6 +8,21 @@ const supabase = createClient(
 
 const COLS = `"Project ID","Project Name","Tower","Floor","Unit No.","Inventory Code","Unit Type","Unit Area","Total List Price","Promo Discount","Status","HIC"`;
 
+const PAGE = 1000;
+
+async function fetchAll(baseQuery: ReturnType<typeof supabase.from>) {
+  const rows: Record<string, unknown>[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await (baseQuery as any).range(from, from + PAGE - 1);
+    if (error) throw new Error(error.message);
+    rows.push(...(data ?? []));
+    if ((data ?? []).length < PAGE) break;
+    from += PAGE;
+  }
+  return rows;
+}
+
 function mapRow(row: Record<string, unknown>) {
   return {
     project_id:        row['Project ID']        ?? null,
@@ -34,24 +49,33 @@ export async function GET(req: NextRequest) {
 
   // No project selected → return distinct project names (available units only)
   if (!projectName) {
-    const { data, error } = await supabase.from('Inventory').select('"Project Name"').ilike('Status', 'available').limit(10000);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    const projects = [...new Set((data ?? []).map((r) => r['Project Name']).filter(Boolean))].sort();
-    return NextResponse.json({ projects });
+    try {
+      const data = await fetchAll(supabase.from('Inventory').select('"Project Name"').ilike('Status', 'available'));
+      const projects = [...new Set(data.map((r) => r['Project Name']).filter(Boolean))].sort();
+      return NextResponse.json({ projects });
+    } catch (e: any) {
+      return NextResponse.json({ error: e.message }, { status: 500 });
+    }
   }
 
-  let query = supabase.from('Inventory').select(COLS).eq('Project Name', projectName).ilike('Status', 'available');
+  const baseQuery = supabase.from('Inventory').select(COLS).eq('Project Name', projectName).ilike('Status', 'available');
 
   // project + tower → return ALL units (client handles further filtering)
   if (tower) {
-    const { data, error } = await query.eq('Tower', tower).limit(10000);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ units: (data ?? []).map(mapRow) });
+    try {
+      const data = await fetchAll((baseQuery as any).eq('Tower', tower));
+      return NextResponse.json({ units: data.map(mapRow) });
+    } catch (e: any) {
+      return NextResponse.json({ error: e.message }, { status: 500 });
+    }
   }
 
   // project only → distinct towers
-  const { data, error } = await query.limit(10000);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  const towers = [...new Set((data ?? []).map((r) => r['Tower']).filter(Boolean))].sort();
-  return NextResponse.json({ towers });
+  try {
+    const data = await fetchAll(baseQuery);
+    const towers = [...new Set(data.map((r) => r['Tower']).filter(Boolean))].sort();
+    return NextResponse.json({ towers });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
 }
