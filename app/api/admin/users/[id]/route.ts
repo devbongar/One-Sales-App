@@ -9,8 +9,8 @@ const adminClient = createClient(
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const { full_name, display_name, role_id } = await req.json();
-    const patch: Record<string, unknown> = { role_id: role_id ?? null, display_name: display_name ?? null };
+    const { full_name, display_name, role_id, seller_id } = await req.json();
+    const patch: Record<string, unknown> = { role_id: role_id ?? null, display_name: display_name ?? null, seller_id: seller_id ?? null };
     if (full_name !== undefined) patch.full_name = full_name;
     const { error } = await adminClient.from('profiles').update(patch).eq('id', id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

@@ -1974,6 +1974,7 @@ interface UserProfile {
   display_name: string | null;
   email: string;
   role_id: number | null;
+  seller_id: string | null;
   created_at: string;
   access_roles: { role_name: string } | null;
 }
@@ -2214,16 +2215,54 @@ function CreateUserSheet({
   );
 }
 
+interface SellerLinkRecord {
+  seller_name: string;
+  seller_id: string | null;
+  first_name: string | null;
+  email_address: string | null;
+  sales_director: string | null;
+}
+
 function EditUserSheet({
   user, roles, onClose, onSaved,
 }: { user: UserProfile; roles: { id: number; role_name: string }[]; onClose: () => void; onSaved: () => void }) {
   const [fullName,      setFullName]      = useState(user.full_name ?? '');
   const [displayName,   setDisplayName]   = useState(user.display_name ?? '');
   const [roleId,        setRoleId]        = useState<number | null>(user.role_id);
+  const [sellerId,      setSellerId]      = useState<string | null>(user.seller_id ?? null);
   const [saving,        setSaving]        = useState(false);
   const [deleting,      setDeleting]      = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error,         setError]         = useState<string | null>(null);
+
+  // Salesperson lookup for dropdown
+  const [sellers,        setSellers]        = useState<SellerLinkRecord[]>([]);
+  const [sellerSearch,   setSellerSearch]   = useState('');
+  const [showSellerList, setShowSellerList] = useState(false);
+
+  useEffect(() => {
+    supabase.from('Salesperson')
+      .select('"Seller Name", "Seller Id", "FIRST NAME", "Email Address", "Sales Director"')
+      .order('"Seller Name"')
+      .then(({ data }) => {
+        setSellers((data ?? []).map((r: any) => ({
+          seller_name:    r['Seller Name'],
+          seller_id:      r['Seller Id'] ?? null,
+          first_name:     r['FIRST NAME'] ?? null,
+          email_address:  r['Email Address'] ?? null,
+          sales_director: r['Sales Director'] ?? null,
+        })));
+      });
+  }, []);
+
+  const linkedSeller = sellerId ? (sellers.find(s => s.seller_id === sellerId) ?? null) : null;
+
+  const filteredSellers = sellers.filter(s =>
+    !sellerSearch.trim() ||
+    s.seller_name.toLowerCase().includes(sellerSearch.toLowerCase()) ||
+    (s.seller_id ?? '').toLowerCase().includes(sellerSearch.toLowerCase()) ||
+    (s.email_address ?? '').toLowerCase().includes(sellerSearch.toLowerCase())
+  );
 
   async function handleSaveRole() {
     setSaving(true); setError(null);
@@ -2231,7 +2270,7 @@ function EditUserSheet({
       const res = await fetch(`/api/admin/users/${user.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ full_name: fullName.trim() || null, role_id: roleId, display_name: displayName.trim() || null }),
+        body: JSON.stringify({ full_name: fullName.trim() || null, role_id: roleId, display_name: displayName.trim() || null, seller_id: sellerId }),
       });
       if (!res.ok) { const d = await res.json(); setError(d.error); return; }
       onSaved();
@@ -2250,7 +2289,7 @@ function EditUserSheet({
 
   return (
     <div className="fixed inset-0 z-60 flex items-end" style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}>
-      <div className="w-full bg-white rounded-t-3xl px-5 pt-5 pb-10 space-y-4" style={{ animation: 'overlaySlideUp 0.28s cubic-bezier(0.32,0.72,0,1) both' }}>
+      <div className="w-full bg-white rounded-t-3xl px-5 pt-5 pb-10 space-y-4 max-h-[90vh] overflow-y-auto" style={{ animation: 'overlaySlideUp 0.28s cubic-bezier(0.32,0.72,0,1) both' }}>
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-[#C03D25]/10 flex items-center justify-center">
@@ -2298,6 +2337,83 @@ function EditUserSheet({
               </button>
             ))}
           </div>
+        </div>
+
+        {/* ── Salesperson Record ── */}
+        <div className="space-y-2">
+          <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider">Salesperson Record</p>
+
+          {linkedSeller ? (
+            <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-green-50 border border-green-200">
+              <Network size={16} className="text-green-600 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-[#1C1C1E] truncate">{linkedSeller.seller_name}</p>
+                <p className="text-xs text-[#8E8E93] truncate">ID: {linkedSeller.seller_id}</p>
+                {linkedSeller.sales_director && (
+                  <p className="text-xs text-[#8E8E93] truncate">Director: {linkedSeller.sales_director}</p>
+                )}
+              </div>
+              <button type="button" disabled={saving} onClick={async () => {
+                setSaving(true); setError(null);
+                try {
+                  const res = await fetch(`/api/admin/users/${user.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ seller_id: null }),
+                  });
+                  if (!res.ok) { const d = await res.json(); setError(d.error); return; }
+                  setSellerId(null);
+                } catch (e: any) { setError(e.message); }
+                finally { setSaving(false); }
+              }}
+                className="text-[10px] font-bold text-[#FF3B30] px-2.5 py-1 rounded-full bg-red-50 shrink-0 active:opacity-70 disabled:opacity-40">
+                {saving ? '…' : 'Unlink'}
+              </button>
+            </div>
+          ) : (
+            <button type="button" onClick={() => setShowSellerList(v => !v)}
+              className="w-full flex items-center gap-2 px-4 py-3 rounded-2xl bg-[#F2F2F7] border border-dashed border-black/10 text-sm text-[#8E8E93] active:opacity-70">
+              <Network size={15} />
+              {showSellerList ? 'Cancel' : 'Link to a Salesperson Record'}
+            </button>
+          )}
+
+          {showSellerList && !linkedSeller && (
+            <div className="space-y-2">
+              <input
+                type="text"
+                value={sellerSearch}
+                onChange={e => setSellerSearch(e.target.value)}
+                placeholder="Search by name, ID, or email…"
+                className={overlayInputCls}
+                autoFocus
+              />
+              <div className="max-h-48 overflow-y-auto rounded-2xl border border-black/[0.08] divide-y divide-black/[0.05] bg-white">
+                {filteredSellers.length === 0 ? (
+                  <p className="text-xs text-[#8E8E93] text-center py-4">No results</p>
+                ) : filteredSellers.map(s => (
+                  <button
+                    key={s.seller_id ?? s.seller_name}
+                    type="button"
+                    onClick={() => {
+                      setSellerId(s.seller_id);
+                      setFullName(s.seller_name);
+                      if (s.first_name) setDisplayName(s.first_name);
+                      setShowSellerList(false);
+                      setSellerSearch('');
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-left active:bg-[#F2F2F7]"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-[#1C1C1E] truncate">{s.seller_name}</p>
+                      <p className="text-xs text-[#8E8E93] truncate">{s.seller_id}{s.email_address ? ` · ${s.email_address}` : ''}</p>
+                    </div>
+                    <ChevronRight size={14} className="text-[#C7C7CC] shrink-0" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {error && <p className="text-xs text-[#FF3B30] px-1">{error}</p>}

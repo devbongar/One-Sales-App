@@ -32,6 +32,7 @@ export async function getSession(): Promise<AppUser | null> {
     display_name: p?.display_name ?? null,
     role_id:      p?.role_id      ?? null,
     role_name,
+    seller_id:    p?.seller_id    ?? null,
   };
 }
 

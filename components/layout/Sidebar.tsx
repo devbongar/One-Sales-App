@@ -52,7 +52,7 @@ const NAV: NavGroup[] = [
   },
 ];
 
-const PRIVILEGED_ROLES = ['All Access', 'Sales Director', 'Account Management'];
+const PRIVILEGED_ROLES = ['All Access', 'Sales Director', 'Account Management', 'Finance Verification'];
 
 const SELLER_ALLOWED_HREFS = new Set([
   '/sales/client-registration',
@@ -69,6 +69,21 @@ const DIRECTOR_ALLOWED_HREFS = new Set([
   '/sales/booking',
   '/sales/sales-commission',
   '/account/buyers-foldering',
+]);
+
+const AMD_ALLOWED_HREFS = new Set([
+  '/sales/booking',
+  '/account/buyers-verification',
+  '/account/buyers-foldering',
+  '/account/request-inquiry',
+  '/account/billing-collection',
+  '/account/end-use-financing',
+]);
+
+const FINANCE_ALLOWED_HREFS = new Set([
+  '/finance/commission-payout',
+  '/finance/buyers-payment',
+  '/finance/collection-posting',
 ]);
 
 const ICONS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
@@ -132,7 +147,13 @@ export default function Sidebar({ open, onClose, userName, displayName, userRole
   const initials = getInitials(displayName || userName);
   const isSeller   = !PRIVILEGED_ROLES.includes(userRole ?? '');
   const isDirector = userRole === 'Sales Director';
-  const allowedHrefs = isSeller ? SELLER_ALLOWED_HREFS : isDirector ? DIRECTOR_ALLOWED_HREFS : null;
+  const isAMD      = userRole === 'Account Management';
+  const isFinance  = userRole === 'Finance Verification';
+  const allowedHrefs = isFinance  ? FINANCE_ALLOWED_HREFS
+    : isSeller   ? SELLER_ALLOWED_HREFS
+    : isDirector ? DIRECTOR_ALLOWED_HREFS
+    : isAMD      ? AMD_ALLOWED_HREFS
+    : null;
   const visibleGroups = NAV.map((group) => ({
     ...group,
     items: allowedHrefs ? group.items.filter((item) => allowedHrefs.has(item.href)) : group.items,
@@ -332,7 +353,7 @@ export default function Sidebar({ open, onClose, userName, displayName, userRole
             className="px-4 pb-10 pt-3 space-y-1"
             style={{ borderTop: '1px solid rgba(255,255,255,0.10)' }}
           >
-            {!isSeller && !isDirector && (
+            {!isSeller && !isDirector && !isAMD && !isFinance && (
               <Link
                 href="/settings"
                 onClick={handleClose}

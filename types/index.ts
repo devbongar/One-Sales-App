@@ -5,6 +5,7 @@ export interface AppUser {
   display_name: string | null;
   role_id: number | null;
   role_name: string | null;
+  seller_id: string | null;
 }
 
 export interface ProjectPhotos {

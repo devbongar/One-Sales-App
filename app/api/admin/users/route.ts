@@ -9,7 +9,7 @@ const adminClient = createClient(
 export async function GET() {
   const { data, error } = await adminClient
     .from('profiles')
-    .select('id, full_name, display_name, email, role_id, created_at, access_roles(role_name)')
+    .select('id, full_name, display_name, email, role_id, seller_id, created_at, access_roles(role_name)')
     .order('created_at', { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
