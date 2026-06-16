@@ -18,6 +18,18 @@ interface RecentReservation {
   inventory_code: string | null;
   status: string;
   finance_status: string | null;
+  created_at: string | null;
+}
+
+function daysElapsedLabel(createdAt: string | null): string {
+  if (!createdAt) return '';
+  const days = Math.floor((Date.now() - new Date(createdAt).getTime()) / 86_400_000);
+  if (days === 0) return 'Reserved today';
+  if (days === 1) return '1 day reserved';
+  if (days < 7)  return `${days} days reserved`;
+  if (days < 30) { const w = Math.floor(days / 7); return `${w} wk${w > 1 ? 's' : ''} reserved`; }
+  if (days < 365) { const m = Math.floor(days / 30); return `${m} mo reserved`; }
+  const y = Math.floor(days / 365); return `${y} yr${y > 1 ? 's' : ''} reserved`;
 }
 
 interface StatusCounts {
@@ -54,7 +66,7 @@ export default function ReservationPage() {
 
       let query = supabase
         .from('reservations')
-        .select('reservation_id, client_name, project, inventory_code, status, finance_status')
+        .select('reservation_id, client_name, project, inventory_code, status, finance_status, created_at')
         .neq('status', 'Booked')
         .neq('status', 'Cancelled')
         .order('created_at', { ascending: false });
@@ -213,6 +225,9 @@ export default function ReservationPage() {
                           <span className="text-xs font-medium text-[#6C6C70]">{r.inventory_code}</span>
                         </>
                       )}
+                      <span className="text-[#D1D1D6]">·</span>
+                      <Clock size={10} className="text-[#C7C7CC] shrink-0" />
+                      <span className="text-xs text-[#8E8E93]">{daysElapsedLabel(r.created_at)}</span>
                     </div>
                   </div>
 

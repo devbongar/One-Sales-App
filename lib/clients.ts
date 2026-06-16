@@ -227,7 +227,15 @@ export async function fetchBuyerInfo(clientUuid: string): Promise<BuyerInfoRecor
 }
 
 export async function fetchAllClients(): Promise<ClientRecord[]> {
-  const { data, error } = await supabase.rpc('get_all_clients');
-  if (error) throw error;
-  return (data ?? []) as ClientRecord[];
+  const PAGE = 1000;
+  const rows: ClientRecord[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase.rpc('get_all_clients').range(from, from + PAGE - 1);
+    if (error) throw error;
+    rows.push(...((data ?? []) as ClientRecord[]));
+    if ((data ?? []).length < PAGE) break;
+    from += PAGE;
+  }
+  return rows;
 }

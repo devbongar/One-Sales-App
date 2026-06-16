@@ -8,7 +8,7 @@ import {
   Receipt, CalendarDays, Upload, Camera, ScanLine,
   ImagePlus, X, AlertTriangle, Loader2, Check, CheckCircle2,
   User, Building2, Tag, LayoutGrid, BadgeCheck, FileText,
-  ChevronDown, CreditCard, ShieldCheck,
+  ChevronDown, CreditCard, ShieldCheck, Clock,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { uploadPaymentProof, uploadDocumentFile, updateReservationPayment, updateReservationStatus } from '@/lib/reservations';
@@ -49,6 +49,18 @@ interface SelectedReservation {
   finance_status: string | null;
   seller_name: string | null;
   payment_proof_url: string | null;
+  created_at: string | null;
+}
+
+function daysElapsedLabel(createdAt: string | null): string {
+  if (!createdAt) return '';
+  const days = Math.floor((Date.now() - new Date(createdAt).getTime()) / 86_400_000);
+  if (days === 0) return 'Reserved today';
+  if (days === 1) return '1 day reserved';
+  if (days < 7)  return `${days} days reserved`;
+  if (days < 30) { const w = Math.floor(days / 7); return `${w} wk${w > 1 ? 's' : ''} reserved`; }
+  if (days < 365) { const m = Math.floor(days / 30); return `${m} mo reserved`; }
+  const y = Math.floor(days / 365); return `${y} yr${y > 1 ? 's' : ''} reserved`;
 }
 
 function today() {
@@ -164,12 +176,12 @@ export default function ProofOfPaymentPage() {
     // Always fetch fresh status from DB to avoid stale sessionStorage
     if (id) {
       supabase.from('reservations')
-        .select('status, finance_status, first_payment_agreed')
+        .select('status, finance_status, first_payment_agreed, created_at')
         .eq('reservation_id', id)
         .single()
         .then(({ data }) => {
           if (data) {
-            setReservation(prev => prev ? { ...prev, status: data.status, finance_status: data.finance_status } : prev);
+            setReservation(prev => prev ? { ...prev, status: data.status, finance_status: data.finance_status, created_at: data.created_at ?? null } : prev);
             setFirstPaymentAgreed(data.first_payment_agreed ?? false);
           }
         });
@@ -473,6 +485,12 @@ export default function ProofOfPaymentPage() {
               <div className="flex items-center gap-2">
                 <User size={11} className="text-[#C7C7CC] shrink-0" />
                 <span className="text-xs text-[#6C6C70]">{reservation.seller_name}</span>
+              </div>
+            )}
+            {reservation.created_at && (
+              <div className="flex items-center gap-2">
+                <Clock size={11} className="text-[#C7C7CC] shrink-0" />
+                <span className="text-xs text-[#8E8E93]">{daysElapsedLabel(reservation.created_at)}</span>
               </div>
             )}
           </div>

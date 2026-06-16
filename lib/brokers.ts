@@ -12,9 +12,17 @@ export interface BrokerRecord {
 }
 
 export async function fetchAllBrokers(): Promise<BrokerRecord[]> {
-  const { data, error } = await supabase.rpc('get_all_brokers');
-  if (error) throw error;
-  return (data ?? []) as BrokerRecord[];
+  const PAGE = 1000;
+  const rows: BrokerRecord[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase.rpc('get_all_brokers').range(from, from + PAGE - 1);
+    if (error) throw error;
+    rows.push(...((data ?? []) as BrokerRecord[]));
+    if ((data ?? []).length < PAGE) break;
+    from += PAGE;
+  }
+  return rows;
 }
 
 // ─── Broker Recruit Record ─────────────────────────────────────────────────────
@@ -43,9 +51,17 @@ export interface BrokerRecruitRecord {
 }
 
 export async function fetchAllBrokerRecruits(): Promise<BrokerRecruitRecord[]> {
-  const { data, error } = await supabase.rpc('get_broker_recruits');
-  if (error) throw error;
-  return (data ?? []) as BrokerRecruitRecord[];
+  const PAGE = 1000;
+  const rows: BrokerRecruitRecord[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase.rpc('get_broker_recruits').range(from, from + PAGE - 1);
+    if (error) throw error;
+    rows.push(...((data ?? []) as BrokerRecruitRecord[]));
+    if ((data ?? []).length < PAGE) break;
+    from += PAGE;
+  }
+  return rows;
 }
 
 export async function addBrokerRecruit(rec: BrokerRecruitRecord): Promise<void> {

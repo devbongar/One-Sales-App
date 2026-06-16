@@ -62,10 +62,17 @@ export async function fetchSellerTaxInfo(sellerName: string): Promise<SellerTaxI
 }
 
 export async function fetchAllSalespersons(): Promise<SalespersonRecord[]> {
-  const { data, error } = await supabase.rpc('get_all_salespersons');
-  console.log('[fetchAllSalespersons] data:', data, 'error:', error);
-  if (error) throw error;
-  return (data ?? []) as SalespersonRecord[];
+  const PAGE = 1000;
+  const rows: SalespersonRecord[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase.rpc('get_all_salespersons').range(from, from + PAGE - 1);
+    if (error) throw error;
+    rows.push(...((data ?? []) as SalespersonRecord[]));
+    if ((data ?? []).length < PAGE) break;
+    from += PAGE;
+  }
+  return rows;
 }
 
 export interface SellerRecruitRecord {
@@ -95,9 +102,17 @@ export interface SellerRecruitRecord {
 }
 
 export async function fetchAllSellerRecruits(): Promise<SellerRecruitRecord[]> {
-  const { data, error } = await supabase.rpc('get_seller_recruits');
-  if (error) throw error;
-  return (data ?? []) as SellerRecruitRecord[];
+  const PAGE = 1000;
+  const rows: SellerRecruitRecord[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase.rpc('get_seller_recruits').range(from, from + PAGE - 1);
+    if (error) throw error;
+    rows.push(...((data ?? []) as SellerRecruitRecord[]));
+    if ((data ?? []).length < PAGE) break;
+    from += PAGE;
+  }
+  return rows;
 }
 
 export async function addSellerRecruit(rec: SellerRecruitRecord): Promise<void> {

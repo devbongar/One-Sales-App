@@ -7,7 +7,7 @@ import GlassCard from '@/components/ui/GlassCard';
 import { supabase } from '@/lib/supabase';
 import { getSession } from '@/lib/auth';
 import {
-  Building2, ChevronRight, Loader2, Search,
+  Building2, ChevronRight, Clock, Loader2, Search,
   SlidersHorizontal, User, X,
 } from 'lucide-react';
 
@@ -20,6 +20,18 @@ interface Reservation {
   status: string;
   seller_name: string | null;
   payment_proof_url: string | null;
+  created_at: string | null;
+}
+
+function daysElapsedLabel(createdAt: string | null): string {
+  if (!createdAt) return '';
+  const days = Math.floor((Date.now() - new Date(createdAt).getTime()) / 86_400_000);
+  if (days === 0) return 'Reserved today';
+  if (days === 1) return '1 day reserved';
+  if (days < 7)  return `${days} days reserved`;
+  if (days < 30) { const w = Math.floor(days / 7); return `${w} wk${w > 1 ? 's' : ''} reserved`; }
+  if (days < 365) { const m = Math.floor(days / 30); return `${m} mo reserved`; }
+  const y = Math.floor(days / 365); return `${y} yr${y > 1 ? 's' : ''} reserved`;
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -89,7 +101,7 @@ export default function ReservedUnitsPage() {
     setLoading(true);
     let query = supabase
       .from('reservations')
-      .select('reservation_id, client_name, project, inventory_code, unit_type, status, seller_name, payment_proof_url')
+      .select('reservation_id, client_name, project, inventory_code, unit_type, status, seller_name, payment_proof_url, created_at')
       .order('created_at', { ascending: false })
       .limit(5000);
 
@@ -219,6 +231,9 @@ export default function ReservedUnitsPage() {
                           <span className="text-xs text-[#6C6C70] font-medium">{r.inventory_code}</span>
                         </>
                       )}
+                      <span className="text-[#D1D1D6]">·</span>
+                      <Clock size={10} className="text-[#C7C7CC] shrink-0" />
+                      <span className="text-xs text-[#8E8E93]">{daysElapsedLabel(r.created_at)}</span>
                     </div>
 
                     {/* Seller */}
