@@ -11,7 +11,7 @@ import {
   X, Check, ChevronDown, ChevronLeft, Search, Edit2, UserCog,
   SlidersHorizontal, Plus, PenLine, Upload, RotateCcw,
 } from 'lucide-react';
-import { fetchAllClients, updateClient, updateClientSignature, ClientRecord } from '@/lib/clients';
+import { fetchAllClients, updateClient, updateClientSignature, checkEmailExists, ClientRecord } from '@/lib/clients';
 import {
   COUNTRY_CODES, CITIZENSHIP_LIST,
   REASON_OPTIONS, SOURCE_OPTIONS, INCOME_OPTIONS,
@@ -283,6 +283,8 @@ export default function ClientRegistrationPage() {
     setForm(mapClientToForm(selectedClient!));
     loadSellerFromClient(selectedClient!);
     setErrors({});
+    setSigMode('idle');
+    setSigPreview(null);
   }
 
   const set = (key: keyof FormState) => (val: string) =>
@@ -292,12 +294,23 @@ export default function ClientRegistrationPage() {
     const e: Record<string, string> = {};
     if (!form.lastName.trim())        e.lastName               = 'Last name is required';
     if (!form.firstName.trim())       e.firstName              = 'First name is required';
-    if (!form.dateOfBirth)            e.dateOfBirth            = 'Date of birth is required';
+    if (!form.dateOfBirth) {
+      e.dateOfBirth = 'Date of birth is required';
+    } else {
+      const dob = new Date(form.dateOfBirth);
+      const cutoff = new Date();
+      cutoff.setFullYear(cutoff.getFullYear() - 18);
+      if (dob > cutoff) e.dateOfBirth = 'Client must be at least 18 years old';
+    }
     if (!form.citizenship)            e.citizenship            = 'Citizenship is required';
     if (!form.mobileNumber.trim())    e.mobileNumber           = 'Mobile number is required';
     if (!form.email.trim())           e.email                  = 'Email address is required';
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
                                       e.email                  = 'Enter a valid email address';
+    else if (
+      form.email.trim().toLowerCase() !== (selectedClient?.email ?? '').toLowerCase() &&
+      allClients.some(c => c.email?.toLowerCase() === form.email.trim().toLowerCase())
+    )                                 e.email                  = 'This email is already registered';
     if (!form.reasonForBuying)        e.reasonForBuying        = 'Reason for buying is required';
     if (!form.sourceOfSale)           e.sourceOfSale           = 'Source of sale is required';
     if (!form.monthlyHouseholdIncome) e.monthlyHouseholdIncome = 'Monthly income is required';
@@ -524,7 +537,7 @@ export default function ClientRegistrationPage() {
 
           {/* Scrollable content */}
           <div className="absolute inset-0 overflow-y-auto">
-            <div className="px-4 pt-[88px] pb-12">
+            <div className="px-4 pt-[88px] pb-12 max-w-lg mx-auto w-full">
 
               {/* Hero */}
               <div className="flex flex-col items-center pt-4 pb-8 gap-2">
@@ -617,6 +630,7 @@ export default function ClientRegistrationPage() {
                       !editMode ? 'border-transparent bg-white/60' : 'border-black/[0.10] bg-white/70 focus-within:border-black/20'
                     }`}>
                       <input type="date" value={form.dateOfBirth} readOnly={!editMode}
+                        max={(() => { const d = new Date(); d.setFullYear(d.getFullYear() - 18); return d.toISOString().split('T')[0]; })()}
                         onChange={e => editMode && set('dateOfBirth')(e.target.value)}
                         className="w-full min-w-0 bg-transparent text-sm text-[#1C1C1E] outline-none"
                         style={{ colorScheme: 'light' }} />
@@ -691,7 +705,10 @@ export default function ClientRegistrationPage() {
                         if (!editMode) return;
                         if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
                           setErrors(prev => ({ ...prev, email: 'Enter a valid email address' }));
-                        else setErrors(prev => ({ ...prev, email: '' }));
+                        else
+                          setErrors(prev =>
+                            prev.email === 'Enter a valid email address' ? { ...prev, email: '' } : prev
+                          );
                       }}
                       placeholder="juan@email.com"
                       className={
@@ -914,7 +931,7 @@ export default function ClientRegistrationPage() {
                         )}
 
                         {/* Action buttons (idle mode) */}
-                        {sigMode === 'idle' && (
+                        {sigMode === 'idle' && editMode && (
                           <div className="flex gap-2">
                             <button type="button" onClick={() => setSigMode('draw')}
                               className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#1C1C1E] active:opacity-70">
@@ -922,7 +939,7 @@ export default function ClientRegistrationPage() {
                             </button>
                             <button type="button" onClick={() => { setSigMode('upload'); sigFileRef.current?.click(); }}
                               className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#1C1C1E] active:opacity-70">
-                              <Upload size={13} /> {selectedClient.signature_base64 ? 'Replace' : 'Upload'}
+                              <Upload size={13} /> Upload
                             </button>
                           </div>
                         )}

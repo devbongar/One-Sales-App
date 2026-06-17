@@ -12,7 +12,7 @@ import {
   COUNTRY_CODES, CITIZENSHIP_LIST,
   REASON_OPTIONS, SOURCE_OPTIONS, INCOME_OPTIONS,
 } from '@/lib/client-form-options';
-import { saveClient, updateClientSignatureByClientId, fetchAllClients, ClientRecord } from '@/lib/clients';
+import { saveClient, updateClientSignatureByClientId, fetchAllClients, checkEmailExists, ClientRecord } from '@/lib/clients';
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
 import { fetchAllBrokers, BrokerRecord } from '@/lib/brokers';
 
@@ -200,7 +200,7 @@ export default function NewClientPage() {
     setBrokerBirName(''); setBrokerNetworkAssociate('');
   }
 
-  function validate() {
+  async function validate() {
     const e: Record<string, string> = {};
     if (!form.lastName.trim())              e.lastName              = 'Last name is required';
     if (!form.firstName.trim())             e.firstName             = 'First name is required';
@@ -217,8 +217,10 @@ export default function NewClientPage() {
     if (!form.email.trim())                 e.email                 = 'Email address is required';
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
                                             e.email                 = 'Enter a valid email address';
-    else if (allClients.some(c => c.email?.toLowerCase() === form.email.trim().toLowerCase()))
-                                            e.email                 = 'This email is already registered';
+    else {
+      const taken = await checkEmailExists(form.email);
+      if (taken)                            e.email                 = 'This email is already registered';
+    }
     if (!form.reasonForBuying)              e.reasonForBuying       = 'Reason for buying is required';
     if (!form.sourceOfSale)                 e.sourceOfSale          = 'Source of sale is required';
     if (!form.monthlyHouseholdIncome)       e.monthlyHouseholdIncome = 'Monthly income is required';
@@ -227,7 +229,10 @@ export default function NewClientPage() {
   }
 
   async function handleSave() {
-    if (!validate()) return;
+    if (!await validate()) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
     setSaving(true);
     try {
       const clientId = await saveClient({
@@ -263,7 +268,9 @@ export default function NewClientPage() {
       setSavedClientId(clientId);
       setShowSuccess(true);
     } catch (e: any) {
+      console.error('[NewClient] saveClient error:', e);
       setErrors({ _global: e.message ?? 'Failed to save. Please try again.' });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } finally {
       setSaving(false);
     }
@@ -734,7 +741,7 @@ export default function NewClientPage() {
               </button>
               <button type="button" onClick={() => { setSigMode('upload'); sigFileRef.current?.click(); }}
                 className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#1C1C1E] active:opacity-70">
-                <Upload size={13} /> {sigPreview ? 'Replace' : 'Upload'}
+                <Upload size={13} /> Upload
               </button>
               {sigPreview && (
                 <button type="button" onClick={() => setSigPreview(null)}

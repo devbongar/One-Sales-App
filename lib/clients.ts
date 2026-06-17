@@ -60,6 +60,27 @@ export interface ClientRecord {
   created_at: string;
 }
 
+export async function checkEmailExists(email: string, excludeId?: string): Promise<boolean> {
+  let query = supabase
+    .from('clients')
+    .select('id')
+    .ilike('email', email.trim());
+  if (excludeId) query = query.neq('id', excludeId);
+  const { data, error } = await query.limit(1);
+  if (error) return false;
+  return (data ?? []).length > 0;
+}
+
+export async function fetchClientSignature(id: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('clients')
+    .select('signature_base64')
+    .eq('id', id)
+    .single();
+  if (error) return null;
+  return (data as { signature_base64: string | null })?.signature_base64 ?? null;
+}
+
 export async function updateClientSignature(id: string, signatureBase64: string | null): Promise<void> {
   const { error } = await supabase
     .from('clients')

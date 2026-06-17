@@ -6,7 +6,7 @@ import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import { Check, Building2, Tag, LayoutGrid, Ruler, Banknote, Receipt, RotateCcw, AlertTriangle, Loader2 } from 'lucide-react';
 import { generateReservationId, saveReservation } from '@/lib/reservations';
-import { updateClientSignature } from '@/lib/clients';
+import { updateClientSignature, fetchClientSignature } from '@/lib/clients';
 import { getSession } from '@/lib/auth';
 
 interface ReservationData {
@@ -86,6 +86,7 @@ export default function ReservationAgreementPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [creatorUuid, setCreatorUuid] = useState<string | null>(null);
+  const [existingSignature, setExistingSignature] = useState<string | null>(null);
 
   useEffect(() => { getSession().then(s => setCreatorUuid(s?.id ?? null)); }, []);
 
@@ -96,7 +97,14 @@ export default function ReservationAgreementPage() {
 
   useEffect(() => {
     const raw = sessionStorage.getItem('reservationData');
-    if (raw) setData(JSON.parse(raw));
+    if (!raw) return;
+    const parsed: ReservationData = JSON.parse(raw);
+    setData(parsed);
+    if (parsed.clientId) {
+      fetchClientSignature(parsed.clientId).then(sig => {
+        if (sig) setExistingSignature(sig);
+      });
+    }
   }, []);
 
   // Attach touch listeners with passive:false to allow preventDefault
@@ -154,6 +162,22 @@ export default function ReservationAgreementPage() {
       canvas.removeEventListener('touchend', onStop);
     };
   }, [checked1, checked2]);
+
+  // Auto-populate canvas with existing signature when section becomes visible
+  useEffect(() => {
+    if (!checked1 || !checked2 || !existingSignature) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const img = new Image();
+    img.onload = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      setHasSigned(true);
+    };
+    img.src = existingSignature;
+  }, [checked1, checked2, existingSignature]);
 
   function clearSignature() {
     const canvas = canvasRef.current; if (!canvas) return;
@@ -335,7 +359,12 @@ export default function ReservationAgreementPage() {
           </div>
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-[#8E8E93]">Signature</p>
+              <div className="flex items-center gap-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-[#8E8E93]">Signature</p>
+                {existingSignature && hasSigned && (
+                  <span className="text-[10px] font-semibold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">Auto-filled</span>
+                )}
+              </div>
               <button type="button" onClick={clearSignature}
                 className="flex items-center gap-1 text-[11px] text-[#C03D25] font-semibold">
                 <RotateCcw size={11} /> Clear
