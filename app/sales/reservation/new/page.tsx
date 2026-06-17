@@ -77,27 +77,18 @@ type CompRow = { label: string; value: (c: ComparisonItem) => string | null; bol
 
 
 const COMP_SECTIONS: { title: string; rows: CompRow[] }[] = [
-  { title: 'Unit Info', rows: [
-    { label: 'Unit',     value: c => `${c.floor}${c.unitNo}` },
-    { label: 'Tower',    value: c => c.tower },
-    { label: 'Floor',    value: c => c.floor },
-    { label: 'Type',     value: c => c.unitType || '—' },
-    { label: 'Area',     value: c => `${c.unitArea} sqm` },
-    { label: 'Category', value: c => c.unitCategory },
-    { label: 'Scheme',   value: c => c.schemeName },
-  ]},
   { title: 'Price Computation', rows: [
     { label: 'List Price',    value: c => `₱${c.listPrice.toLocaleString()}` },
     { label: 'Promo Disc.',    value: c => c.promoAmount > 0    ? `(₱${c.promoAmount.toLocaleString()})` : '—', green: true },
     { label: 'Employee Disc.', value: c => c.employeeAmount > 0 ? `(₱${c.employeeAmount.toLocaleString()})` : '—', green: true },
     { label: 'Payterm Disc.',  value: c => c.paytermAmount > 0  ? `(₱${c.paytermAmount.toLocaleString()})` : '—', green: true },
-    { label: 'HIC Disc.',      value: c => c.hicDiscount > 0    ? `(₱${c.hicDiscount.toLocaleString()})` : '—', green: true },
+    { label: 'Special Disc.',  value: c => c.hicDiscount > 0    ? `(₱${c.hicDiscount.toLocaleString()})` : '—', green: true },
     { label: 'Net List Price', value: c => `₱${c.netListPrice.toLocaleString()}`, bold: true },
   ]},
   { title: 'Taxes & Charges', rows: [
     { label: 'VAT',            value: c => `₱${c.vat.toLocaleString()}` },
     { label: 'Other (7%)',     value: c => `₱${c.otherCharges.toLocaleString()}` },
-    { label: 'HIC Discount',   value: c => c.hicDiscount > 0 ? `₱${c.hicDiscount.toLocaleString()}` : null, green: true },
+    { label: 'Home Improvement Contract', value: c => c.hicDiscount > 0 ? `₱${c.hicDiscount.toLocaleString()}` : null, green: true },
     { label: 'Total Contract', value: c => `₱${c.totalContractPrice.toLocaleString()}`, bold: true, coral: true },
   ]},
   { title: 'Fees', rows: [
@@ -337,6 +328,50 @@ const STEP_HEADERS = [
 
 const pad2 = (s: string) => /^\d+$/.test(s ?? '') ? String(parseInt(s) || 0).padStart(2, '0') : (s ?? '');
 
+function WrapOrStackList({ items, textClass, fontClass = 'font-semibold', mt = 'mt-0.5' }: {
+  items: string[]; textClass: string; fontClass?: string; mt?: string;
+}) {
+  const measureRef = useRef<HTMLDivElement>(null);
+  const [stacked, setStacked] = useState(false);
+  useLayoutEffect(() => {
+    const el = measureRef.current;
+    if (!el) return;
+    const children = Array.from(el.children) as HTMLElement[];
+    if (children.length <= 1) { if (stacked) setStacked(false); return; }
+    const firstTop = children[0].offsetTop;
+    const shouldStack = children.some(c => c.offsetTop !== firstTop);
+    if (shouldStack !== stacked) setStacked(shouldStack);
+  });
+  if (items.length === 0) return <p className={`invisible text-[11px] ${mt}`}>—</p>;
+  return (
+    <div className={mt}>
+      {stacked ? (
+        <div className="flex flex-col">
+          {items.map(d => (
+            <span key={d} className={`text-[11px] ${fontClass} ${textClass} leading-tight`}>{d}</span>
+          ))}
+        </div>
+      ) : (
+        <div className="flex flex-wrap">
+          {items.map((d, i) => (
+            <span key={d} className={`text-[11px] ${fontClass} ${textClass} leading-tight whitespace-nowrap`}>
+              {i > 0 ? ' · ' : ''}{d}
+            </span>
+          ))}
+        </div>
+      )}
+      <div ref={measureRef} className="flex flex-wrap h-0 overflow-hidden pointer-events-none" aria-hidden>
+        {items.map((d, i) => (
+          <span key={d} className="text-[11px] whitespace-nowrap leading-tight">{i > 0 ? ' · ' : ''}{d}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+const DiscountList = ({ discounts }: { discounts: string[] }) => (
+  <WrapOrStackList items={discounts} textClass="text-[#166534]" />
+);
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function NewReservationPage() {
   const router = useRouter();
@@ -394,17 +429,29 @@ export default function NewReservationPage() {
   const [vatThreshold, setVatThreshold] = useState<number | null | undefined>(undefined);
   const [hicTarget,    setHicTarget]    = useState<number | null>(null);
   const compHeaderRefs  = useRef<(HTMLDivElement | null)[]>([]);
+  const projRowRefs     = useRef<(HTMLDivElement | null)[]>([]);
   const compScrollRef   = useRef<HTMLDivElement>(null);
   const [compScrollPct, setCompScrollPct] = useState(0);
 
   // Equalize comparison card header heights to the tallest one
   useLayoutEffect(() => {
-    const els = compHeaderRefs.current.filter(Boolean) as HTMLDivElement[];
-    if (els.length === 0) return;
-    els.forEach(el => { el.style.minHeight = ''; });
-    const maxH = Math.max(...els.map(el => el.offsetHeight));
-    els.forEach(el => { el.style.minHeight = `${maxH}px`; });
-  }, [comparisons, step]);
+    const equalize = () => {
+      const els  = compHeaderRefs.current.filter(Boolean) as HTMLDivElement[];
+      const rows = projRowRefs.current.filter(Boolean) as HTMLDivElement[];
+      if (els.length === 0) return;
+      els.forEach(el  => { el.style.minHeight  = ''; });
+      rows.forEach(el => { el.style.minHeight  = ''; });
+      const maxH    = Math.max(...els.map(el  => el.offsetHeight));
+      const maxRowH = rows.length > 0 ? Math.max(...rows.map(el => el.offsetHeight)) : 0;
+      els.forEach(el  => { el.style.minHeight  = `${maxH}px`; });
+      rows.forEach(el => { el.style.minHeight  = `${maxRowH}px`; });
+    };
+    equalize();
+    let rafId = 0;
+    const ro = new ResizeObserver(() => { cancelAnimationFrame(rafId); rafId = requestAnimationFrame(equalize); });
+    compHeaderRefs.current.filter(Boolean).forEach(el => ro.observe(el!));
+    return () => { ro.disconnect(); cancelAnimationFrame(rafId); };
+  }, [comparisons]);
 
   // Validation errors
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -770,6 +817,7 @@ export default function NewReservationPage() {
     }
 
     let logoB64 = '';
+    let logoW = 22, logoH = 22;
     try {
       const res  = await fetch('/document logo.png');
       const blob = await res.blob();
@@ -778,42 +826,53 @@ export default function NewReservationPage() {
         r.onloadend = () => resolve(r.result as string);
         r.readAsDataURL(blob);
       });
+      const dims = await new Promise<{ w: number; h: number }>(resolve => {
+        const img = new Image();
+        img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+        img.onerror = () => resolve({ w: 1, h: 1 });
+        img.src = logoB64;
+      });
+      const maxH = 22;
+      logoH = maxH;
+      logoW = Math.round((dims.w / dims.h) * maxH);
     } catch {}
 
     const drawHeader = () => {
       doc.setFillColor(...coral);
       doc.rect(0, 0, pageW, HDR, 'F');
-      if (logoB64) doc.addImage(logoB64, 'PNG', mg, 5, 22, 22);
+      if (logoB64) doc.addImage(logoB64, 'PNG', mg, (HDR - logoH) / 2, logoW, logoH);
       doc.setTextColor(255, 255, 255);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
       doc.text('SAMPLE COMPUTATION', pageW - mg, 15, { align: 'right' });
       doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
       doc.text(`${dateStr}  ·  ${timeStr}`, pageW - mg, 24, { align: 'right' });
 
-      const colSellerMobile = mg + 100;
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(...lt);
-      doc.text('SELLER', mg, HDR + 5);
-      doc.text('MOBILE NO.', colSellerMobile, HDR + 5);
-      if (sellerContact) doc.text('EMAIL ADDRESS', pageW - mg, HDR + 5, { align: 'right' });
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...dark);
-      doc.text(sellerName || '—', mg, HDR + 10.5);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...dark);
-      doc.text(sellerMobile || '—', colSellerMobile, HDR + 10.5);
-      if (sellerContact) doc.text(sellerContact, pageW - mg, HDR + 10.5, { align: 'right' });
-
+      // Client row first
       const clientFullName = [clientFirstName, clientMiddleName, clientLastName].filter(Boolean).join(' ') +
         (clientSuffix ? `, ${clientSuffix}` : '');
       const clientMobileStr = clientMobileRaw ? `${clientCountryCode} ${clientMobileRaw}` : '';
-      const cs = HDR + STRIP;
       const colMobile = mg + 100;
       doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(...lt);
-      doc.text('CLIENT', mg, cs + 5);
-      if (clientMobileStr) doc.text('MOBILE NO.', colMobile, cs + 5);
-      if (clientEmailField) doc.text('EMAIL ADDRESS', pageW - mg, cs + 5, { align: 'right' });
+      doc.text('CLIENT', mg, HDR + 5);
+      if (clientMobileStr) doc.text('MOBILE NO.', colMobile, HDR + 5);
+      if (clientEmailField) doc.text('EMAIL ADDRESS', pageW - mg, HDR + 5, { align: 'right' });
       doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...dark);
-      doc.text(clientFullName || '—', mg, cs + 10.5);
-      if (clientMobileStr) { doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...dark); doc.text(clientMobileStr, colMobile, cs + 10.5); }
-      if (clientEmailField) { doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...dark); doc.text(clientEmailField, pageW - mg, cs + 10.5, { align: 'right' }); }
+      doc.text(clientFullName || '—', mg, HDR + 10.5);
+      if (clientMobileStr) { doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...dark); doc.text(clientMobileStr, colMobile, HDR + 10.5); }
+      if (clientEmailField) { doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...dark); doc.text(clientEmailField, pageW - mg, HDR + 10.5, { align: 'right' }); }
+
+      // Seller row below client
+      const colSellerMobile = mg + 100;
+      const ss = HDR + STRIP;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(...lt);
+      doc.text('SELLER', mg, ss + 5);
+      doc.text('MOBILE NO.', colSellerMobile, ss + 5);
+      if (sellerContact) doc.text('EMAIL ADDRESS', pageW - mg, ss + 5, { align: 'right' });
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...dark);
+      doc.text(sellerName || '—', mg, ss + 10.5);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...dark);
+      doc.text(sellerMobile || '—', colSellerMobile, ss + 10.5);
+      if (sellerContact) doc.text(sellerContact, pageW - mg, ss + 10.5, { align: 'right' });
 
       const lineY = HDR + STRIP + CLIENT_STRIP + 1;
       doc.setDrawColor(210, 210, 220); doc.setLineWidth(0.4);
@@ -875,7 +934,7 @@ export default function NewReservationPage() {
       if (c.promoAmount > 0)    row(`Less: Promo Discount (${Math.round(c.promoPct)}%)`, p(c.promoAmount), false, grn);
       if (c.employeeAmount > 0) row('Less: Employee Discount (10%)', p(c.employeeAmount), false, grn);
       if (c.paytermAmount > 0)  row(`Less: Payterm Discount (${Number(c.paytermPctDisplay).toFixed(1)}%)`, p(c.paytermAmount), false, grn);
-      if (c.hicDiscount > 0)    row('Less: HIC Discount', p(c.hicDiscount), false, [94, 92, 230]);
+      if (c.hicDiscount > 0)    row(`Less: Special Discount (${Math.round(c.hicDiscount / (c.listPrice - c.promoAmount - c.employeeAmount - c.paytermAmount) * 100)}%)`, p(c.hicDiscount), false, [94, 92, 230]);
       subHr();
       row('Net List Price', p(c.netListPrice), true);
       hr();
@@ -883,7 +942,7 @@ export default function NewReservationPage() {
       secLabel('Taxes & Charges');
       row(c.vat === 0 ? 'VAT (Exempt)' : 'VAT (12%)', p(c.vat));
       row('Other Charges (7%)', p(c.otherCharges));
-      if (c.hicDiscount > 0) row('HIC Discount', p(c.hicDiscount), false, [94, 92, 230]);
+      if (c.hicDiscount > 0) row(`Home Improvement Contract (${Math.round(c.hicDiscount / (c.listPrice - c.promoAmount - c.employeeAmount - c.paytermAmount) * 100)}%)`, p(c.hicDiscount), false, [94, 92, 230]);
       subHr();
       row('Total Contract Price', p(c.totalContractPrice), true, coral);
       hr();
@@ -1834,7 +1893,7 @@ export default function NewReservationPage() {
                   )}
                   {hicDiscount > 0 && (
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-[#5E5CE6]">Less: HIC Discount</span>
+                      <span className="text-sm text-[#5E5CE6]">Less: Special Discount ({Math.round(hicDiscount / (listPrice - promoAmount - employeeAmount - paytermAmount) * 100)}%)</span>
                       <span className="text-sm font-medium text-[#5E5CE6]">(₱{hicDiscount.toLocaleString()})</span>
                     </div>
                   )}
@@ -1857,7 +1916,7 @@ export default function NewReservationPage() {
                   </div>
                   {hicDiscount > 0 && (
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-[#5E5CE6]">HIC Discount</span>
+                      <span className="text-sm text-[#5E5CE6]">Home Improvement Contract ({Math.round(hicDiscount / (listPrice - promoAmount - employeeAmount - paytermAmount) * 100)}%)</span>
                       <span className="text-sm font-medium text-[#5E5CE6]">₱{hicDiscount.toLocaleString()}</span>
                     </div>
                   )}
@@ -2026,7 +2085,7 @@ export default function NewReservationPage() {
                   )}
 
                   {/* Card header */}
-                  <div ref={el => { compHeaderRefs.current[ci] = el; }} className="relative flex-shrink-0 px-4 pt-4 pb-3 bg-[rgba(192,61,37,0.06)] border-b border-black/[0.08]">
+                  <div ref={el => { compHeaderRefs.current[ci] = el; }} className="relative flex-shrink-0 flex flex-col px-4 pt-4 pb-3 bg-[rgba(192,61,37,0.06)] border-b border-black/[0.08]">
                     <button
                       type="button"
                       onClick={e => { e.stopPropagation(); setComparisons(prev => prev.filter(x => x.id !== c.id)); }}
@@ -2034,17 +2093,21 @@ export default function NewReservationPage() {
                     >
                       <X size={12} />
                     </button>
-                    <div className="flex items-center gap-1.5 pr-7">
+                    <div ref={el => { projRowRefs.current[ci] = el; }} className="flex items-center gap-1.5 pr-7">
                       <span className="text-[#C03D25] shrink-0">
                         {UNIT_CATEGORIES.find(cat => cat.value === c.unitCategory)?.icon}
                       </span>
                       <p className="text-sm font-bold text-[#1C1C1E] leading-tight">{c.project}</p>
                     </div>
-                    <p className="text-[11px] text-[#8E8E93] mt-1">{c.unitType || '—'}</p>
-                    <p className="text-[12px] font-bold text-[#C03D25] mt-0.5">{c.schemeName}</p>
-                    <p className={`text-[11px] font-semibold mt-0.5 ${c.promoPct > 0 ? 'text-[#166534]' : 'invisible'}`}>
-                      {Math.round(c.promoPct)}% discount
-                    </p>
+                    <p className="text-[12px] font-semibold text-[#1C1C1E] mt-1">Unit {pad2(c.floor)}{pad2(c.unitNo)}</p>
+                    <WrapOrStackList items={[c.tower ? `Tower ${c.tower}` : '', c.unitType, c.unitArea ? `${c.unitArea} sqm` : ''].filter(Boolean)} textClass="text-[#8E8E93]" fontClass="font-normal" />
+                    <p className="text-[12px] font-bold text-[#C03D25] mt-auto pt-1">{c.schemeName}</p>
+                    <DiscountList discounts={[
+                      c.promoPct > 0       ? `${Math.round(c.promoPct)}% Promo`    : null,
+                      c.employeeAmount > 0 ? '10% Employee'                         : null,
+                      c.paytermAmount > 0  ? `${Number(c.paytermPctDisplay).toFixed(1)}% Payterm` : null,
+                      c.hicDiscount > 0    ? `${Math.round(c.hicDiscount / (c.listPrice - c.promoAmount - c.employeeAmount - c.paytermAmount) * 100)}% Special Discount` : null,
+                    ].filter((d): d is string => d !== null)} />
                   </div>
 
                   {/* Scrollable body */}
@@ -2061,7 +2124,7 @@ export default function NewReservationPage() {
                             const val = row.value(c);
                             return (
                               <div key={row.label} className="flex items-center justify-between px-4 py-2.5 border-b border-black/[0.04]">
-                                <span className="text-[11px] text-[#8E8E93] leading-tight mr-2 shrink-0">{row.label}</span>
+                                <span className="text-[11px] text-[#8E8E93] leading-tight mr-2">{row.label}</span>
                                 <span className={`text-[11px] leading-tight text-right ${row.bold ? 'font-bold' : 'font-medium'} ${row.coral ? 'text-[#C03D25]' : row.green ? 'text-[#166534]' : 'text-[#1C1C1E]'}`}>
                                   {val}
                                 </span>

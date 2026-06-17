@@ -7,7 +7,7 @@ import {
   UserPlus, CalendarCheck, BookOpen, DollarSign,
   ShieldCheck, FolderOpen, MessageSquare, Receipt, CreditCard,
   Wallet, Banknote, BookMarked, Users, UserCog, LayoutDashboard,
-  X, ChevronDown, LogOut, Home, Settings, Database,
+  X, ChevronDown, LogOut, Home, Settings, Database, Mail,
 } from 'lucide-react';
 import { NavGroup } from '@/types';
 import { signOut } from '@/lib/auth';
@@ -362,6 +362,17 @@ export default function Sidebar({ open, onClose, userName, displayName, userRole
               >
                 <Settings size={15} className="text-white/50 shrink-0" />
                 System Settings
+              </Link>
+            )}
+            {!isSeller && !isDirector && !isAMD && !isFinance && (
+              <Link
+                href="/test-email"
+                onClick={handleClose}
+                className="sb-footer w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-[13px] font-medium text-white/75 active:scale-[0.97]"
+                style={{ transition: 'background-color 150ms ease, color 150ms ease, transform 100ms ease-out' }}
+              >
+                <Mail size={15} className="text-white/50 shrink-0" />
+                Email Test
               </Link>
             )}
             <button
