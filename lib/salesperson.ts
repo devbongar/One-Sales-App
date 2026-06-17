@@ -99,6 +99,7 @@ export interface SellerRecruitRecord {
   tin:                    string | null;
   ewt_rate:               string | null;
   bir_cor_address:        string | null;
+  signature_base64:       string | null;
 }
 
 export async function fetchAllSellerRecruits(): Promise<SellerRecruitRecord[]> {
@@ -178,5 +179,23 @@ export async function updateSellerRecruit(
       'BIR COR Address':        rec.bir_cor_address,
     })
     .eq('Seller Name', originalSellerName);
+  if (error) throw error;
+}
+
+export async function fetchSellerSignature(sellerName: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('Salesperson')
+    .select('signature_base64')
+    .eq('Seller Name', sellerName)
+    .single();
+  if (error) return null;
+  return (data as { signature_base64: string | null })?.signature_base64 ?? null;
+}
+
+export async function updateSellerSignature(sellerName: string, signatureBase64: string | null): Promise<void> {
+  const { error } = await supabase
+    .from('Salesperson')
+    .update({ signature_base64: signatureBase64 })
+    .eq('Seller Name', sellerName);
   if (error) throw error;
 }

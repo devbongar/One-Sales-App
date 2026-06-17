@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import SearchInput from '@/components/ui/SearchInput';
-import { Loader2, Users, UserPlus, Plus, ChevronLeft, Edit2, Check, X, Briefcase, Mail, Calendar, Building2, Tag, User, ChevronDown, SlidersHorizontal } from 'lucide-react';
-import { fetchAllSellerRecruits, fetchAllSalespersons, addSellerRecruit, updateSellerRecruit, SellerRecruitRecord } from '@/lib/salesperson';
+import { Loader2, Users, UserPlus, Plus, ChevronLeft, Edit2, Check, X, Briefcase, Mail, Calendar, Building2, Tag, User, ChevronDown, SlidersHorizontal, PenLine, Upload, RotateCcw } from 'lucide-react';
+import { fetchAllSellerRecruits, fetchAllSalespersons, addSellerRecruit, updateSellerRecruit, fetchSellerSignature, updateSellerSignature, SellerRecruitRecord } from '@/lib/salesperson';
 import { fetchProjects } from '@/lib/inventory';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -149,6 +149,13 @@ function DetailSheet({ seller, onClose, onSaved }: {
   const [saving,   setSaving]   = useState(false);
   const [error,    setError]    = useState('');
 
+  const [sigMode,    setSigMode]    = useState<'idle' | 'draw' | 'upload'>('idle');
+  const [sigPreview, setSigPreview] = useState<string | null>(seller.signature_base64 ?? null);
+  const sigCanvasRef = useRef<HTMLCanvasElement>(null);
+  const sigDrawing   = useRef(false);
+  const sigLastPos   = useRef<{ x: number; y: number } | null>(null);
+  const sigFileRef   = useRef<HTMLInputElement>(null);
+
   // Dropdown option lists
   const [projects,   setProjects]   = useState<string[]>([]);
   const [smOptions,  setSmOptions]  = useState<string[]>([]);
@@ -166,6 +173,56 @@ function DetailSheet({ seller, onClose, onSaved }: {
     }).catch(() => {});
   }, []);
 
+  // Canvas touch listeners for drawing
+  useEffect(() => {
+    if (sigMode !== 'draw') return;
+    const canvas = sigCanvasRef.current;
+    if (!canvas) return;
+    function getPos(e: TouchEvent | MouseEvent) {
+      const rect = canvas!.getBoundingClientRect();
+      const scaleX = canvas!.width / rect.width;
+      const scaleY = canvas!.height / rect.height;
+      if ('touches' in e) return { x: (e.touches[0].clientX - rect.left) * scaleX, y: (e.touches[0].clientY - rect.top) * scaleY };
+      return { x: ((e as MouseEvent).clientX - rect.left) * scaleX, y: ((e as MouseEvent).clientY - rect.top) * scaleY };
+    }
+    function onStart(e: TouchEvent | MouseEvent) { sigDrawing.current = true; sigLastPos.current = getPos(e); }
+    function onMove(e: TouchEvent | MouseEvent) {
+      if (!sigDrawing.current) return;
+      e.preventDefault();
+      const ctx = canvas!.getContext('2d'); if (!ctx) return;
+      const pos = getPos(e);
+      ctx.beginPath(); ctx.moveTo(sigLastPos.current!.x, sigLastPos.current!.y);
+      ctx.lineTo(pos.x, pos.y); ctx.strokeStyle = '#1C1C1E'; ctx.lineWidth = 2.5;
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke();
+      sigLastPos.current = pos;
+    }
+    function onStop() { sigDrawing.current = false; sigLastPos.current = null; }
+    canvas.addEventListener('mousedown', onStart);
+    canvas.addEventListener('mousemove', onMove);
+    canvas.addEventListener('mouseup', onStop);
+    canvas.addEventListener('mouseleave', onStop);
+    canvas.addEventListener('touchstart', onStart, { passive: false });
+    canvas.addEventListener('touchmove', onMove, { passive: false });
+    canvas.addEventListener('touchend', onStop);
+    return () => {
+      canvas.removeEventListener('mousedown', onStart);
+      canvas.removeEventListener('mousemove', onMove);
+      canvas.removeEventListener('mouseup', onStop);
+      canvas.removeEventListener('mouseleave', onStop);
+      canvas.removeEventListener('touchstart', onStart);
+      canvas.removeEventListener('touchmove', onMove);
+      canvas.removeEventListener('touchend', onStop);
+    };
+  }, [sigMode]);
+
+  function handleSigFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => { setSigPreview(ev.target?.result as string); setSigMode('idle'); };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
+
   const initials = form.seller_name.split(' ').map(w => w[0]).slice(0, 2).join('');
   const set = (key: keyof SellerRecruitRecord) => (val: string) =>
     setForm(f => ({ ...f, [key]: val || null }));
@@ -174,6 +231,8 @@ function DetailSheet({ seller, onClose, onSaved }: {
     setForm(seller);
     setEditMode(false);
     setError('');
+    setSigMode('idle');
+    setSigPreview(seller.signature_base64 ?? null);
   }
 
   async function handleSave() {
@@ -181,7 +240,10 @@ function DetailSheet({ seller, onClose, onSaved }: {
     setError('');
     try {
       await updateSellerRecruit(seller.seller_name, form);
-      onSaved(form);
+      if (sigPreview !== (seller.signature_base64 ?? null)) {
+        await updateSellerSignature(seller.seller_name, sigPreview);
+      }
+      onSaved({ ...form, signature_base64: sigPreview });
       setEditMode(false);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to save. Please try again.');
@@ -216,7 +278,7 @@ function DetailSheet({ seller, onClose, onSaved }: {
 
       {/* ── Scrollable content ────────────────────────────────────────────── */}
       <div className="absolute inset-0 overflow-y-auto">
-        <div className="px-4 pt-[88px] pb-12">
+        <div className="px-4 pt-[88px] pb-12 max-w-lg mx-auto w-full">
 
           {/* Hero */}
           <div className="flex flex-col items-center pt-4 pb-8 gap-2">
@@ -356,6 +418,67 @@ function DetailSheet({ seller, onClose, onSaved }: {
             </ERow>
           </SectionCard>
 
+          {/* Seller Signature */}
+          <SectionCard title="Seller Signature">
+            {(() => {
+              if (sigMode === 'draw') return (
+                <div className="space-y-2">
+                  <div className="relative rounded-2xl border-2 border-dashed border-[#C03D25]/40 overflow-hidden bg-white">
+                    <canvas ref={sigCanvasRef} width={600} height={200} className="w-full touch-none" style={{ height: '160px' }} />
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="button"
+                      onClick={() => { const ctx = sigCanvasRef.current?.getContext('2d'); if (ctx && sigCanvasRef.current) ctx.clearRect(0, 0, sigCanvasRef.current.width, sigCanvasRef.current.height); }}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#1C1C1E] active:opacity-70">
+                      <RotateCcw size={13} /> Clear
+                    </button>
+                    <button type="button"
+                      onClick={() => { const b64 = sigCanvasRef.current?.toDataURL('image/png') ?? ''; setSigPreview(b64); setSigMode('idle'); }}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-[#1C1C1E] text-xs font-semibold text-white active:opacity-70">
+                      <Check size={13} /> Use Signature
+                    </button>
+                    <button type="button" onClick={() => setSigMode('idle')}
+                      className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#1C1C1E] active:opacity-70">
+                      <X size={13} />
+                    </button>
+                  </div>
+                </div>
+              );
+              return (
+                <div className="space-y-3">
+                  {sigPreview ? (
+                    <div className="rounded-2xl border border-black/[0.08] bg-white/60 p-3 flex items-center justify-center min-h-[100px]">
+                      <img src={sigPreview} alt="Signature" className="max-h-[90px] object-contain" />
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-black/[0.15] bg-white/40 p-4 flex items-center justify-center min-h-[72px]">
+                      <p className="text-xs text-[#C7C7CC]">No signature on file</p>
+                    </div>
+                  )}
+                  {editMode && (
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => setSigMode('draw')}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#1C1C1E] active:opacity-70">
+                        <PenLine size={13} /> Draw
+                      </button>
+                      <button type="button" onClick={() => { setSigMode('upload'); sigFileRef.current?.click(); }}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#1C1C1E] active:opacity-70">
+                        <Upload size={13} /> Upload
+                      </button>
+                      {sigPreview && (
+                        <button type="button" onClick={() => setSigPreview(null)}
+                          className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-red-200 bg-red-50 text-xs font-medium text-red-500 active:opacity-70">
+                          <RotateCcw size={13} />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  <input ref={sigFileRef} type="file" accept="image/*" className="hidden" onChange={handleSigFile} />
+                </div>
+              );
+            })()}
+          </SectionCard>
+
           </div>
         </div>
       </div>
@@ -372,7 +495,7 @@ const EMPTY_RECRUIT: SellerRecruitRecord = {
   sales_manager: null, sales_director: null, sales_division_head: null,
   sales_head: null, sales_team: null, payroll_code: null,
   payroll_account_number: null, vat_registration_type: null, tin: null,
-  ewt_rate: null, bir_cor_address: null,
+  ewt_rate: null, bir_cor_address: null, signature_base64: null,
 };
 
 function AddSheet({ onClose, onAdded }: {
@@ -382,6 +505,13 @@ function AddSheet({ onClose, onAdded }: {
   const [form,   setForm]   = useState<SellerRecruitRecord>(EMPTY_RECRUIT);
   const [saving, setSaving] = useState(false);
   const [error,  setError]  = useState('');
+
+  const [sigMode,    setSigMode]    = useState<'idle' | 'draw' | 'upload'>('idle');
+  const [sigPreview, setSigPreview] = useState<string | null>(null);
+  const sigCanvasRef = useRef<HTMLCanvasElement>(null);
+  const sigDrawing   = useRef(false);
+  const sigLastPos   = useRef<{ x: number; y: number } | null>(null);
+  const sigFileRef   = useRef<HTMLInputElement>(null);
 
   const [projects,   setProjects]   = useState<string[]>([]);
   const [smOptions,  setSmOptions]  = useState<string[]>([]);
@@ -399,6 +529,55 @@ function AddSheet({ onClose, onAdded }: {
     }).catch(() => {});
   }, []);
 
+  useEffect(() => {
+    if (sigMode !== 'draw') return;
+    const canvas = sigCanvasRef.current;
+    if (!canvas) return;
+    function getPos(e: TouchEvent | MouseEvent) {
+      const rect = canvas!.getBoundingClientRect();
+      const scaleX = canvas!.width / rect.width;
+      const scaleY = canvas!.height / rect.height;
+      if ('touches' in e) return { x: (e.touches[0].clientX - rect.left) * scaleX, y: (e.touches[0].clientY - rect.top) * scaleY };
+      return { x: ((e as MouseEvent).clientX - rect.left) * scaleX, y: ((e as MouseEvent).clientY - rect.top) * scaleY };
+    }
+    function onStart(e: TouchEvent | MouseEvent) { sigDrawing.current = true; sigLastPos.current = getPos(e); }
+    function onMove(e: TouchEvent | MouseEvent) {
+      if (!sigDrawing.current) return;
+      e.preventDefault();
+      const ctx = canvas!.getContext('2d'); if (!ctx) return;
+      const pos = getPos(e);
+      ctx.beginPath(); ctx.moveTo(sigLastPos.current!.x, sigLastPos.current!.y);
+      ctx.lineTo(pos.x, pos.y); ctx.strokeStyle = '#1C1C1E'; ctx.lineWidth = 2.5;
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke();
+      sigLastPos.current = pos;
+    }
+    function onStop() { sigDrawing.current = false; sigLastPos.current = null; }
+    canvas.addEventListener('mousedown', onStart);
+    canvas.addEventListener('mousemove', onMove);
+    canvas.addEventListener('mouseup', onStop);
+    canvas.addEventListener('mouseleave', onStop);
+    canvas.addEventListener('touchstart', onStart, { passive: false });
+    canvas.addEventListener('touchmove', onMove, { passive: false });
+    canvas.addEventListener('touchend', onStop);
+    return () => {
+      canvas.removeEventListener('mousedown', onStart);
+      canvas.removeEventListener('mousemove', onMove);
+      canvas.removeEventListener('mouseup', onStop);
+      canvas.removeEventListener('mouseleave', onStop);
+      canvas.removeEventListener('touchstart', onStart);
+      canvas.removeEventListener('touchmove', onMove);
+      canvas.removeEventListener('touchend', onStop);
+    };
+  }, [sigMode]);
+
+  function handleSigFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => { setSigPreview(ev.target?.result as string); setSigMode('idle'); };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
+
   const set = (key: keyof SellerRecruitRecord) => (val: string) =>
     setForm(f => ({ ...f, [key]: val || null }));
 
@@ -410,7 +589,10 @@ function AddSheet({ onClose, onAdded }: {
     setError('');
     try {
       await addSellerRecruit(form);
-      onAdded(form);
+      if (sigPreview) {
+        try { await updateSellerSignature(form.seller_name, sigPreview); } catch {}
+      }
+      onAdded({ ...form, signature_base64: sigPreview });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to save. Please try again.');
     } finally {
@@ -437,7 +619,7 @@ function AddSheet({ onClose, onAdded }: {
 
       {/* ── Scrollable content ────────────────────────────────────────────── */}
       <div className="absolute inset-0 overflow-y-auto">
-        <div className="px-4 pt-[88px] pb-12">
+        <div className="px-4 pt-[88px] pb-12 max-w-lg mx-auto w-full">
 
           {/* Hero */}
           <div className="flex flex-col items-center pt-4 pb-8 gap-2">
@@ -542,6 +724,62 @@ function AddSheet({ onClose, onAdded }: {
           <ERow label="BIR COR Address">
             <textarea className={`${inputCls} resize-none`} rows={3} value={form.bir_cor_address ?? ''} onChange={e => set('bir_cor_address')(e.target.value)} />
           </ERow>
+        </SectionCard>
+
+        {/* Seller Signature */}
+        <SectionCard title="Seller Signature (optional)">
+          {sigMode === 'draw' ? (
+            <div className="space-y-2">
+              <div className="relative rounded-2xl border-2 border-dashed border-[#C03D25]/40 overflow-hidden bg-white">
+                <canvas ref={sigCanvasRef} width={600} height={200} className="w-full touch-none" style={{ height: '160px' }} />
+              </div>
+              <div className="flex gap-2">
+                <button type="button"
+                  onClick={() => { const ctx = sigCanvasRef.current?.getContext('2d'); if (ctx && sigCanvasRef.current) ctx.clearRect(0, 0, sigCanvasRef.current.width, sigCanvasRef.current.height); }}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#1C1C1E] active:opacity-70">
+                  <RotateCcw size={13} /> Clear
+                </button>
+                <button type="button"
+                  onClick={() => { const b64 = sigCanvasRef.current?.toDataURL('image/png') ?? ''; setSigPreview(b64); setSigMode('idle'); }}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-[#1C1C1E] text-xs font-semibold text-white active:opacity-70">
+                  <Check size={13} /> Use Signature
+                </button>
+                <button type="button" onClick={() => setSigMode('idle')}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#1C1C1E] active:opacity-70">
+                  <X size={13} />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {sigPreview ? (
+                <div className="rounded-2xl border border-black/[0.08] bg-white/60 p-3 flex items-center justify-center min-h-[100px]">
+                  <img src={sigPreview} alt="Signature" className="max-h-[90px] object-contain" />
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-dashed border-black/[0.15] bg-white/40 p-4 flex items-center justify-center min-h-[72px]">
+                  <p className="text-xs text-[#C7C7CC]">No signature added</p>
+                </div>
+              )}
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setSigMode('draw')}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#1C1C1E] active:opacity-70">
+                  <PenLine size={13} /> Draw
+                </button>
+                <button type="button" onClick={() => { setSigMode('upload'); sigFileRef.current?.click(); }}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#1C1C1E] active:opacity-70">
+                  <Upload size={13} /> Upload
+                </button>
+                {sigPreview && (
+                  <button type="button" onClick={() => setSigPreview(null)}
+                    className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-red-200 bg-red-50 text-xs font-medium text-red-500 active:opacity-70">
+                    <RotateCcw size={13} />
+                  </button>
+                )}
+              </div>
+              <input ref={sigFileRef} type="file" accept="image/*" className="hidden" onChange={handleSigFile} />
+            </div>
+          )}
         </SectionCard>
 
           </div>
