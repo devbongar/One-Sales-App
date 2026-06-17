@@ -68,6 +68,14 @@ export async function updateClientSignature(id: string, signatureBase64: string 
   if (error) throw error;
 }
 
+export async function updateClientSignatureByClientId(clientId: string, signatureBase64: string | null): Promise<void> {
+  const { error } = await supabase
+    .from('clients')
+    .update({ signature_base64: signatureBase64 })
+    .eq('client_id', clientId);
+  if (error) throw error;
+}
+
 export async function saveClient(payload: ClientPayload): Promise<string> {
   const { data, error } = await supabase.rpc('save_client', {
     p_client_type:              payload.client_type,

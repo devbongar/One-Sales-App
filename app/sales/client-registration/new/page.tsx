@@ -6,13 +6,13 @@ import PageShell from '@/components/layout/PageShell';
 import {
   X, Check, ChevronDown, Search, Loader2,
   Phone, Mail, Globe, User, Calendar,
-  Heart, Briefcase, UserCog, Users,
+  Heart, Briefcase, UserCog, Users, PenLine, Upload, RotateCcw,
 } from 'lucide-react';
 import {
   COUNTRY_CODES, CITIZENSHIP_LIST,
   REASON_OPTIONS, SOURCE_OPTIONS, INCOME_OPTIONS,
 } from '@/lib/client-form-options';
-import { saveClient, fetchAllClients, ClientRecord } from '@/lib/clients';
+import { saveClient, updateClientSignatureByClientId, fetchAllClients, ClientRecord } from '@/lib/clients';
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
 import { fetchAllBrokers, BrokerRecord } from '@/lib/brokers';
 
@@ -138,6 +138,14 @@ export default function NewClientPage() {
   const [brokerBirName, setBrokerBirName]                     = useState('');
   const [brokerNetworkAssociate, setBrokerNetworkAssociate]   = useState('');
 
+  // Signature state
+  const [sigMode, setSigMode]       = useState<'idle' | 'draw' | 'upload'>('idle');
+  const [sigPreview, setSigPreview] = useState<string | null>(null);
+  const sigCanvasRef                = useRef<HTMLCanvasElement>(null);
+  const sigDrawing                  = useRef(false);
+  const sigLastPos                  = useRef<{ x: number; y: number } | null>(null);
+  const sigFileRef                  = useRef<HTMLInputElement>(null);
+
   const set = (key: keyof typeof EMPTY_FORM) => (val: string) =>
     setForm(f => ({ ...f, [key]: val }));
 
@@ -248,6 +256,9 @@ export default function NewClientPage() {
         broker_bir_name:          form.sellerType === 'Broker'   ? brokerBirName            : undefined,
         broker_network_associate: form.sellerType === 'Broker'   ? brokerNetworkAssociate   : undefined,
       });
+      if (sigPreview) {
+        try { await updateClientSignatureByClientId(clientId, sigPreview); } catch {}
+      }
       setSavedClient({ ...form });
       setSavedClientId(clientId);
       setShowSuccess(true);
@@ -650,6 +661,98 @@ export default function NewClientPage() {
               </InputRow>
             </>
           )}
+        </div>
+
+        {/* Signature */}
+        <div className="rounded-3xl p-4 space-y-3" style={{
+          background: 'rgba(255,255,255,0.88)', backdropFilter: 'blur(24px) saturate(160%)',
+          WebkitBackdropFilter: 'blur(24px) saturate(160%)',
+          border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 2px 16px rgba(0,0,0,0.08)',
+        }}>
+          <p className="text-xs font-bold text-[#6C6C70] uppercase tracking-wider">Client Signature <span className="text-[#8E8E93] normal-case font-normal">(optional)</span></p>
+
+          {/* Preview */}
+          {sigPreview && sigMode !== 'draw' && (
+            <div className="rounded-2xl border border-black/[0.08] bg-white/60 p-3 flex items-center justify-center min-h-[100px]">
+              <img src={sigPreview} alt="Signature" className="max-h-[90px] object-contain" />
+            </div>
+          )}
+          {!sigPreview && sigMode === 'idle' && (
+            <div className="rounded-2xl border border-dashed border-black/[0.15] bg-white/40 p-4 flex items-center justify-center min-h-[72px]">
+              <p className="text-xs text-[#8E8E93]">No signature added</p>
+            </div>
+          )}
+
+          {/* Draw canvas */}
+          {sigMode === 'draw' && (
+            <div className="space-y-2">
+              <canvas
+                ref={sigCanvasRef} width={600} height={180}
+                className="w-full rounded-2xl border border-black/[0.12] bg-white touch-none"
+                style={{ cursor: 'crosshair' }}
+                onMouseDown={e => { sigDrawing.current = true; const r = sigCanvasRef.current!.getBoundingClientRect(); const sx = sigCanvasRef.current!.width/r.width, sy = sigCanvasRef.current!.height/r.height; sigLastPos.current = { x: (e.clientX-r.left)*sx, y: (e.clientY-r.top)*sy }; }}
+                onMouseMove={e => { if (!sigDrawing.current || !sigCanvasRef.current) return; const r = sigCanvasRef.current.getBoundingClientRect(); const sx = sigCanvasRef.current.width/r.width, sy = sigCanvasRef.current.height/r.height; const pos = { x: (e.clientX-r.left)*sx, y: (e.clientY-r.top)*sy }; const ctx = sigCanvasRef.current.getContext('2d')!; ctx.beginPath(); ctx.moveTo(sigLastPos.current!.x, sigLastPos.current!.y); ctx.lineTo(pos.x, pos.y); ctx.strokeStyle='#1C1C1E'; ctx.lineWidth=2; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.stroke(); sigLastPos.current=pos; }}
+                onMouseUp={() => { sigDrawing.current = false; }}
+                onMouseLeave={() => { sigDrawing.current = false; }}
+                onTouchStart={e => { e.preventDefault(); sigDrawing.current = true; const r = sigCanvasRef.current!.getBoundingClientRect(); const sx = sigCanvasRef.current!.width/r.width, sy = sigCanvasRef.current!.height/r.height; sigLastPos.current = { x: (e.touches[0].clientX-r.left)*sx, y: (e.touches[0].clientY-r.top)*sy }; }}
+                onTouchMove={e => { e.preventDefault(); if (!sigDrawing.current || !sigCanvasRef.current) return; const r = sigCanvasRef.current.getBoundingClientRect(); const sx = sigCanvasRef.current.width/r.width, sy = sigCanvasRef.current.height/r.height; const pos = { x: (e.touches[0].clientX-r.left)*sx, y: (e.touches[0].clientY-r.top)*sy }; const ctx = sigCanvasRef.current.getContext('2d')!; ctx.beginPath(); ctx.moveTo(sigLastPos.current!.x, sigLastPos.current!.y); ctx.lineTo(pos.x, pos.y); ctx.strokeStyle='#1C1C1E'; ctx.lineWidth=2; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.stroke(); sigLastPos.current=pos; }}
+                onTouchEnd={() => { sigDrawing.current = false; }}
+              />
+              <div className="flex gap-2">
+                <button type="button" onClick={() => sigCanvasRef.current?.getContext('2d')?.clearRect(0,0,600,180)}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#6C6C70] active:opacity-70">
+                  <RotateCcw size={13} /> Clear
+                </button>
+                <button type="button" onClick={() => { const b64 = sigCanvasRef.current?.toDataURL('image/png') ?? ''; setSigPreview(b64); setSigMode('idle'); }}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-[#1C1C1E] text-white text-xs font-semibold active:opacity-70">
+                  <Check size={13} /> Use Signature
+                </button>
+                <button type="button" onClick={() => setSigMode('idle')}
+                  className="w-9 flex items-center justify-center rounded-xl border border-black/[0.10] bg-white/60 active:opacity-70">
+                  <X size={14} className="text-[#8E8E93]" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Upload waiting */}
+          {sigMode === 'upload' && !sigPreview && (
+            <div className="rounded-2xl border border-dashed border-black/[0.15] bg-white/40 p-4 flex flex-col items-center gap-2 min-h-[72px]">
+              <p className="text-xs text-[#8E8E93]">Select an image file</p>
+              <button type="button" onClick={() => sigFileRef.current?.click()}
+                className="px-4 py-1.5 rounded-xl bg-[#1C1C1E] text-white text-xs font-medium active:opacity-70">Browse</button>
+              <button type="button" onClick={() => setSigMode('idle')} className="text-xs text-[#8E8E93] underline">Cancel</button>
+            </div>
+          )}
+
+          {/* Action buttons */}
+          {sigMode === 'idle' && (
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setSigMode('draw')}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#1C1C1E] active:opacity-70">
+                <PenLine size={13} /> {sigPreview ? 'Redraw' : 'Draw Signature'}
+              </button>
+              <button type="button" onClick={() => { setSigMode('upload'); sigFileRef.current?.click(); }}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#1C1C1E] active:opacity-70">
+                <Upload size={13} /> {sigPreview ? 'Replace' : 'Upload'}
+              </button>
+              {sigPreview && (
+                <button type="button" onClick={() => setSigPreview(null)}
+                  className="w-9 flex items-center justify-center rounded-xl border border-black/[0.10] bg-white/60 active:opacity-70">
+                  <X size={14} className="text-[#8E8E93]" />
+                </button>
+              )}
+            </div>
+          )}
+
+          <input ref={sigFileRef} type="file" accept="image/*" className="hidden" onChange={e => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onloadend = () => { setSigPreview(reader.result as string); setSigMode('idle'); };
+            reader.readAsDataURL(file);
+            e.target.value = '';
+          }} />
         </div>
 
         <button type="button" onClick={handleSave} disabled={saving}
