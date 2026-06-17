@@ -18,6 +18,7 @@ interface Reservation {
   inventory_code: string | null;
   unit_type: string;
   status: string;
+  finance_status: string | null;
   seller_name: string | null;
   payment_proof_url: string | null;
   created_at: string | null;
@@ -41,15 +42,21 @@ function getInitials(name: string) {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-function statusLabel(status: string) {
-  if (status === 'Pending Proof') return 'Pending Proof';
-  if (status === 'Reserved')      return 'Reserved';
+function statusLabel(status: string, financeStatus: string | null) {
+  if (status === 'Pending Proof')           return 'Pending Proof';
+  if (financeStatus === 'rf-rejected')      return 'RF Rejected';
+  if (financeStatus === 'rf-verified')      return 'RF Approved';
+  if (financeStatus === 'proof-submitted')  return 'RF for Verification';
+  if (status === 'Reserved')                return 'Reserved';
   return status;
 }
 
-function statusStyle(status: string): React.CSSProperties {
-  if (status === 'Pending Proof') return { background: 'rgba(255,159,10,0.12)', color: '#A05A00' };
-  if (status === 'Reserved')      return { background: 'rgba(48,176,199,0.12)', color: '#0E6E7E' };
+function statusStyle(status: string, financeStatus: string | null): React.CSSProperties {
+  if (status === 'Pending Proof')           return { background: 'rgba(255,159,10,0.12)',  color: '#A05A00' };
+  if (financeStatus === 'rf-rejected')      return { background: 'rgba(255,59,48,0.12)',   color: '#C0392B' };
+  if (financeStatus === 'rf-verified')      return { background: 'rgba(52,199,89,0.12)',   color: '#1A7F37' };
+  if (financeStatus === 'proof-submitted')  return { background: 'rgba(48,176,199,0.12)',  color: '#0E6E7E' };
+  if (status === 'Reserved')                return { background: 'rgba(48,176,199,0.12)',  color: '#0E6E7E' };
   return { background: 'rgba(142,142,147,0.12)', color: '#6C6C70' };
 }
 
@@ -66,7 +73,7 @@ export default function ReservedUnitsPage() {
   // Filter options (from DB)
   const [sellerOptions,  setSellerOptions]  = useState<string[]>([]);
   const [projectOptions, setProjectOptions] = useState<string[]>([]);
-  const statusOptions = ['Pending Proof', 'Reserved'];
+  const statusOptions = ['Pending Proof', 'RF for Verification', 'RF Rejected', 'RF Approved'];
 
   // Active filters
   const [sellerFilter,  setSellerFilter]  = useState('');
@@ -101,7 +108,10 @@ export default function ReservedUnitsPage() {
     setLoading(true);
     let query = supabase
       .from('reservations')
-      .select('reservation_id, client_name, project, inventory_code, unit_type, status, seller_name, payment_proof_url, created_at')
+      .select('reservation_id, client_name, project, inventory_code, unit_type, status, finance_status, seller_name, payment_proof_url, created_at')
+      .neq('status', 'Booked')
+      .neq('status', 'Cancelled')
+      .or('finance_status.is.null,finance_status.eq.proof-submitted,finance_status.eq.rf-rejected,finance_status.eq.rf-verified')
       .order('created_at', { ascending: false })
       .limit(5000);
 
@@ -110,7 +120,10 @@ export default function ReservedUnitsPage() {
     } else {
       if (sellerFilter) query = query.eq('seller_name', sellerFilter);
     }
-    if (statusFilter)  query = query.eq('status', statusFilter);
+    if (statusFilter === 'Pending Proof')        query = query.eq('status', 'Pending Proof');
+    else if (statusFilter === 'RF for Verification') query = query.eq('finance_status', 'proof-submitted');
+    else if (statusFilter === 'RF Rejected')     query = query.eq('finance_status', 'rf-rejected');
+    else if (statusFilter === 'RF Approved')     query = query.eq('finance_status', 'rf-verified');
     if (projectFilter) query = query.eq('project', projectFilter);
 
     query.then(({ data }) => {
@@ -214,9 +227,9 @@ export default function ReservedUnitsPage() {
                       <p className="text-sm font-bold text-[#1C1C1E] truncate">{r.reservation_id}</p>
                       <span
                         className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0"
-                        style={statusStyle(r.status)}
+                        style={statusStyle(r.status, r.finance_status)}
                       >
-                        {statusLabel(r.status)}
+                        {statusLabel(r.status, r.finance_status)}
                       </span>
                     </div>
                     <p className="text-xs text-[#8E8E93] mt-0.5 truncate">{r.client_name}</p>
@@ -295,7 +308,7 @@ export default function ReservedUnitsPage() {
                         ? 'bg-[#C03D25] border-[#C03D25] text-white'
                         : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
                     }`}>
-                    {s ? statusLabel(s) : 'All'}
+                    {s ? statusLabel(s, null) : 'All'}
                   </button>
                 ))}
               </div>

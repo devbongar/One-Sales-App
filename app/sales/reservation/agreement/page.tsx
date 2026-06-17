@@ -8,6 +8,7 @@ import { Check, Building2, Tag, LayoutGrid, Ruler, Banknote, Receipt, RotateCcw,
 import { generateReservationId, saveReservation } from '@/lib/reservations';
 import { updateClientSignature, fetchClientSignature } from '@/lib/clients';
 import { getSession } from '@/lib/auth';
+import { markQuotationConverted } from '@/lib/quotations';
 
 interface ReservationData {
   // Unit
@@ -34,6 +35,7 @@ interface ReservationData {
   salesDirector: string;
   salesDivisionHead: string;
   firstPaymentAgreed?: boolean;
+  quotationId?: string | null;
 }
 
 const TERMS = [
@@ -250,6 +252,9 @@ export default function ReservationAgreementPage() {
       });
       if (data.clientId) {
         try { await updateClientSignature(data.clientId, signature); } catch {}
+      }
+      if (data.quotationId) {
+        try { await markQuotationConverted(data.quotationId); } catch {}
       }
       sessionStorage.setItem('currentReservationId', reservationId);
       sessionStorage.setItem('proofEntrySource', 'agreement');

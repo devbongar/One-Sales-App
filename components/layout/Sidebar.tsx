@@ -7,7 +7,7 @@ import {
   UserPlus, CalendarCheck, BookOpen, DollarSign,
   ShieldCheck, FolderOpen, MessageSquare, Receipt, CreditCard,
   Wallet, Banknote, BookMarked, Users, UserCog, LayoutDashboard,
-  X, ChevronDown, LogOut, Home, Settings, Database, Mail, Paperclip,
+  X, ChevronDown, LogOut, Home, Settings, Database, Mail, Paperclip, BookmarkCheck,
 } from 'lucide-react';
 import { NavGroup } from '@/types';
 import { signOut } from '@/lib/auth';
@@ -59,6 +59,7 @@ const SELLER_ALLOWED_HREFS = new Set([
   '/sales/client-registration',
   '/sales/reservation',
   '/sales/booking',
+  '/sales/quotations',
   '/sales/sales-commission',
   '/account/buyers-foldering',
   '/account/request-inquiry',
@@ -68,6 +69,7 @@ const DIRECTOR_ALLOWED_HREFS = new Set([
   '/sales/client-registration',
   '/sales/reservation',
   '/sales/booking',
+  '/sales/quotations',
   '/sales/sales-commission',
   '/account/buyers-foldering',
 ]);
@@ -90,7 +92,7 @@ const FINANCE_ALLOWED_HREFS = new Set([
 const ICONS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
   UserPlus, CalendarCheck, BookOpen, DollarSign,
   ShieldCheck, FolderOpen, MessageSquare, Receipt, CreditCard,
-  Wallet, Banknote, BookMarked, Users, UserCog, LayoutDashboard, Database, Paperclip,
+  Wallet, Banknote, BookMarked, Users, UserCog, LayoutDashboard, Database, Paperclip, BookmarkCheck,
 };
 
 interface SidebarProps {

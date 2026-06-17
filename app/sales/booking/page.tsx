@@ -393,11 +393,16 @@ export default function BookingPage() {
         ) : (
           <div className="space-y-2">
             {filtered.map(r => {
-              const bs       = computeBookingStatus(progressMap[r.reservation_id]);
-              const isBooked = r.status === 'Booked';
-              const badge    = isBooked
-                ? { label: 'Booked', bg: 'rgba(52,199,89,0.18)', color: '#1A7F37' }
-                : reviewBadge(bs);
+              const isBooked     = r.status === 'Booked';
+              const isForBooking = !isBooked && (
+                progressMap[r.reservation_id]?.booking_review_status === 'amd-approved' ||
+                r.finance_status === 'dp-verified'
+              );
+              const badge = isBooked
+                ? { label: 'Booked',      bg: 'rgba(52,199,89,0.18)',   color: '#1A7F37' }
+                : isForBooking
+                ? { label: 'For Booking', bg: 'rgba(48,176,199,0.12)',  color: '#0E6E7E' }
+                : { label: 'Reserved',    bg: 'rgba(142,142,147,0.12)', color: '#6C6C70' };
 
               return (
                 <GlassCard

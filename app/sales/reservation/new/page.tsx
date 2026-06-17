@@ -378,6 +378,8 @@ export default function NewReservationPage() {
   const [step, setStep] = useState(0);
   const [reservationTarget, setReservationTarget] = useState<ComparisonItem | null>(null);
   const [isPickMode, setIsPickMode] = useState(false);
+  const quotationPrefillRef = useRef<Record<string, any> | null>(null);
+  const quotationAutoAddedRef = useRef(false);
 
   // Client Info
   const [fullName,    setFullName]    = useState('');
@@ -549,6 +551,82 @@ export default function NewReservationPage() {
   useEffect(() => {
     fetchAllClients().then(setAllClients).catch(console.error);
   }, []);
+
+  // Read quotation prefill from sessionStorage on mount
+  useEffect(() => {
+    const raw = sessionStorage.getItem('quotation_prefill');
+    if (!raw) return;
+    try {
+      const pf = JSON.parse(raw) as Record<string, any>;
+      sessionStorage.removeItem('quotation_prefill');
+      quotationPrefillRef.current = pf;
+      setClientLastName(pf.clientLastName ?? '');
+      setClientFirstName(pf.clientFirstName ?? '');
+      setClientMiddleName(pf.clientMiddleName ?? '');
+      setClientSuffix(pf.clientSuffix ?? '');
+      setClientMobileRaw(pf.clientMobile ?? '');
+      setClientEmailField(pf.clientEmail ?? '');
+      setProject(pf.project ?? '');
+      setTower(pf.tower ?? '');
+      setFloor(pf.floor ?? '');
+      setUnitCategory((pf.unitCategory ?? 'Residential') as UnitCategory);
+      setPaymentScheme((pf.paymentScheme ?? 'spot_cash') as PaymentScheme);
+      setDpRate(pf.dpRate ?? '15%');
+      if (pf.paymentTerm) setPaymentTerm(pf.paymentTerm);
+    } catch { /* ignore */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Once inventory loads after prefill, find the unit and auto-add comparison
+  useEffect(() => {
+    const pf = quotationPrefillRef.current;
+    if (!pf || quotationAutoAddedRef.current || inventoryUnits.length === 0) return;
+    const unit = inventoryUnits.find(u =>
+      pf.inventoryCode ? u.inventory_code === pf.inventoryCode
+        : u.floor === pf.floor && u.unit_no === pf.unitNo
+    );
+    if (!unit) return;
+    quotationAutoAddedRef.current = true;
+    setSelectedUnit(unit);
+    const compId = `quotation-prefill-${pf.quotationId ?? Date.now()}`;
+    setComparisons([{
+      id: compId,
+      project:              pf.project       ?? '',
+      tower:                pf.tower         ?? '',
+      floor:                pf.floor         ?? '',
+      unitNo:               pf.unitNo        ?? unit.unit_no,
+      inventoryCode:        pf.inventoryCode ?? unit.inventory_code ?? null,
+      unitType:             unit.unit_type   ?? pf.unitType ?? '',
+      unitArea:             unit.unit_area   ?? 0,
+      unitCategory:         (pf.unitCategory ?? 'Residential') as ComparisonItem['unitCategory'],
+      paymentScheme:        (pf.paymentScheme ?? 'spot_cash') as PaymentScheme,
+      schemeName:           pf.schemeName    ?? '',
+      dpRate:               pf.dpRate        ?? '',
+      paymentTerm:          pf.paymentTerm   ?? '',
+      termMonths:           Number(pf.termMonths)           || 0,
+      listPrice:            Number(pf.listPrice)            || 0,
+      promoAmount:          Number(pf.promoAmount)          || 0,
+      promoPct:             Number(pf.promoPct)             || 0,
+      employeeAmount:       Number(pf.employeeAmount)       || 0,
+      paytermAmount:        Number(pf.paytermAmount)        || 0,
+      paytermPctDisplay:    0,
+      hicDiscount:          Number(pf.hicDiscount)          || 0,
+      netListPrice:         Number(pf.netListPrice)         || 0,
+      vat:                  Number(pf.vat)                  || 0,
+      otherCharges:         Number(pf.otherCharges)         || 0,
+      totalContractPrice:   Number(pf.totalContractPrice)   || 0,
+      netAmount:            Number(pf.netAmount)            || 0,
+      monthlyDeferred:      Number(pf.monthlyDeferred)      || 0,
+      dpAmount:             Number(pf.dpAmount)             || 0,
+      netSpotDP:            Number(pf.netSpotDP)            || 0,
+      balanceForFinancing:  Number(pf.balanceForFinancing)  || 0,
+      monthlyStretchedDP:   Number(pf.monthlyStretchedDP)   || 0,
+      bankMonthly:          Number(pf.bankMonthly)          || 0,
+      hdmfMonthly:          Number(pf.hdmfMonthly)          || 0,
+      reservationFee:       Number(pf.reservationFee)       || 0,
+    }]);
+    setStep(3);
+  }, [inventoryUnits]);
 
   // Sync fullName / contact / email from individual client fields
   useEffect(() => {
@@ -2654,6 +2732,7 @@ export default function NewReservationPage() {
                     salesDirector: sellerRecord?.sales_director ?? '',
                     salesDivisionHead: sellerRecord?.sales_division_head ?? '',
                     firstPaymentAgreed,
+                    quotationId: quotationPrefillRef.current?.quotationId ?? null,
                   }));
                   setReservationTarget(null);
                   router.push('/sales/reservation/agreement');

@@ -10,13 +10,14 @@ import { fetchAllClients, ClientRecord } from '@/lib/clients';
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
 import { fetchReservationFee, fetchVatThreshold, computeVat, fetchHicTarget } from '@/lib/admin';
 import { getSession } from '@/lib/auth';
+import { saveQuotation } from '@/lib/quotations';
 import { supabase } from '@/lib/supabase';
 import {
   Check, ChevronDown, ChevronLeft, Calculator,
   Building2, Layers, Home, Car, Bike, LayoutGrid,
   BarChart3, Grid3X3, FileDown,
   Banknote, Clock, CreditCard, CalendarRange, Plus, Ruler, X, GitCompare, AlertTriangle,
-  User, UserCheck, UserCog, Users, UserPlus, Mail, Phone, Search,
+  User, UserCheck, UserCog, Users, UserPlus, Mail, Phone, Search, BookmarkPlus,
 } from 'lucide-react';
 import { COUNTRY_CODES } from '@/lib/client-form-options';
 
@@ -309,6 +310,9 @@ export default function SampleComputationPage() {
   const [comparisons,  setComparisons]  = useState<ComparisonItem[]>([]);
   const [duplicateAlert, setDuplicateAlert] = useState(false);
   const [showAddSheet, setShowAddSheet] = useState(false);
+  const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
+  const [isSaving,     setIsSaving]     = useState(false);
+  const [saveToast,    setSaveToast]    = useState<string | null>(null);
   const [useHIC,       setUseHIC]       = useState(false);
   const [isMegawide,   setIsMegawide]   = useState(false);
   const [userRole,     setUserRole]     = useState('');
@@ -812,6 +816,50 @@ export default function SampleComputationPage() {
     load();
   }, []);
 
+  // Load a saved quotation as a comparison card (from quotations page)
+  useEffect(() => {
+    const raw = sessionStorage.getItem('sc_quotation_load');
+    if (!raw) return;
+    try {
+      const pf = JSON.parse(raw) as Record<string, any>;
+      sessionStorage.removeItem('sc_quotation_load');
+      setClientLastName(pf.clientLastName ?? '');
+      setClientFirstName(pf.clientFirstName ?? '');
+      setClientMiddleName(pf.clientMiddleName ?? '');
+      setClientSuffix(pf.clientSuffix ?? '');
+      setClientMobile(pf.clientMobile ?? '');
+      setClientEmail(pf.clientEmail ?? '');
+      setComparisons([{
+        id: `ql-${pf.quotationId ?? Date.now()}`,
+        project: pf.project ?? '', tower: pf.tower ?? '',
+        floor: pf.floor ?? '', unitNo: pf.unitNo ?? '',
+        inventoryCode: pf.inventoryCode ?? null,
+        unitType: pf.unitType ?? '', unitArea: Number(pf.unitArea) || 0,
+        unitCategory: pf.unitCategory ?? 'Residential',
+        paymentScheme: pf.paymentScheme, schemeName: pf.schemeName ?? '',
+        dpRate: pf.dpRate ?? '', paymentTerm: pf.paymentTerm ?? '',
+        termMonths: Number(pf.termMonths) || 0,
+        listPrice: Number(pf.listPrice) || 0,
+        promoAmount: Number(pf.promoAmount) || 0, promoPct: Number(pf.promoPct) || 0,
+        employeeAmount: Number(pf.employeeAmount) || 0,
+        paytermAmount: Number(pf.paytermAmount) || 0, paytermPctDisplay: 0,
+        hicDiscount: Number(pf.hicDiscount) || 0,
+        netListPrice: Number(pf.netListPrice) || 0,
+        vat: Number(pf.vat) || 0, otherCharges: Number(pf.otherCharges) || 0,
+        totalContractPrice: Number(pf.totalContractPrice) || 0,
+        netAmount: Number(pf.netAmount) || 0,
+        monthlyDeferred: Number(pf.monthlyDeferred) || 0,
+        dpAmount: Number(pf.dpAmount) || 0, netSpotDP: Number(pf.netSpotDP) || 0,
+        balanceForFinancing: Number(pf.balanceForFinancing) || 0,
+        monthlyStretchedDP: Number(pf.monthlyStretchedDP) || 0,
+        bankMonthly: Number(pf.bankMonthly) || 0, hdmfMonthly: Number(pf.hdmfMonthly) || 0,
+        reservationFee: Number(pf.reservationFee) || 0,
+      }]);
+      setStep(3);
+    } catch { /* ignore */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Fetch towers when project changes
   useEffect(() => {
     if (!project) { setTowers([]); return; }
@@ -845,6 +893,68 @@ export default function SampleComputationPage() {
   function goToStep(n: number) {
     setStep(n);
     document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  async function handleSaveQuotations() {
+    if (selectedCards.size === 0 || isSaving) return;
+    setIsSaving(true);
+    try {
+      const toSave = comparisons.filter(c => selectedCards.has(c.id));
+      for (const c of toSave) {
+        await saveQuotation({
+          inventoryCode: c.inventoryCode,
+          project: c.project, tower: c.tower, floor: c.floor, unitNo: c.unitNo,
+          unitType: c.unitType, unitArea: c.unitArea, unitCategory: c.unitCategory,
+          paymentScheme: c.paymentScheme, schemeName: c.schemeName,
+          dpRate: c.dpRate, paymentTerm: c.paymentTerm, termMonths: c.termMonths,
+          listPrice: c.listPrice, promoAmount: c.promoAmount, promoPct: c.promoPct,
+          employeeAmount: c.employeeAmount, paytermAmount: c.paytermAmount,
+          hicDiscount: c.hicDiscount, netListPrice: c.netListPrice,
+          vat: c.vat, otherCharges: c.otherCharges,
+          totalContractPrice: c.totalContractPrice, netAmount: c.netAmount,
+          monthlyDeferred: c.monthlyDeferred, dpAmount: c.dpAmount,
+          netSpotDP: c.netSpotDP, balanceForFinancing: c.balanceForFinancing,
+          monthlyStretchedDP: c.monthlyStretchedDP,
+          bankMonthly: c.bankMonthly, hdmfMonthly: c.hdmfMonthly,
+          reservationFee: c.reservationFee,
+          clientLastName, clientFirstName, clientMiddleName, clientSuffix,
+          clientMobile, clientEmail,
+        });
+      }
+      setSelectedCards(new Set());
+      const count = toSave.length;
+      setSaveToast(count === 1 ? '1 quotation saved' : `${count} quotations saved`);
+      setTimeout(() => setSaveToast(null), 3000);
+    } catch {
+      setSaveToast('Save failed — please try again');
+      setTimeout(() => setSaveToast(null), 3000);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  function handleReserveFromCard(c: ComparisonItem) {
+    sessionStorage.setItem('quotation_prefill', JSON.stringify({
+      inventoryCode: c.inventoryCode, project: c.project, tower: c.tower,
+      floor: c.floor, unitNo: c.unitNo, unitType: c.unitType,
+      unitArea: c.unitArea, unitCategory: c.unitCategory,
+      paymentScheme: c.paymentScheme, schemeName: c.schemeName,
+      dpRate: c.dpRate, paymentTerm: c.paymentTerm, termMonths: c.termMonths,
+      listPrice: c.listPrice, promoAmount: c.promoAmount, promoPct: c.promoPct,
+      employeeAmount: c.employeeAmount, paytermAmount: c.paytermAmount,
+      hicDiscount: c.hicDiscount, netListPrice: c.netListPrice,
+      vat: c.vat, otherCharges: c.otherCharges,
+      totalContractPrice: c.totalContractPrice, netAmount: c.netAmount,
+      monthlyDeferred: c.monthlyDeferred, dpAmount: c.dpAmount,
+      netSpotDP: c.netSpotDP, balanceForFinancing: c.balanceForFinancing,
+      monthlyStretchedDP: c.monthlyStretchedDP,
+      bankMonthly: c.bankMonthly, hdmfMonthly: c.hdmfMonthly,
+      reservationFee: c.reservationFee,
+      clientLastName, clientFirstName, clientMiddleName, clientSuffix,
+      clientMobile, clientEmail,
+      quotationId: null,
+    }));
+    router.push('/sales/reservation/new');
   }
 
   return (
@@ -2071,6 +2181,23 @@ export default function SampleComputationPage() {
                     style={{ width: comparisons.length <= 3 ? `calc((100% - ${(comparisons.length - 1) * 8}px) / ${comparisons.length})` : undefined, maxHeight: '72vh' }}
                   >
                     <div ref={el => { compHeaderRefs.current[ci] = el; }} className="relative flex-shrink-0 flex flex-col px-4 pt-4 pb-3 bg-[rgba(192,61,37,0.06)] border-b border-black/[0.08]">
+                      {/* Checkbox top-left */}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCards(prev => {
+                          const next = new Set(prev);
+                          next.has(c.id) ? next.delete(c.id) : next.add(c.id);
+                          return next;
+                        })}
+                        className="absolute top-3 left-3 w-6 h-6 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors"
+                        style={{
+                          background: selectedCards.has(c.id) ? '#C03D25' : 'rgba(255,255,255,0.8)',
+                          borderColor: selectedCards.has(c.id) ? '#C03D25' : '#C7C7CC',
+                        }}
+                      >
+                        {selectedCards.has(c.id) && <Check size={11} color="#fff" />}
+                      </button>
+                      {/* Close top-right */}
                       <button
                         type="button"
                         onClick={() => setComparisons(prev => prev.filter(x => x.id !== c.id))}
@@ -2078,7 +2205,7 @@ export default function SampleComputationPage() {
                       >
                         <X size={12} />
                       </button>
-                      <div ref={el => { projRowRefs.current[ci] = el; }} className="flex items-center gap-1.5 pr-7">
+                      <div ref={el => { projRowRefs.current[ci] = el; }} className="flex items-center gap-1.5 px-7">
                         <span className="text-[#C03D25] shrink-0">
                           {UNIT_CATEGORIES.find(cat => cat.value === c.unitCategory)?.icon}
                         </span>
@@ -2117,6 +2244,17 @@ export default function SampleComputationPage() {
                           </div>
                         );
                       })}
+                    </div>
+                    {/* Reserve Now footer */}
+                    <div className="flex-shrink-0 px-3 py-2.5 border-t border-black/[0.06]">
+                      <button
+                        type="button"
+                        onClick={() => handleReserveFromCard(c)}
+                        className="w-full py-2 rounded-xl text-[11px] font-bold text-white active:opacity-75 transition-opacity"
+                        style={{ background: '#C03D25' }}
+                      >
+                        Reserve Now
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -2317,6 +2455,70 @@ export default function SampleComputationPage() {
                 >
                   Cancel
                 </button>
+              </div>
+            )}
+
+            {/* Floating Save Bar */}
+            {selectedCards.size > 0 && (
+              <div style={{
+                position: 'fixed',
+                bottom: 'calc(5.5rem + env(safe-area-inset-bottom, 0px))',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                zIndex: 50,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                background: 'rgba(28,28,30,0.92)',
+                backdropFilter: 'blur(16px)',
+                borderRadius: 99,
+                padding: '10px 10px 10px 16px',
+                boxShadow: '0 4px 24px rgba(0,0,0,0.30)',
+                minWidth: 220,
+              }}>
+                <span style={{ color: '#fff', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                  {selectedCards.size} selected
+                </span>
+                <button
+                  type="button"
+                  disabled={isSaving}
+                  onClick={handleSaveQuotations}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    background: isSaving ? 'rgba(192,61,37,0.7)' : '#C03D25',
+                    color: '#fff', fontWeight: 700, fontSize: 13,
+                    border: 'none', borderRadius: 99,
+                    padding: '8px 16px',
+                    cursor: isSaving ? 'not-allowed' : 'pointer',
+                    transition: 'background 0.15s',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <BookmarkPlus size={14} />
+                  {isSaving ? 'Saving…' : 'Save Quotation'}
+                </button>
+              </div>
+            )}
+
+            {/* Save Toast */}
+            {saveToast && (
+              <div style={{
+                position: 'fixed',
+                top: 'calc(3.5rem + env(safe-area-inset-top, 0px))',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                zIndex: 60,
+                background: 'rgba(28,28,30,0.92)',
+                backdropFilter: 'blur(12px)',
+                color: '#fff',
+                fontSize: 13,
+                fontWeight: 600,
+                borderRadius: 12,
+                padding: '10px 18px',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
+                whiteSpace: 'nowrap',
+              }}>
+                {saveToast}
               </div>
             )}
 
