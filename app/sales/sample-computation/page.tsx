@@ -14,7 +14,7 @@ import { supabase } from '@/lib/supabase';
 import {
   Check, ChevronDown, ChevronLeft, Calculator,
   Building2, Layers, Home, Car, Bike, LayoutGrid,
-  BarChart3, Grid3X3,
+  BarChart3, Grid3X3, FileDown,
   Banknote, Clock, CreditCard, CalendarRange, Plus, Ruler, X, GitCompare, AlertTriangle,
   User, UserCheck, UserCog, Users, UserPlus, Mail, Phone, Search,
 } from 'lucide-react';
@@ -1264,6 +1264,199 @@ export default function SampleComputationPage() {
               .filter(u => u.status?.toLowerCase() === 'available')
               .sort((a, b) => a.floor.localeCompare(b.floor, undefined, { numeric: true }) || a.unit_no.localeCompare(b.unit_no));
 
+            const statusRgb = (s?: string): { bg: [number,number,number]; fg: [number,number,number] } => {
+              switch (s?.toLowerCase()) {
+                case 'available':   return { bg: [220,252,231], fg: [22,101,52] };
+                case 'reserved':    return { bg: [255,237,213], fg: [154,52,18] };
+                case 'booked':      return { bg: [254,226,226], fg: [153,27,27] };
+                case 'unavailable': return { bg: [229,231,235], fg: [107,114,128] };
+                default:            return { bg: [229,231,235], fg: [107,114,128] };
+              }
+            };
+
+            const generateAvailabilityPDF = async () => {
+              const { jsPDF } = await import('jspdf');
+              const pageW = 297, pageH = 210;
+              const mg = 12;
+              const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+              const coral: [number,number,number] = [192,61,37];
+              const dark:  [number,number,number] = [28,28,30];
+              const lt:    [number,number,number] = [142,142,147];
+              const HDR = 22;
+              const now = new Date();
+              const dateStr = now.toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
+              const timeStr = now.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
+
+              // Logo
+              let logoB64 = '', logoW = 18, logoH = 18;
+              try {
+                const res = await fetch('/document logo.png');
+                const blob = await res.blob();
+                logoB64 = await new Promise<string>(resolve => { const r = new FileReader(); r.onloadend = () => resolve(r.result as string); r.readAsDataURL(blob); });
+                const dims = await new Promise<{ w: number; h: number }>(resolve => { const img = new Image(); img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight }); img.onerror = () => resolve({ w:1,h:1 }); img.src = logoB64; });
+                logoH = 18; logoW = Math.round((dims.w / dims.h) * logoH);
+              } catch {}
+
+              // Fixed 7mm rows, max 20 data rows, max 33 cols; overflow goes to next table
+              const COLS_PER_TABLE = 33;
+              const ROWS_PER_TABLE = 20;
+              const FOOTER_H = 16;
+              const floorColW = 16;
+              const tableDataW = pageW - mg * 2 - floorColW;
+              const unitColW = tableDataW / COLS_PER_TABLE;
+              const rowH = 7;
+              // TABLE_T = HDR(22) + 13 + 5.5 + 6 = 46.5
+              const TABLE_TOP = HDR + 24.5;
+              const FOOTER_LINE_Y = pageH - FOOTER_H;
+
+              const unitChunks: string[][] = [];
+              for (let i = 0; i < uniqueUnitNos.length; i += COLS_PER_TABLE)
+                unitChunks.push(uniqueUnitNos.slice(i, i + COLS_PER_TABLE));
+              if (unitChunks.length === 0) unitChunks.push([]);
+
+              const floorChunks: string[][] = [];
+              for (let i = 0; i < uniqueFloors.length; i += ROWS_PER_TABLE)
+                floorChunks.push(uniqueFloors.slice(i, i + ROWS_PER_TABLE));
+              if (floorChunks.length === 0) floorChunks.push([]);
+
+              type TableEntry = { floorChunk: string[]; unitChunk: string[] };
+              const allTables: TableEntry[] = [];
+              for (const fc of floorChunks)
+                for (const uc of unitChunks)
+                  allTables.push({ floorChunk: fc, unitChunk: uc });
+
+              // Position each table; start new page when table would hit the footer line
+              let curPage = 0;
+              let curY = TABLE_TOP;
+              const positioned: { table: TableEntry; page: number; y: number }[] = [];
+              for (const table of allTables) {
+                const tH = rowH * (table.floorChunk.length + 1);
+                if (positioned.length > 0 && curY + tH > FOOTER_LINE_Y) {
+                  curPage++;
+                  curY = TABLE_TOP;
+                }
+                positioned.push({ table, page: curPage, y: curY });
+                curY += tH + rowH; // 1-row gap between tables
+              }
+              const totalPages = curPage + 1;
+              type PageEntry = { table: TableEntry; y: number };
+              const pageGroups: PageEntry[][] = Array.from({ length: totalPages }, () => []);
+              for (const { table, page, y } of positioned)
+                pageGroups[page].push({ table, y });
+
+              const fs = 6.5;
+              const cellFs = 5;
+
+              const drawTable = ({ floorChunk, unitChunk }: TableEntry, topY: number) => {
+                const hdrBg: [number,number,number] = [229,231,235];
+                const hdrFg: [number,number,number] = [55,65,81];
+                doc.setDrawColor(210,210,210); doc.setLineWidth(0.15);
+                doc.setFillColor(...hdrBg); doc.rect(mg, topY, floorColW, rowH, 'FD');
+                doc.setFont('helvetica','bold'); doc.setFontSize(fs); doc.setTextColor(...hdrFg);
+                doc.text('Floor', mg + floorColW / 2, topY + rowH * 0.65, { align: 'center' });
+                unitChunk.forEach((unitNo, i) => {
+                  const x = mg + floorColW + i * unitColW;
+                  doc.setFillColor(...hdrBg); doc.rect(x, topY, unitColW, rowH, 'FD');
+                  doc.setFont('helvetica','bold'); doc.setFontSize(fs); doc.setTextColor(...hdrFg);
+                  doc.text(pad2(unitNo), x + unitColW / 2, topY + rowH * 0.65, { align: 'center' });
+                });
+                floorChunk.forEach((fl, ri) => {
+                  const y = topY + (ri + 1) * rowH;
+                  doc.setFillColor(243,244,246); doc.rect(mg, y, floorColW, rowH, 'FD');
+                  doc.setFont('helvetica','bold'); doc.setFontSize(fs); doc.setTextColor(...hdrFg);
+                  doc.text(fl, mg + floorColW / 2, y + rowH * 0.65, { align: 'center' });
+                  unitChunk.forEach((unitNo, ci) => {
+                    const x = mg + floorColW + ci * unitColW;
+                    const status = unitMap.get(fl)?.get(unitNo);
+                    if (status === undefined) {
+                      doc.setFillColor(55,65,81); doc.rect(x, y, unitColW, rowH, 'FD');
+                    } else {
+                      const { bg, fg } = statusRgb(status);
+                      doc.setFillColor(...bg); doc.rect(x, y, unitColW, rowH, 'FD');
+                      doc.setFont('helvetica','normal'); doc.setFontSize(cellFs); doc.setTextColor(...fg);
+                      doc.text(pad2(fl) + pad2(unitNo), x + unitColW / 2, y + rowH * 0.65, { align: 'center' });
+                    }
+                  });
+                });
+              };
+
+              const drawPage = (pageChunks: PageEntry[], pageIdx: number) => {
+                // Header band
+                doc.setFillColor(...coral);
+                doc.rect(0, 0, pageW, HDR, 'F');
+                if (logoB64) doc.addImage(logoB64, 'PNG', mg, (HDR - logoH) / 2, logoW, logoH);
+                doc.setTextColor(255,255,255);
+                doc.setFont('helvetica','bold'); doc.setFontSize(14);
+                doc.text('AVAILABILITY CHART', pageW - mg, 10, { align: 'right' });
+                doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
+                doc.text(`${dateStr}  ·  ${timeStr}`, pageW - mg, 17, { align: 'right' });
+
+                // Info strip
+                const infoLabels = ['PROJECT','TOWER','CATEGORY', ...(floor ? ['FLOOR'] : []), ...(unitType ? ['UNIT TYPE'] : [])];
+                const infoValues = [project, tower, unitCategory, ...(floor ? [floor] : []), ...(unitType ? [unitType] : [])];
+                const infoColW = (pageW - mg * 2) / infoLabels.length;
+                const infoY = HDR + 5;
+                infoLabels.forEach((lbl, i) => {
+                  const x = mg + i * infoColW;
+                  doc.setFont('helvetica','bold'); doc.setFontSize(6.5); doc.setTextColor(...lt);
+                  doc.text(lbl, x, infoY);
+                  doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(...dark);
+                  doc.text(infoValues[i], x, infoY + 5);
+                });
+
+                // Divider
+                const divY = HDR + 13;
+                doc.setDrawColor(210,210,220); doc.setLineWidth(0.4);
+                doc.line(mg, divY, pageW - mg, divY);
+
+                // Legend
+                const legY = divY + 5.5;
+                const legItems = [
+                  { label: 'Available',   count: counts.available,   s: 'available' },
+                  { label: 'Reserved',    count: counts.reserved,    s: 'reserved' },
+                  { label: 'Booked',      count: counts.booked,      s: 'booked' },
+                  { label: 'Unavailable', count: counts.unavailable, s: 'unavailable' },
+                ];
+                let lx = mg;
+                legItems.forEach(({ label, count, s }) => {
+                  const { bg, fg } = statusRgb(s);
+                  doc.setFillColor(...bg); doc.roundedRect(lx, legY - 3, 10, 4.5, 0.8, 0.8, 'F');
+                  doc.setFont('helvetica','bold'); doc.setFontSize(6.5); doc.setTextColor(...fg);
+                  doc.text(String(count), lx + 5, legY, { align: 'center' });
+                  doc.setTextColor(...dark); doc.setFont('helvetica','normal'); doc.setFontSize(7);
+                  doc.text(label, lx + 12, legY);
+                  lx += 42;
+                });
+                doc.setTextColor(...lt); doc.setFont('helvetica','normal'); doc.setFontSize(7);
+                doc.text(`Total: ${totalUnits} units`, pageW - mg, legY, { align: 'right' });
+                if (totalPages > 1) {
+                  doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(...lt);
+                  doc.text(`Page ${pageIdx + 1} of ${totalPages}`, pageW / 2, legY, { align: 'center' });
+                }
+
+                // Tables at pre-calculated Y positions
+                pageChunks.forEach(({ table, y }) => drawTable(table, y));
+
+                // Footer
+                const footY = pageH - FOOTER_H + 2;
+                doc.setDrawColor(...coral); doc.setLineWidth(0.3);
+                doc.line(mg, footY, pageW - mg, footY);
+                doc.setFont('helvetica','bold'); doc.setFontSize(6.5); doc.setTextColor(...coral);
+                doc.text('DISCLAIMER', mg, footY + 4);
+                doc.setFont('helvetica','normal'); doc.setFontSize(6.5); doc.setTextColor(...lt);
+                const disc = 'Unit availability is subject to change without prior notice. This document is for reference purposes only and does not constitute a binding offer or reservation.';
+                doc.text(doc.splitTextToSize(disc, pageW - mg * 2), mg, footY + 7.5);
+                doc.text(`Generated: ${dateStr}  at  ${timeStr}`, pageW - mg, footY + 12, { align: 'right' });
+              };
+
+              pageGroups.forEach((pageChunks, pageIdx) => {
+                if (pageIdx > 0) doc.addPage();
+                drawPage(pageChunks, pageIdx);
+              });
+
+              doc.save(`Availability_${project}_${tower}_${Date.now()}.pdf`);
+            };
+
             return (
               <GlassCard className="p-4 space-y-3">
                 <div className="flex items-center justify-between">
@@ -1281,6 +1474,10 @@ export default function SampleComputationPage() {
                     <button type="button" onClick={() => setViewMode('grid')}
                       className={`p-2.5 rounded-xl border-2 transition-all ${viewMode === 'grid' ? 'bg-[#C03D25]/10 border-[#C03D25] text-[#C03D25]' : 'border-[#E5E5EA] text-[#8E8E93]'}`}
                       title="Grid View"><Grid3X3 size={18} /></button>
+                    <div className="w-px h-6 bg-black/[0.08]" />
+                    <button type="button" onClick={generateAvailabilityPDF}
+                      className="p-2.5 rounded-xl border-2 border-[#E5E5EA] text-[#8E8E93] transition-all active:bg-[#F2F2F7]"
+                      title="Export PDF"><FileDown size={18} /></button>
                   </div>
                 </div>
 
