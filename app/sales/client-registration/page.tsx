@@ -9,9 +9,9 @@ import {
   Loader2, Users, Phone, Mail, Heart,
   Briefcase, Calendar, User, Globe,
   X, Check, ChevronDown, ChevronLeft, Search, Edit2, UserCog,
-  SlidersHorizontal, Plus,
+  SlidersHorizontal, Plus, PenLine, Upload, RotateCcw,
 } from 'lucide-react';
-import { fetchAllClients, updateClient, ClientRecord } from '@/lib/clients';
+import { fetchAllClients, updateClient, updateClientSignature, ClientRecord } from '@/lib/clients';
 import {
   COUNTRY_CODES, CITIZENSHIP_LIST,
   REASON_OPTIONS, SOURCE_OPTIONS, INCOME_OPTIONS,
@@ -201,6 +201,15 @@ export default function ClientRegistrationPage() {
   const [brokerBirName, setBrokerBirName]                   = useState('');
   const [brokerNetworkAssociate, setBrokerNetworkAssociate] = useState('');
 
+  // Signature state
+  const [sigMode, setSigMode]         = useState<'idle' | 'draw' | 'upload'>('idle');
+  const [sigPreview, setSigPreview]   = useState<string | null>(null);
+  const [sigSaving, setSigSaving]     = useState(false);
+  const sigCanvasRef                  = useRef<HTMLCanvasElement>(null);
+  const sigDrawing                    = useRef(false);
+  const sigLastPos                    = useRef<{ x: number; y: number } | null>(null);
+  const sigFileRef                    = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     fetchAllClients()
       .then(data => setAllClients(data))
@@ -265,6 +274,8 @@ export default function ClientRegistrationPage() {
     loadSellerFromClient(client);
     setEditMode(false);
     setErrors({});
+    setSigMode('idle');
+    setSigPreview(null);
   }
 
   function cancelEdit() {
@@ -769,6 +780,157 @@ export default function ClientRegistrationPage() {
                       </DarkInputRow>
                     </>
                   )}
+                </DarkSectionCard>
+
+                {/* Signature Section */}
+                <DarkSectionCard title="Client Signature">
+                  {(() => {
+                    const currentSig = sigPreview ?? selectedClient.signature_base64 ?? null;
+
+                    const getPos = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+                      const canvas = sigCanvasRef.current!;
+                      const rect = canvas.getBoundingClientRect();
+                      const scaleX = canvas.width / rect.width;
+                      const scaleY = canvas.height / rect.height;
+                      const src = 'touches' in e ? e.touches[0] : e;
+                      return { x: (src.clientX - rect.left) * scaleX, y: (src.clientY - rect.top) * scaleY };
+                    };
+                    const startDraw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+                      e.preventDefault(); sigDrawing.current = true; sigLastPos.current = getPos(e);
+                    };
+                    const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+                      e.preventDefault();
+                      if (!sigDrawing.current || !sigCanvasRef.current) return;
+                      const ctx = sigCanvasRef.current.getContext('2d')!;
+                      const pos = getPos(e);
+                      ctx.beginPath(); ctx.moveTo(sigLastPos.current!.x, sigLastPos.current!.y);
+                      ctx.lineTo(pos.x, pos.y); ctx.strokeStyle = '#1C1C1E'; ctx.lineWidth = 2;
+                      ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke();
+                      sigLastPos.current = pos;
+                    };
+                    const stopDraw = () => { sigDrawing.current = false; sigLastPos.current = null; };
+                    const clearCanvas = () => {
+                      const canvas = sigCanvasRef.current;
+                      if (canvas) canvas.getContext('2d')!.clearRect(0, 0, canvas.width, canvas.height);
+                    };
+
+                    const handleSave = async (b64: string) => {
+                      setSigSaving(true);
+                      try {
+                        await updateClientSignature(selectedClient.id, b64);
+                        setSelectedClient(prev => prev ? { ...prev, signature_base64: b64 } : prev);
+                        setSigPreview(null);
+                        setSigMode('idle');
+                      } catch (err) { console.error(err); }
+                      finally { setSigSaving(false); }
+                    };
+                    const saveDrawn = async () => {
+                      const b64 = sigCanvasRef.current?.toDataURL('image/png') ?? '';
+                      await handleSave(b64);
+                    };
+                    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onloadend = () => setSigPreview(reader.result as string);
+                      reader.readAsDataURL(file);
+                      e.target.value = '';
+                    };
+
+                    return (
+                      <div className="space-y-3">
+                        {/* Current signature display */}
+                        {currentSig && sigMode === 'idle' ? (
+                          <div className="rounded-2xl border border-black/[0.08] bg-white/60 p-3 flex items-center justify-center min-h-[100px]">
+                            <img src={currentSig} alt="Client Signature" className="max-h-[90px] object-contain" />
+                          </div>
+                        ) : sigMode === 'idle' ? (
+                          <div className="rounded-2xl border border-dashed border-black/[0.15] bg-white/40 p-4 flex items-center justify-center min-h-[80px]">
+                            <p className="text-xs text-[#8E8E93]">No signature on file</p>
+                          </div>
+                        ) : null}
+
+                        {/* Draw mode */}
+                        {sigMode === 'draw' && (
+                          <div className="space-y-2">
+                            <canvas
+                              ref={sigCanvasRef} width={600} height={180}
+                              className="w-full rounded-2xl border border-black/[0.12] bg-white touch-none"
+                              style={{ cursor: 'crosshair' }}
+                              onMouseDown={startDraw} onMouseMove={draw} onMouseUp={stopDraw} onMouseLeave={stopDraw}
+                              onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={stopDraw}
+                            />
+                            <div className="flex gap-2">
+                              <button type="button" onClick={clearCanvas}
+                                className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#6C6C70] active:opacity-70">
+                                <RotateCcw size={13} /> Clear
+                              </button>
+                              <button type="button" onClick={saveDrawn} disabled={sigSaving}
+                                className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-[#1C1C1E] text-white text-xs font-semibold active:opacity-70 disabled:opacity-50">
+                                {sigSaving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} Save Signature
+                              </button>
+                              <button type="button" onClick={() => { setSigMode('idle'); setSigPreview(null); }}
+                                className="w-9 flex items-center justify-center rounded-xl border border-black/[0.10] bg-white/60 active:opacity-70">
+                                <X size={14} className="text-[#8E8E93]" />
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Upload preview */}
+                        {sigMode === 'upload' && sigPreview && (
+                          <div className="space-y-2">
+                            <div className="rounded-2xl border border-black/[0.08] bg-white/60 p-3 flex items-center justify-center min-h-[100px]">
+                              <img src={sigPreview} alt="Preview" className="max-h-[90px] object-contain" />
+                            </div>
+                            <div className="flex gap-2">
+                              <button type="button" onClick={() => { setSigPreview(null); sigFileRef.current?.click(); }}
+                                className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#6C6C70] active:opacity-70">
+                                <Upload size={13} /> Choose Different
+                              </button>
+                              <button type="button" onClick={() => handleSave(sigPreview)} disabled={sigSaving}
+                                className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-[#1C1C1E] text-white text-xs font-semibold active:opacity-70 disabled:opacity-50">
+                                {sigSaving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} Save Signature
+                              </button>
+                              <button type="button" onClick={() => { setSigMode('idle'); setSigPreview(null); }}
+                                className="w-9 flex items-center justify-center rounded-xl border border-black/[0.10] bg-white/60 active:opacity-70">
+                                <X size={14} className="text-[#8E8E93]" />
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Upload mode waiting for file */}
+                        {sigMode === 'upload' && !sigPreview && (
+                          <div className="rounded-2xl border border-dashed border-black/[0.15] bg-white/40 p-4 flex flex-col items-center justify-center gap-2 min-h-[80px]">
+                            <p className="text-xs text-[#8E8E93]">Select an image file</p>
+                            <button type="button" onClick={() => sigFileRef.current?.click()}
+                              className="px-4 py-1.5 rounded-xl bg-[#1C1C1E] text-white text-xs font-medium active:opacity-70">
+                              Browse
+                            </button>
+                            <button type="button" onClick={() => setSigMode('idle')}
+                              className="text-xs text-[#8E8E93] underline">Cancel</button>
+                          </div>
+                        )}
+
+                        {/* Action buttons (idle mode) */}
+                        {sigMode === 'idle' && (
+                          <div className="flex gap-2">
+                            <button type="button" onClick={() => setSigMode('draw')}
+                              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#1C1C1E] active:opacity-70">
+                              <PenLine size={13} /> {selectedClient.signature_base64 ? 'Redraw' : 'Draw Signature'}
+                            </button>
+                            <button type="button" onClick={() => { setSigMode('upload'); sigFileRef.current?.click(); }}
+                              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#1C1C1E] active:opacity-70">
+                              <Upload size={13} /> {selectedClient.signature_base64 ? 'Replace' : 'Upload'}
+                            </button>
+                          </div>
+                        )}
+
+                        <input ref={sigFileRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+                      </div>
+                    );
+                  })()}
                 </DarkSectionCard>
 
               </div>

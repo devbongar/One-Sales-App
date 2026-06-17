@@ -56,7 +56,16 @@ export interface ClientRecord {
   broker_network_associate: string | null;
   gender: string | null;
   civil_status: string | null;
+  signature_base64: string | null;
   created_at: string;
+}
+
+export async function updateClientSignature(id: string, signatureBase64: string | null): Promise<void> {
+  const { error } = await supabase
+    .from('clients')
+    .update({ signature_base64: signatureBase64 })
+    .eq('id', id);
+  if (error) throw error;
 }
 
 export async function saveClient(payload: ClientPayload): Promise<string> {

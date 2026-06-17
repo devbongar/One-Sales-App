@@ -6,6 +6,7 @@ import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import { Check, Building2, Tag, LayoutGrid, Ruler, Banknote, Receipt, RotateCcw, AlertTriangle, Loader2 } from 'lucide-react';
 import { generateReservationId, saveReservation } from '@/lib/reservations';
+import { updateClientSignature } from '@/lib/clients';
 import { getSession } from '@/lib/auth';
 
 interface ReservationData {
@@ -223,6 +224,9 @@ export default function ReservationAgreementPage() {
         status: 'Pending Proof',
         first_payment_agreed: data.firstPaymentAgreed ?? false,
       });
+      if (data.clientId) {
+        try { await updateClientSignature(data.clientId, signature); } catch {}
+      }
       sessionStorage.setItem('currentReservationId', reservationId);
       sessionStorage.setItem('proofEntrySource', 'agreement');
       sessionStorage.setItem('selectedReservation', JSON.stringify({
