@@ -1,0 +1,1591 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import PageShell from '@/components/layout/PageShell';
+import { FileText, Eye } from 'lucide-react';
+import jsPDF from 'jspdf';
+import { fetchAllClients, fetchBuyerInfo, type ClientRecord, type BuyerInfoRecord } from '@/lib/clients';
+import { fetchSellerSignature } from '@/lib/salesperson';
+import { fetchSpouseInfo, type SpouseInfoRecord } from '@/lib/spouse-info';
+import { fetchCoOwner, type CoOwnerRecord } from '@/lib/co-owners';
+import { fetchAttyInFact, type AttyInFactRecord } from '@/lib/atty-in-fact';
+import { getBookingProgress } from '@/lib/booking-progress';
+import { supabase } from '@/lib/supabase';
+
+interface ReservationSummary {
+  reservation_id: string;
+  client_name:    string;
+  project:        string;
+  inventory_code: string;
+}
+
+interface ReservationDetail extends ReservationSummary {
+  client_id:                string | null;
+  tower:                    string | null;
+  unit_no:                  string | null;
+  unit_type:                string | null;
+  unit_area:                number | null;
+  scheme_name:              string | null;
+  payment_scheme:           string | null;
+  term_months:              number | null;
+  dp_rate:                  number | null;
+  list_price:               number | null;
+  promo_discount_pct:       number | null;
+  promo_discount_amount:    number | null;
+  payterm_discount_pct:     number | null;
+  payterm_discount_amount:  number | null;
+  hic_discount:             number | null;
+  employee_discount_amount: number | null;
+  net_list_price:           number | null;
+  vat:                      number | null;
+  other_charges:            number | null;
+  total_contract_price:     number | null;
+  reservation_fee:          number | null;
+  dp_amount:                number | null;
+  balance_for_financing:    number | null;
+  monthly_deferred:         number | null;
+  monthly_stretched_dp:     number | null;
+  bank_monthly:             number | null;
+  hdmf_monthly:             number | null;
+}
+
+interface ReceivableLine {
+  type_of_payment: string;
+  due_date:        string;
+  total_amount_due: number;
+  payment_status:  string;
+}
+
+// ── Document definitions ──────────────────────────────────────────────────────
+
+const DOCUMENTS: { id: string; title: string; description: string; generate: () => Promise<void> }[] = [
+  {
+    id: 'client-registration',
+    title: 'Client Registration Form',
+    description: 'Sent to the client upon successful registration.',
+    generate: () => generateClientRegistration(null),
+  },
+  {
+    id: 'terms-of-payment',
+    title: 'Terms of Payment',
+    description: 'Payment schedule and terms sent after booking.',
+    generate: () => generateTermsOfPayment(null),
+  },
+  {
+    id: 'reservation-agreement',
+    title: 'Reservation Agreement',
+    description: 'Signed reservation agreement sent to the client.',
+    generate: () => generateReservationAgreement(null),
+  },
+  {
+    id: 'buyer-information-form',
+    title: 'Buyer Information Form',
+    description: 'Buyer personal and employment details.',
+    generate: () => generateBuyerInformationForm(null),
+  },
+  {
+    id: 'sample-computation',
+    title: 'Sample Computation',
+    description: 'Payment scheme breakdown and pricing summary.',
+    generate: generateSampleComputation,
+  },
+];
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function makeColorDataURL(r: number, g: number, b: number): string {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1;
+  canvas.height = 1;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = `rgb(${r},${g},${b})`;
+  ctx.fillRect(0, 0, 1, 1);
+  return canvas.toDataURL('image/png');
+}
+
+// ── Logo loader (shared) ──────────────────────────────────────────────────────
+
+async function loadLogo(): Promise<{ b64: string; w: number; h: number }> {
+  try {
+    const res  = await fetch('/document logo.png');
+    const blob = await res.blob();
+    const b64  = await new Promise<string>(resolve => {
+      const r = new FileReader();
+      r.onloadend = () => resolve(r.result as string);
+      r.readAsDataURL(blob);
+    });
+    const dims = await new Promise<{ w: number; h: number }>(resolve => {
+      const img = new Image();
+      img.onload  = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+      img.onerror = () => resolve({ w: 1, h: 1 });
+      img.src = b64;
+    });
+    const logoH = 16;
+    const logoW = Math.round((dims.w / dims.h) * logoH);
+    return { b64, w: logoW, h: logoH };
+  } catch {
+    return { b64: '', w: 0, h: 0 };
+  }
+}
+
+// ── PDF generators (starter layouts — to be finalized) ───────────────────────
+
+async function headerBlock(doc: jsPDF, title: string, docId = '', subId = '') {
+  const pageW = doc.internal.pageSize.getWidth();
+  const HDR   = 30;
+  const logo  = await loadLogo();
+  doc.addImage(makeColorDataURL(238, 67, 78), 'PNG', 0, 0, pageW, HDR);
+  if (logo.b64) doc.addImage(logo.b64, 'PNG', 14, (HDR - logo.h) / 2, logo.w, logo.h);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(15);
+  doc.setTextColor(255, 255, 255);
+  doc.text(title.toUpperCase(), pageW - 14, subId ? 10 : 13, { align: 'right' });
+  if (docId) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(255, 220, 210);
+    doc.text(docId, pageW - 14, subId ? 17 : 22, { align: 'right' });
+  }
+  if (subId) {
+    doc.setFontSize(7.5);
+    doc.setTextColor(255, 200, 190);
+    doc.text(subId, pageW - 14, 24, { align: 'right' });
+  }
+  doc.setTextColor(30, 30, 30);
+}
+
+function sectionLabel(doc: jsPDF, text: string, y: number) {
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(110, 110, 115);
+  doc.text(text.toUpperCase(), 14, y);
+  doc.setDrawColor(220, 220, 220);
+  doc.setLineWidth(0.3);
+  const pageW = doc.internal.pageSize.getWidth();
+  doc.line(14, y + 1.5, pageW - 14, y + 1.5);
+}
+
+function fieldRow(doc: jsPDF, label: string, value: string, x: number, y: number, colW = 85) {
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(110, 110, 115);
+  doc.text(label, x, y);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(28, 28, 30);
+  doc.text(value, x, y + 5);
+  doc.setDrawColor(230, 230, 230);
+  doc.setLineWidth(0.2);
+  doc.line(x, y + 6.5, x + colW, y + 6.5);
+}
+
+function footerBlock(doc: jsPDF) {
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const now   = new Date();
+  const stamp = now.toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' })
+    + '  ' + now.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  doc.setDrawColor(220, 220, 220);
+  doc.setLineWidth(0.3);
+  doc.line(14, pageH - 14, pageW - 14, pageH - 14);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.5);
+  doc.setTextColor(160, 160, 165);
+  doc.text(`Generated: ${stamp}`, 14, pageH - 9);
+  doc.text('Page 1', pageW - 14, pageH - 9, { align: 'right' });
+}
+
+async function generateClientRegistration(client: ClientRecord | null): Promise<void> {
+  const win   = window.open('', '_blank');
+  const doc   = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageW = doc.internal.pageSize.getWidth();
+
+  const docId = client?.client_id ?? 'CLT-0000-00000';
+  await headerBlock(doc, 'Client Registration Form', docId);
+
+  const L    = 14;
+  const W    = pageW - 28;
+  const C3   = W / 3;
+  const C2   = W / 2;
+  const GAP  = 0.6;
+  const CELL = 13;
+
+  const secImg  = makeColorDataURL(252, 210, 212);
+  const cellImg = makeColorDataURL(243, 243, 245);
+
+  const drawSecBar = (title: string, y: number): number => {
+    doc.addImage(secImg, 'PNG', L, y, W, 7);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(140, 30, 30);
+    doc.text(title, L + 2, y + 5);
+    return y + 7;
+  };
+
+  const drawCell = (label: string, value: string, x: number, y: number, w: number, h = CELL) => {
+    doc.addImage(cellImg, 'PNG', x, y, w - GAP, h);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(110, 110, 115);
+    const labelLines = doc.splitTextToSize(label, w - GAP - 4);
+    doc.text(labelLines, x + 2, y + 4);
+    doc.setFontSize(8);
+    doc.setTextColor(28, 28, 30);
+    doc.text(value || '—', x + 2, y + 10);
+  };
+
+  const formatDob = (raw: string | null) => {
+    if (!raw) return '—';
+    const d = new Date(raw + 'T00:00:00');
+    return d.toLocaleDateString('en-PH', { month: '2-digit', day: '2-digit', year: 'numeric' });
+  };
+
+  const mobile = [client?.country_code, client?.mobile_number].filter(Boolean).join('') || '—';
+  const sellerSig = client?.property_specialist
+    ? await fetchSellerSignature(client.property_specialist)
+    : null;
+
+  let y = 36;
+
+  // ── BASIC INFORMATION ────────────────────────────────────────────────────
+  y = drawSecBar('BASIC INFORMATION', y) + 1;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(70, 70, 70);
+  doc.text('Full Name (As found in your valid government issued ID)', L, y + 4);
+  y += 6;
+  drawCell('Last name',    client?.last_name   ?? '—', L,          y, C3);
+  drawCell('First Name',   client?.first_name  ?? '—', L + C3,     y, C3);
+  drawCell('Middle Name',  client?.middle_name ?? '—', L + C3 * 2, y, C3);
+  y += CELL + 1;
+  drawCell('Date of Birth', formatDob(client?.date_of_birth ?? null), L,      y, C2);
+  drawCell('Citizenship',   client?.citizenship ?? '—',               L + C2, y, C2);
+  y += CELL + 4;
+
+  // ── CONTACT INFORMATION ──────────────────────────────────────────────────
+  y = drawSecBar('Contact Information', y) + 1;
+  drawCell('Mobile Number',  mobile,                     L,          y, C3);
+  drawCell('Landline Number', client?.landline_no ?? '—', L + C3,    y, C3);
+  drawCell('Email Address',  client?.email       ?? '—', L + C3 * 2, y, C3);
+  y += CELL + 4;
+
+  // ── OTHERS ───────────────────────────────────────────────────────────────
+  y = drawSecBar('Others', y) + 1;
+  drawCell('Source of Sale',                   client?.source_of_sale          ?? '—', L,          y, C3);
+  drawCell('Reason for buying',                client?.reason_for_buying       ?? '—', L + C3,     y, C3);
+  drawCell('Estimated Total Household Income', client?.monthly_household_income ?? '—', L + C3 * 2, y, C3);
+  y += CELL + 8;
+
+  // ── Certification text ───────────────────────────────────────────────────
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(60, 60, 60);
+  const cert = 'I /We hereby certify that I/We Am/Are the seller on record and that no other active seller in the previous thirty (30) days has made other representations to the buyer prior to this CRF.';
+  const certLines = doc.splitTextToSize(cert, W - 20);
+  doc.text(certLines, pageW / 2, y, { align: 'center' });
+  y += certLines.length * 4.5 + 12;
+
+  // ── Signatures ───────────────────────────────────────────────────────────
+  const today  = new Date().toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
+  const sigW   = 75;
+  const sigImgH = 12;
+
+  const buyerSig  = client?.signature_base64 ?? null;
+  const rightSigX = pageW - L - sigW;
+
+  if (buyerSig)  doc.addImage(buyerSig,  'PNG', L,          y - sigImgH, sigW, sigImgH);
+  if (sellerSig) doc.addImage(sellerSig, 'PNG', rightSigX,  y - sigImgH, sigW, sigImgH);
+
+  doc.setDrawColor(100, 100, 100);
+  doc.setLineWidth(0.4);
+  doc.line(L, y, L + sigW, y);
+  doc.line(rightSigX, y, pageW - L, y);
+  doc.setFontSize(7.5);
+  doc.setTextColor(28, 28, 30);
+  doc.text(today, L + sigW, y - 1, { align: 'right' });
+  doc.text(today, pageW - L, y - 1, { align: 'right' });
+  doc.setFontSize(7);
+  doc.setTextColor(110, 110, 115);
+  doc.text('Buyer Signature over Printed Name', L, y + 4);
+  doc.text('Seller Signature over Printed Name', rightSigX, y + 4);
+  y += 10;
+
+  // ── Privacy note ─────────────────────────────────────────────────────────
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.5);
+  doc.setTextColor(120, 120, 125);
+  const note = 'All personal information collected herein is done so exclusively with my/our consent to appropriately process my/our future request using the information that I/We\'ve provided. PH1 World Developers, Inc. will use and apply the appropriate security measures to preserve the confidentiality of my/our information.';
+  const noteLines = doc.splitTextToSize(note, W);
+  doc.text(noteLines, L, y);
+
+  footerBlock(doc);
+  if (win) win.location.href = doc.output('bloburl') as unknown as string;
+  else doc.output('dataurlnewwindow');
+}
+
+async function generateTermsOfPayment(reservationId: string | null): Promise<void> {
+  const win  = window.open('', '_blank');
+  const doc  = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const L = 14, W = pageW - 28;
+
+  // ── Fetch data ────────────────────────────────────────────────────────────
+  let res: ReservationDetail | null = null;
+  let dueFrom = '', dueTo = '';
+  if (reservationId) {
+    const { data: rd } = await supabase
+      .from('reservations')
+      .select(`reservation_id, client_id, client_name, project, tower, inventory_code,
+               unit_no, unit_type, unit_area,
+               scheme_name, term_months, dp_rate,
+               list_price, promo_discount_pct, promo_discount_amount,
+               payterm_discount_pct, payterm_discount_amount,
+               hic_discount, employee_discount_amount,
+               net_list_price, vat, other_charges, total_contract_price,
+               reservation_fee, dp_amount, balance_for_financing,
+               monthly_deferred, monthly_stretched_dp,
+               bank_monthly, hdmf_monthly`)
+      .eq('reservation_id', reservationId)
+      .single();
+    if (rd) res = rd as ReservationDetail;
+
+    const { data: dpLines } = await supabase
+      .from('receivables_database')
+      .select('due_date')
+      .eq('reservation_id', reservationId)
+      .neq('type_of_payment', 'Reservation Fee')
+      .order('due_date', { ascending: true });
+    if (dpLines && dpLines.length > 0) {
+      dueFrom = dpLines[0].due_date;
+      dueTo   = dpLines[dpLines.length - 1].due_date;
+    }
+  }
+
+  await headerBlock(doc, 'Terms of Payment', res?.reservation_id ?? '', res?.client_id ?? '');
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  const fmtN = (n: number | null | undefined) =>
+    n != null ? n.toLocaleString('en-PH', { minimumFractionDigits: 2 }) : '—';
+  const fmtD = (d: string) =>
+    d ? new Date(d + 'T00:00:00').toLocaleDateString('en-PH', { month: '2-digit', day: '2-digit', year: 'numeric' }) : '—';
+  const fmtPct = (n: number | null | undefined) => n != null ? `${n}%` : '';
+
+  const secImg  = makeColorDataURL(252, 210, 212);
+  const cellImg = makeColorDataURL(243, 243, 245);
+  const darkImg = makeColorDataURL(60,  60,  65);
+  const hlImg   = makeColorDataURL(50,  50,  55);
+  const CELL = 13, GAP = 0.6;
+  const C5 = W / 5;
+
+  const drawSecBar = (title: string, y: number, x = L, w = W): number => {
+    doc.addImage(secImg, 'PNG', x, y, w, 7);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(140, 30, 30);
+    doc.text(title, x + 2, y + 5);
+    return y + 7;
+  };
+  const drawCell = (label: string, value: string, x: number, y: number, w: number, h = CELL) => {
+    doc.addImage(cellImg, 'PNG', x, y, w - GAP, h);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(110, 110, 115);
+    doc.text(doc.splitTextToSize(label.toUpperCase(), w - GAP - 3), x + 2, y + 4);
+    doc.setFontSize(8);
+    doc.setTextColor(28, 28, 30);
+    doc.text(value || '—', x + 2, y + 10);
+  };
+
+  let y = 36;
+
+  // ── PROPERTY INFORMATION ─────────────────────────────────────────────────
+  y = drawSecBar('PROPERTY INFORMATION', y) + 1;
+  drawCell('Project',         res?.project        ?? '—', L,          y, C5);
+  drawCell('Tower / House No.',res?.tower         ?? '—', L + C5,     y, C5);
+  drawCell('Unit Number',     res?.inventory_code ?? '—', L + C5 * 2, y, C5);
+  drawCell('Unit Type',       res?.unit_type      ?? '—', L + C5 * 3, y, C5);
+  drawCell('Unit Area',       res?.unit_area != null ? String(res.unit_area) : '—', L + C5 * 4, y, C5);
+  y += CELL + 4;
+
+  // ── PURCHASE PRICE COMPUTATION ───────────────────────────────────────────
+  y = drawSecBar('PURCHASE PRICE COMPUTATION', y) + 1;
+  drawCell('Payterm Scheme',   res?.scheme_name   ?? '—',                          L,          y, C5);
+  drawCell('Term',             res?.term_months   != null ? String(res.term_months) : '—', L + C5, y, C5);
+  drawCell('Downpayment (%)',  res?.dp_rate       != null ? String(res.dp_rate)    : '—', L + C5 * 2, y, C5);
+  drawCell('Due From',         fmtD(dueFrom),                                      L + C5 * 3, y, C5);
+  drawCell('Due To',           fmtD(dueTo),                                        L + C5 * 4, y, C5);
+  y += CELL + 6;
+
+  // ── Scheme classification ─────────────────────────────────────────────────
+  const schemeLower    = (res?.scheme_name ?? '').toLowerCase();
+  const isSpotCash     = schemeLower.includes('spot cash');
+  const isDeferred     = schemeLower.includes('deferred');
+  const isStretchedDP  = schemeLower.includes('stretched');
+  const hasFinancing   = !isSpotCash && !isDeferred; // spot_dp or stretched_dp
+
+  // Left column width: full-width when no amortization, two-col otherwise
+  const LC = hasFinancing ? 108 : W;
+  const RC = W - LC - 4;
+  const RX = L + LC + 4;
+  const twoColY = y;
+
+  // Left: dark header bar
+  const dpRate      = res?.dp_rate ?? 0;
+  const bfRate      = 100 - dpRate;
+  const schemeTitle = isSpotCash    ? 'SPOT CASH'
+    : isDeferred                    ? `DEFERRED CASH — ${res?.term_months ?? '—'} MONTHS`
+    : dpRate > 0                    ? `${dpRate}% DP, ${bfRate}% END-USER FINANCING`
+    : 'PAYMENT SCHEME';
+
+  doc.addImage(darkImg, 'PNG', L, y, LC, 7);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(255, 255, 255);
+  doc.text(schemeTitle, L + 2, y + 5);
+  y += 7;
+
+  // Pricing rows helper — uses current LC for width
+  const priceRow = (label: string, pct: string, amount: string, bold = false, indent = false, highlight = false) => {
+    const rowH = 6;
+    if (highlight) doc.addImage(hlImg, 'PNG', L, y, LC, rowH + 1);
+    doc.setFont('helvetica', bold ? 'bold' : 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(highlight ? 255 : (bold ? 28 : 60), highlight ? 255 : (bold ? 28 : 60), highlight ? 255 : (bold ? 30 : 65));
+    doc.text(label, L + (indent ? 4 : 2), y + 4.5);
+    if (pct) doc.text(pct, L + 58, y + 4.5);
+    doc.text(amount, L + LC - 2, y + 4.5, { align: 'right' });
+    y += rowH + (highlight ? 1 : 0);
+  };
+
+  // ── Pricing block (all schemes) ───────────────────────────────────────────
+  const promoAmt   = res?.promo_discount_amount   ?? 0;
+  const paytermAmt = res?.payterm_discount_amount ?? 0;
+  const hicAmt     = res?.hic_discount            ?? 0;
+  const empAmt     = res?.employee_discount_amount ?? 0;
+  const discountedPrice = (res?.list_price ?? 0) - promoAmt - paytermAmt - hicAmt - empAmt;
+
+  priceRow('List Price', '', fmtN(res?.list_price));
+  if (promoAmt > 0)   priceRow('(-) Promo Discount',    fmtPct(res?.promo_discount_pct),   `(${fmtN(promoAmt)})`,   false, true);
+  if (paytermAmt > 0) priceRow('(-) Payterm Discount',  fmtPct(res?.payterm_discount_pct), `(${fmtN(paytermAmt)})`, false, true);
+  if (hicAmt > 0)     priceRow('(-) HIC Discount',      '', `(${fmtN(hicAmt)})`,           false, true);
+  if (empAmt > 0)     priceRow('(-) Employee Discount', '', `(${fmtN(empAmt)})`,            false, true);
+  if (promoAmt + paytermAmt + hicAmt + empAmt > 0) priceRow('Discounted Price', '', fmtN(discountedPrice));
+  priceRow('Value Added Tax',       '12%', fmtN(res?.vat));
+  priceRow('Other Charges',         '',    fmtN(res?.other_charges));
+  priceRow('Total Contract Price',  '',    fmtN(res?.total_contract_price), true, false, true);
+  y += 3;
+
+  // ── Scheme-specific lower section ─────────────────────────────────────────
+  if (isSpotCash) {
+    // Spot Cash: just show reservation fee deducted from TCP, no monthly/balance
+    priceRow('(-) Reservation Fee', '', `(${fmtN(res?.reservation_fee)})`, false, true);
+    priceRow('Net Amount Payable', '', fmtN((res?.total_contract_price ?? 0) - (res?.reservation_fee ?? 0)), true, false, true);
+
+  } else if (isDeferred) {
+    // Deferred Cash: show monthly deferred amount
+    priceRow('(-) Reservation Fee', '', `(${fmtN(res?.reservation_fee)})`, false, true);
+    const netDeferred = (res?.total_contract_price ?? 0) - (res?.reservation_fee ?? 0);
+    priceRow('Net Amount', '', fmtN(netDeferred));
+    priceRow('Monthly Deferred', res?.term_months ? `${res.term_months} mos.` : '', fmtN(res?.monthly_deferred), true, false, true);
+
+  } else {
+    // Spot DP / Stretched DP: DP breakdown + balance + monthly
+    priceRow('Downpayment Amount',  fmtPct(res?.dp_rate), fmtN(res?.dp_amount));
+    priceRow('(-) Reservation Fee', '', `(${fmtN(res?.reservation_fee)})`, false, true);
+    const netDP = (res?.dp_amount ?? 0) - (res?.reservation_fee ?? 0);
+    priceRow('Net Downpayment', '', fmtN(netDP));
+    const monthly = isStretchedDP ? res?.monthly_stretched_dp : res?.monthly_deferred;
+    priceRow('Monthly Downpayment', res?.term_months ? `${res.term_months} mos.` : '', fmtN(monthly), true);
+    y += 3;
+    priceRow('Balance for end-user financing', '', fmtN(res?.balance_for_financing), true, false, true);
+  }
+
+  // ── Right column: amortization (only for financing schemes) ──────────────
+  if (hasFinancing) {
+    const amortoCard = (title: string, cardY: number, balance: number | null, rate: string, term: string, monthly: number | null) => {
+      let cy = drawSecBar(title, cardY, RX, RC);
+      cy += 2;
+      const amortoRow = (label: string, val: string) => {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(80, 80, 85);
+        doc.text(label, RX + 2, cy + 3.5);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(28, 28, 30);
+        doc.text(val, RX + RC - 2, cy + 3.5, { align: 'right' });
+        cy += 6;
+      };
+      amortoRow('Balance for end-user financing', fmtN(balance));
+      amortoRow('Indicative Interest Rate', rate);
+      amortoRow('Loan Term (Max years)', term);
+      amortoRow('Monthly Amortization', fmtN(monthly));
+      return cy + 3;
+    };
+
+    let ry = twoColY;
+    ry = amortoCard('BANK AMORTIZATION', ry, res?.balance_for_financing, '5.5%', '10 years', res?.bank_monthly);
+    amortoCard('HDMF AMORTIZATION', ry, res?.balance_for_financing, '5.5%', '10 years', res?.hdmf_monthly);
+  }
+
+  footerBlock(doc);
+  if (win) win.location.href = doc.output('bloburl') as unknown as string;
+  else doc.output('dataurlnewwindow');
+}
+
+const RESERVATION_TERMS = [
+  {
+    title: 'RESERVATION PROVISION',
+    items: [
+      `1. As proof of my interest to purchase the Property, I hereby tender the sum of: PHP {{RESERVATION_FEE}} as Reservation Fee, exclusive of VAT, in order to reserve the Property for our intended purchase which shall be effective for a period of thirty (30) days from delivery of the Reservation Fee. I understand and acknowledge that the Reservation Fee is non-refundable. Should I decide to cancel my reservation; fail to submit all the documentary requirements, including this Reservation Agreement; or fail to pay the amounts due on the prescribed due dates, for any reason whatsoever, I agree that my reservation shall lapse and my Reservation Fee shall be forfeited in favor of the Company.`,
+      `2. I acknowledge that the Company reserves the right to accept or deny this request for reservation and that it is non-transferable. Subject to a written request by me, the Company, at its sole discretion, may extend this reservation for a period of more than fifteen (15) days within which to make the down payment, provided that I shall incur a penalty charge of three percent (3%) per month, or a fraction thereof.`,
+      `3. In the event the Property is found unavailable for sale for any reason whatsoever, I agree to hold the Company free and harmless from any liability and it shall have the option of exchanging the Property with another similar unit/lot/property, as applicable, or otherwise cancel this Reservation Agreement.`,
+    ],
+  },
+  {
+    title: 'PAYMENT AND PAYMENT MODES',
+    items: [
+      `4. I acknowledge that in the event my application to purchase the Property is accepted, the Reservation Fee shall automatically form part of the required down payment. Upon being notified of the acceptance of my offer to purchase the Property, I shall remit, within the period required by the Company, the down payment and/or balance, and the complete post-dated checks, in accordance with the Terms of Payment, without need of further demand.`,
+      `5. All payments shall be made on or before their respective due dates without need of demand or legal action. In the event that I avail of bank financing, I shall be solely responsible for filing the loan application and all necessary requirements so that the loan may be processed and proceeds released to the Company on or before the due date.`,
+    ],
+  },
+  {
+    title: 'SALES DOCUMENT AND OTHER BUYER REQUIREMENTS',
+    items: [
+      `6. Should I fail to pay any of the amounts due in relation to my purchase of the Property, or fail to submit the required documents, the Company shall have the sole option to cancel the sale and forfeit in its favor all payments made, including the Reservation Fee, as liquidated damages; and/or impose penalty charges at the rate of three percent (3%) per month of the unpaid amount.`,
+      `7. Unless otherwise provided, my Contract to Sell shall be prepared only after I have submitted all necessary documents and post-dated checks. The Contract to Sell shall be executed by me within thirty (30) days from receipt; otherwise, this Reservation Agreement shall be cancelled.`,
+      `8. I understand that this Agreement only gives me the right to purchase the Property subject to fulfillment of all stated conditions. No other right, title, or ownership is vested upon me until the Property is fully paid.`,
+    ],
+  },
+  {
+    title: 'AGREEMENTS AND OTHER PROVISIONS',
+    items: [
+      `9. I confirm that I have personally inspected the plans and specifications of the Property and find the same acceptable. I acknowledge that I have independently evaluated all material and technical information related to the Property and am satisfied with what was explained to me.`,
+      `10. I warrant the truthfulness of all information provided and shall personally inform the Company in writing of any changes to my personal data.`,
+      `11. This document constitutes the entire agreement on my reservation of the Property. Any stipulations or agreements not in writing and signed by the Company's authorized representative shall not be binding.`,
+      `12. If there are two (2) or more buyers signing, we understand that our obligations hereunder are joint and solidary.`,
+    ],
+  },
+];
+
+async function generateReservationAgreement(reservationId: string | null): Promise<void> {
+  const win   = window.open('', '_blank');
+  const doc   = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const L = 14, W = pageW - 28;
+
+  // ── Fetch data ────────────────────────────────────────────────────────────
+  let res: (ReservationDetail & { created_at?: string }) | null = null;
+  let clientSig: string | null = null;
+  let sellerSig: string | null = null;
+
+  if (reservationId) {
+    const { data: rd } = await supabase
+      .from('reservations')
+      .select(`reservation_id, client_id, client_name, project, tower, inventory_code,
+               unit_no, unit_type, unit_area, scheme_name, dp_rate, term_months,
+               total_contract_price, reservation_fee, created_at,
+               net_list_price, vat, other_charges,
+               list_price, promo_discount_pct, promo_discount_amount,
+               payterm_discount_pct, payterm_discount_amount,
+               hic_discount, employee_discount_amount,
+               dp_amount, balance_for_financing, monthly_deferred,
+               monthly_stretched_dp, bank_monthly, hdmf_monthly`)
+      .eq('reservation_id', reservationId)
+      .single();
+    if (rd) res = rd as typeof res;
+
+    if (res?.client_id) {
+      const { data: cr } = await supabase
+        .from('clients')
+        .select('signature_base64, property_specialist')
+        .eq('client_id', res.client_id)
+        .maybeSingle();
+      clientSig = (cr as any)?.signature_base64 ?? null;
+      const specialist = (cr as any)?.property_specialist ?? null;
+      if (specialist) sellerSig = await fetchSellerSignature(specialist);
+    }
+  }
+
+  await headerBlock(doc, 'Reservation Agreement', res?.reservation_id ?? '');
+
+  const secImg  = makeColorDataURL(252, 210, 212);
+  const cellImg = makeColorDataURL(243, 243, 245);
+  const CELL = 13, GAP = 0.6;
+  const C2 = W / 2, C3 = W / 3, C4 = W / 4, C5 = W / 5;
+  let pageNum = 1;
+
+  const drawSecBar = (title: string, y: number): number => {
+    doc.addImage(secImg, 'PNG', L, y, W, 7);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(140, 30, 30);
+    doc.text(title, L + 2, y + 5);
+    return y + 7;
+  };
+  const drawCell = (label: string, value: string, x: number, y: number, w: number, h = CELL) => {
+    doc.addImage(cellImg, 'PNG', x, y, w - GAP, h);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(110, 110, 115);
+    doc.text(doc.splitTextToSize(label.toUpperCase(), w - GAP - 3), x + 2, y + 4);
+    doc.setFontSize(8);
+    doc.setTextColor(28, 28, 30);
+    doc.text(value || '—', x + 2, y + 10);
+  };
+
+  const addPage = () => {
+    pageNum++;
+    doc.addPage();
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(160, 160, 165);
+    doc.text(`Page ${pageNum}`, pageW - L, pageH - 9, { align: 'right' });
+  };
+
+  const checkBreak = (needed: number, y: number): number => {
+    if (y + needed > pageH - 18) { addPage(); return 14; }
+    return y;
+  };
+
+  const fmtN = (n: number | null | undefined) =>
+    n != null ? 'Php ' + n.toLocaleString('en-PH', { minimumFractionDigits: 2 }) : '—';
+  const reservationDate = res?.created_at
+    ? new Date(res.created_at).toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' })
+    : '—';
+
+  let y = 36;
+
+  // ── Intro paragraph ───────────────────────────────────────────────────────
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(50, 50, 55);
+  const intro = 'I hereby manifest my intention and offer to purchase from PH1 WORLD DEVELOPERS INC. (the "Company") the following property (the "Property") and request that the Property be reserved for my purchase under the agreed price, terms and conditions indicated below:';
+  const introLines = doc.splitTextToSize(intro, W);
+  doc.text(introLines, L, y);
+  y += introLines.length * 4.5 + 4;
+
+  drawCell("Buyer's Full Name", res?.client_name ?? '—', L, y, W);
+  y += CELL + 6;
+
+  // ── PROPERTY INFORMATION ─────────────────────────────────────────────────
+  y = drawSecBar('PROPERTY INFORMATION', y) + 1;
+  drawCell('Project',          res?.project        ?? '—', L,          y, C5);
+  drawCell('Tower / House No.', res?.tower         ?? '—', L + C5,     y, C5);
+  drawCell('Unit Number',      res?.inventory_code ?? '—', L + C5 * 2, y, C5);
+  drawCell('Unit Type',        res?.unit_type      ?? '—', L + C5 * 3, y, C5);
+  drawCell('Unit Area',        res?.unit_area != null ? String(res.unit_area) : '—', L + C5 * 4, y, C5);
+  y += CELL + 4;
+
+  // ── PRICE AND TERMS ──────────────────────────────────────────────────────
+  y = drawSecBar('PRICE AND TERMS', y) + 1;
+  drawCell('Net List Price',       fmtN(res?.net_list_price),        L,          y, C5);
+  drawCell('Value Added Tax',      fmtN(res?.vat),                   L + C5,     y, C5);
+  drawCell('Other Charges',        fmtN(res?.other_charges),         L + C5 * 2, y, C5);
+  drawCell('Total Contract Price', fmtN(res?.total_contract_price),  L + C5 * 3, y, C5);
+  drawCell('Payment Scheme',       res?.scheme_name ?? '—',          L + C5 * 4, y, C5);
+  y += CELL + 8;
+
+  // ── TERMS AND CONDITIONS ─────────────────────────────────────────────────
+  doc.addImage(secImg, 'PNG', L, y, W, 7);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(140, 30, 30);
+  doc.text('TERMS AND CONDITIONS', pageW / 2, y + 5, { align: 'center' });
+  y += 9;
+
+  const rfFormatted = res?.reservation_fee
+    ? res.reservation_fee.toLocaleString('en-PH', { minimumFractionDigits: 2 })
+    : '0.00';
+
+  RESERVATION_TERMS.forEach((section, idx) => {
+    y = checkBreak(12, y);
+    if (idx === 0) y += 5; // extra space before first section
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(140, 30, 30);
+    doc.text(section.title, L, y);
+    y += 6;
+
+    section.items.forEach(item => {
+      const text = item.replace('{{RESERVATION_FEE}}', rfFormatted);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(50, 50, 55);
+      const lines = doc.splitTextToSize(text, W);
+      lines.forEach((line: string) => {
+        y = checkBreak(5, y);
+        doc.text(line, L, y);
+        y += 4.5;
+      });
+      y += 3;
+    });
+    y += 2;
+  });
+
+  // ── Signatures ───────────────────────────────────────────────────────────
+  y = checkBreak(30, y);
+  y += 6;
+  const today  = new Date().toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
+  const sigW   = 75;
+  const sigImgH = 12;
+  const rightSigX = pageW - L - sigW;
+
+  if (clientSig) doc.addImage(clientSig, 'PNG', L,          y - sigImgH, sigW, sigImgH);
+  if (sellerSig) doc.addImage(sellerSig, 'PNG', rightSigX,  y - sigImgH, sigW, sigImgH);
+
+  doc.setDrawColor(100, 100, 100);
+  doc.setLineWidth(0.4);
+  doc.line(L, y, L + sigW, y);
+  doc.line(rightSigX, y, pageW - L, y);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(28, 28, 30);
+  doc.text(today, L + sigW, y - 1, { align: 'right' });
+  doc.text(today, pageW - L, y - 1, { align: 'right' });
+  doc.setFontSize(7);
+  doc.setTextColor(110, 110, 115);
+  doc.text('Buyer Signature over Printed Name', L, y + 4);
+  doc.text('Seller Signature over Printed Name', rightSigX, y + 4);
+
+  footerBlock(doc);
+  if (win) win.location.href = doc.output('bloburl') as unknown as string;
+  else doc.output('dataurlnewwindow');
+}
+
+type PrivBlock =
+  | { type: 'para'; text: string }
+  | { type: 'item'; label: string; text: string }
+  | { type: 'bullet'; text: string };
+
+const PRIVACY_BLOCKS: PrivBlock[] = [
+  { type: 'para', text: `PH1 World Developers, Inc. and/or its subsidiaries (the "Company") recognize the utmost importance of protecting your privacy. As such, the Company has adopted this Privacy Policy ("Policy"), which is consistent with Republic Act No. 10173, otherwise known as the Data Privacy Act of 2012 ("DPA"), its Implementing Rules and Regulations ("IRR"), and all applicable regulations and issuances on data privacy and data protection.` },
+  { type: 'para', text: `As its customer or client, the Company may collect, use, share, retain, and dispose (collectively, to "Process") the following personal information and/or sensitive personal information ("Personal Data") from you:` },
+  { type: 'item', label: 'a.', text: `basic personal information, such as full name, nickname, home address/ billing address/ shipping address, e-mail address, employment information, telephone number, other contact numbers, username and password;` },
+  { type: 'item', label: 'b.', text: `sensitive personal information, such as age, nationality, marital status, gender, health, education, and government-issued identification documents which include, but are not limited to, identification cards, licenses, and social security number; and,` },
+  { type: 'item', label: 'c.', text: `income information and financial details, such as credit history, bank accounts, credit cards and debit card information.` },
+  { type: 'para', text: `The foregoing Personal Data shall be used by the Company in a reasonable manner and when necessary for a declared and specific purpose, which may be any of the following:` },
+  { type: 'item', label: 'a.', text: `When you inquire about or purchase a unit or property:` },
+  { type: 'bullet', text: `to conduct the appropriate credit investigation and evaluate the credit risk associated with your financial obligation to the Company arising from your purchase;` },
+  { type: 'bullet', text: `to facilitate the sale and the turnover of a unit or property which includes the execution of contracts, the preparation of documentation leading to the transfer of title, and performance of financial processes (i.e. reservation fees, amortization and handover fees) associated with the sale;` },
+  { type: 'bullet', text: `to provide information or services concerning the trading, brokerage, leasing, management and other incidental operations of real estate;` },
+  { type: 'bullet', text: `to update our records and keep your contact details and billing address up to date; and,` },
+  { type: 'bullet', text: `to ensure the safety and security of the other unit or property owners, tenants and/or occupants.` },
+  { type: 'item', label: 'b.', text: `To carry out the necessary due diligence;` },
+  { type: 'item', label: 'c.', text: `For you to provide reviews on our products and services;` },
+  { type: 'item', label: 'd.', text: `To generate statistical insight;` },
+  { type: 'item', label: 'e.', text: `To conduct research and analysis (through surveys or polls) in order to improve your experience and satisfaction;` },
+  { type: 'item', label: 'f.', text: `To respond to specific complaints, inquiries, requests, or to provide requested information;` },
+  { type: 'item', label: 'g.', text: `To provide timely and efficient customer care activities and services;` },
+  { type: 'item', label: 'h.', text: `To monitor the Company's quality and security; and,` },
+  { type: 'item', label: 'i.', text: `To notify and update you (through call, text or email) about our complimentary, commercial and promotional advertisements, exclusive invites, discounts, surveys and other direct marketing that the Company may deem relevant and beneficial to you based on your preference and interest, with which you can opt-out anytime should you prefer not to receive these notifications.` },
+  { type: 'para', text: `You shall be responsible for ensuring that the Personal Data you submitted to the Company is accurate, complete, and up to date. All Personal Data Processed by the Company shall be considered correct unless you request that it be updated.` },
+  { type: 'para', text: `All Personal Data provided by you will be kept strictly confidential. Accordingly, the Company will not disclose or share your Personal Data to third parties without your consent. However, the Company may share your Personal Data to its agents, brokers, employees and/or personnel on a need-to-know basis. In which case, your Personal Data will be used in a manner consistent with the purpose for which it was originally collected and to which you consented, and pursuant to the DPA, its IRR, and all applicable regulations and issuances on data privacy and protection.` },
+  { type: 'para', text: `The Company may also share your Personal Data with third parties who perform services for it. Under such circumstances, the Company requires its service providers to limit the use of your Personal Data in a manner consistent with the purpose for which it was originally collected, and to protect your Personal Data aligned with the Company's security standards.` },
+  { type: 'para', text: `Further, the Company may share your Personal Data to unrelated third parties, upon your request, when legally required to do so, or when it is necessary to protect and/or defend the Company's rights, property, or safety, and those of other individuals. Nevertheless, the Company will continue, as far as practicable, to take all necessary measures to protect your Personal Data.` },
+  { type: 'para', text: `To secure your Personal Data, the Company employs appropriate organizational, technical, and physical security measures to protect the Personal Data you provide against accidental, unlawful, or unauthorized destructions, loss, alteration, access, disclosure, or use. The Company shall keep your Personal Data within five (5) years from the date of your last transaction with the Company (i.e. release of transferred title or documents relating to a cancellation of the sale), or as may be required by law, unless you expressly withdraw your consent in writing.` },
+  { type: 'para', text: `As the owner of the Personal Data, you have the right to be informed of: (i) the Personal Data being, or that was, Processed by the Company; (ii) the right to gain reasonable access to your Personal Data; (iii) the right to object to the Processing of your Personal Data; (iv) the right to suspend, withdraw, or order the removal or destruction of your Personal Data; (v) the right to dispute any error in your Personal Data and have the Company correct it immediately; and (vi) the right to obtain a copy of the Personal Data in electronic format, if available.` },
+];
+
+async function generateBuyerInformationForm(reservationId: string | null): Promise<void> {
+  const win = window.open('', '_blank');
+  if (!reservationId) { win?.close(); return; }
+
+  const doc   = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const L = 14, W = pageW - 28;
+  const CELL = 13, GAP = 0.6;
+  const C2 = W / 2, C3 = W / 3;
+  let pageNum = 1;
+
+  // ── Fetch data ──────────────────────────────────────────────────────────
+  const { data: resRow } = await supabase
+    .from('reservations')
+    .select('reservation_id, client_id, project, inventory_code')
+    .eq('reservation_id', reservationId)
+    .maybeSingle();
+
+  const progress = await getBookingProgress(reservationId).catch(() => null);
+
+  const displayClientId = (resRow as any)?.client_id ?? null;
+  let clientRow: any = null;
+  let buyerInfo: BuyerInfoRecord | null = null;
+  if (displayClientId) {
+    const { data } = await supabase
+      .from('clients')
+      .select('id, client_id, first_name, middle_name, last_name, suffix, gender, civil_status, citizenship, date_of_birth, country_code, mobile_number, landline_no, email, signature_base64')
+      .eq('client_id', displayClientId)
+      .maybeSingle();
+    clientRow = data;
+    if (clientRow?.id) buyerInfo = await fetchBuyerInfo(clientRow.id).catch(() => null);
+  }
+
+  const [spouseInfo, coOwnerInfo, attyInfo] = await Promise.all([
+    progress?.has_spouse    ? fetchSpouseInfo(reservationId).catch(() => null)   : Promise.resolve(null),
+    progress?.has_co_ownership ? fetchCoOwner(reservationId).catch(() => null)   : Promise.resolve(null),
+    progress?.has_atty_in_fact ? fetchAttyInFact(reservationId).catch(() => null) : Promise.resolve(null),
+  ]);
+
+  // ── Pre-load header assets so addPage() can be synchronous ─────────────
+  const logo       = await loadLogo();
+  const hdrImg     = makeColorDataURL(238, 67, 78);
+  const bifResId   = (resRow as any)?.reservation_id ?? '';
+  const HDR        = 30;
+
+  const drawPageHeader = () => {
+    doc.addImage(hdrImg, 'PNG', 0, 0, pageW, HDR);
+    if (logo.b64) doc.addImage(logo.b64, 'PNG', 14, (HDR - logo.h) / 2, logo.w, logo.h);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(15);
+    doc.setTextColor(255, 255, 255);
+    doc.text('BUYER INFORMATION FORM', pageW - 14, 13, { align: 'right' });
+    if (bifResId) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(255, 220, 210);
+      doc.text(bifResId, pageW - 14, 22, { align: 'right' });
+    }
+    doc.setTextColor(30, 30, 30);
+  };
+
+  drawPageHeader();
+
+  // ── Local helpers ────────────────────────────────────────────────────────
+  const secImg  = makeColorDataURL(252, 210, 212);
+  const cellImg = makeColorDataURL(243, 243, 245);
+
+  const drawSecBar = (title: string, y: number): number => {
+    doc.addImage(secImg, 'PNG', L, y, W, 7);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(140, 30, 30);
+    doc.text(title, L + 2, y + 5);
+    return y + 7;
+  };
+
+  const drawCell = (label: string, value: string, x: number, y: number, w: number) => {
+    doc.addImage(cellImg, 'PNG', x, y, w - GAP, CELL);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(110, 110, 115);
+    doc.text(label.toUpperCase(), x + 2, y + 4);
+    doc.setFontSize(8);
+    doc.setTextColor(28, 28, 30);
+    doc.text(value || '—', x + 2, y + 10);
+  };
+
+  const addPage = () => {
+    pageNum++;
+    doc.addPage();
+    drawPageHeader();
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(160, 160, 165);
+    doc.text(`Page ${pageNum}`, pageW - L, pageH - 9, { align: 'right' });
+  };
+
+  const checkBreak = (needed: number, y: number): number => {
+    if (y + needed > pageH - 18) { addPage(); return 36; }
+    return y;
+  };
+
+  const fmtDate = (d: string | null | undefined) =>
+    d ? new Date(d + 'T00:00:00').toLocaleDateString('en-PH', { month: '2-digit', day: '2-digit', year: 'numeric' }) : '—';
+
+  const C4 = W / 4;
+
+  // small italic label above a row group (e.g. "Contact Information", "Address")
+  const subLabel = (text: string, y: number): number => {
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(7.5);
+    doc.setTextColor(80, 80, 85);
+    doc.text(text, L, y + 4);
+    return y + 7;
+  };
+
+  // ── Helper: render a full person block ────────────────────────────────────
+  const renderPersonBlock = (
+    sectionTitle: string,
+    p: {
+      last_name?: string | null; first_name?: string | null; middle_name?: string | null; suffix?: string | null;
+      gender?: string | null; civil_status?: string | null; citizenship?: string | null;
+      date_of_birth?: string | null; mobile_code?: string | null; mobile?: string | null;
+      landline?: string | null; email?: string | null; tin?: string | null; no_tin?: boolean | null;
+      home_ownership?: string | null; home_country?: string | null;
+      home_region_province?: string | null; home_city_municipality?: string | null;
+      home_barangay?: string | null; home_street?: string | null; home_unit?: string | null;
+      employer?: string | null; nature_of_business?: string | null;
+      employment_sector?: string | null; employment_status?: string | null;
+      job_title?: string | null; rank?: string | null; salary_range?: string | null;
+      work_mobile_code?: string | null; work_mobile?: string | null;
+      work_landline?: string | null; work_email?: string | null;
+      work_country?: string | null; work_region_province?: string | null;
+      work_city_municipality?: string | null; work_barangay?: string | null;
+      work_street?: string | null; work_building_unit?: string | null;
+      mailing_type?: string | null;
+    },
+    currentY = 36,
+    opts: { preamble?: string; employmentPrefix?: string; showCivilStatus?: boolean; showHomeOwnership?: boolean } = {}
+  ) => {
+    const { preamble, employmentPrefix = '', showCivilStatus = true, showHomeOwnership = true } = opts;
+    let y = currentY;
+
+    // Optional preamble note above the section bar
+    if (preamble) {
+      y = checkBreak(12, y);
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(7);
+      doc.setTextColor(80, 80, 85);
+      const preambleLines = doc.splitTextToSize(preamble, W);
+      preambleLines.forEach((line: string) => { doc.text(line, L, y + 4); y += 4.5; });
+      y += 3;
+    }
+
+    // ── Personal information pink bar ──────────────────────────────────────
+    y = checkBreak(7 + 6 + (CELL + 4) * 3, y);
+    y = drawSecBar(sectionTitle, y) + 2;
+
+    // "Full Name (As found in your valid government issued ID)"
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(80, 80, 85);
+    doc.text('Full Name (As found in your valid government issued ID)', L, y + 4);
+    y += 7;
+
+    // Row 1 (4-col): Last name | First Name | Middle Name | Date of Birth
+    drawCell('Last name',    p.last_name    ?? '—', L,           y, C4);
+    drawCell('First Name',   p.first_name   ?? '—', L + C4,      y, C4);
+    drawCell('Middle Name',  p.middle_name  ?? '—', L + C4 * 2,  y, C4);
+    drawCell('Date of Birth', fmtDate(p.date_of_birth), L + C4 * 3, y, C4); y += CELL + 4;
+
+    // Row 2: 4-col with Civil Status (buyer) or 3-col without it (spouse/co-owner)
+    if (showCivilStatus) {
+      drawCell('Gender',                p.gender       ?? '—', L,           y, C4);
+      drawCell('Citizenship',           p.citizenship  ?? '—', L + C4,      y, C4);
+      drawCell('Civil Status',          p.civil_status ?? '—', L + C4 * 2,  y, C4);
+      drawCell('Tax Identification No.', p.tin || (p.no_tin ? 'No TIN' : '—'), L + C4 * 3, y, C4);
+    } else {
+      drawCell('Gender',                p.gender       ?? '—', L,           y, C3);
+      drawCell('Citizenship',           p.citizenship  ?? '—', L + C3,      y, C3);
+      drawCell('Tax Identification No.', p.tin || (p.no_tin ? 'No TIN' : '—'), L + C3 * 2, y, C3);
+    }
+    y += CELL + 7;
+
+    // Sub-header: Contact Information
+    y = checkBreak(7 + (CELL + 4), y);
+    y = subLabel('Contact Information', y);
+
+    // Row 3 (3-col): Mobile Number | Landline Number | Email Address
+    const mobileStr = p.mobile_code && p.mobile ? `${p.mobile_code} ${p.mobile}` : (p.mobile ?? '—');
+    drawCell('Mobile Number',  mobileStr,          L,          y, C3);
+    drawCell('Landline Number', p.landline ?? '—', L + C3,     y, C3);
+    drawCell('Email Address',  p.email    ?? '—',  L + C3 * 2, y, C3); y += CELL + 7;
+
+    // Sub-header: Address
+    y = checkBreak(7 + (CELL + 4) * 2, y);
+    y = subLabel('Address', y);
+
+    // Row 4 (3-col): Unit No. Building/House No. | Street, Subdivision/Village | Barangay
+    drawCell('Unit No. Building / House No. Block No.', p.home_unit   ?? '—', L,          y, C3);
+    drawCell('Street, Subdivision / Village',           p.home_street ?? '—', L + C3,     y, C3);
+    drawCell('Barangay',                                p.home_barangay ?? '—', L + C3 * 2, y, C3); y += CELL + 4;
+
+    // Row 5: 4-col with Home Ownership (buyer) or 3-col without (spouse/co-owner)
+    if (showHomeOwnership) {
+      drawCell('City / Municipality', p.home_city_municipality ?? '—', L,          y, C4);
+      drawCell('Province / Region',   p.home_region_province   ?? '—', L + C4,     y, C4);
+      drawCell('Country',             p.home_country           ?? '—', L + C4 * 2, y, C4);
+      drawCell('Home Ownership',      p.home_ownership         ?? '—', L + C4 * 3, y, C4);
+    } else {
+      drawCell('City / Municipality', p.home_city_municipality ?? '—', L,          y, C3);
+      drawCell('Province / Region',   p.home_region_province   ?? '—', L + C3,     y, C3);
+      drawCell('Country',             p.home_country           ?? '—', L + C3 * 2, y, C3);
+    }
+    y += CELL + 8;
+
+    // ── EMPLOYMENT / BUSINESS INFORMATION pink bar ─────────────────────────
+    y = checkBreak(7 + (CELL + 4) * 3, y);
+    const empTitle = employmentPrefix ? `${employmentPrefix} EMPLOYMENT / BUSINESS INFORMATION` : 'EMPLOYMENT / BUSINESS INFORMATION';
+    y = drawSecBar(empTitle, y) + 2;
+
+    // Row 1 (3-col): Employment Status | Employment Sector | Employer/Business Name
+    drawCell('Employment Status',      p.employment_status  ?? '—', L,          y, C3);
+    drawCell('Employment Sector',      p.employment_sector  ?? '—', L + C3,     y, C3);
+    drawCell('Employer / Business Name', p.employer         ?? '—', L + C3 * 2, y, C3); y += CELL + 4;
+
+    // Row 2 (4-col): Nature of Business | Rank | Job Title/Position | Salary Range
+    drawCell('Nature of Business', p.nature_of_business ?? '—', L,           y, C4);
+    drawCell('Rank',               p.rank               ?? '—', L + C4,      y, C4);
+    drawCell('Job Title / Position', p.job_title        ?? '—', L + C4 * 2,  y, C4);
+    drawCell('Salary Range',       p.salary_range       ?? '—', L + C4 * 3,  y, C4); y += CELL + 7;
+
+    // Sub-header: Contact Information (work)
+    y = checkBreak(7 + (CELL + 4), y);
+    y = subLabel('Contact Information', y);
+
+    const workMobileStr = p.work_mobile_code && p.work_mobile
+      ? `${p.work_mobile_code} ${p.work_mobile}`
+      : (p.work_mobile ?? '—');
+    drawCell('Mobile Number',  workMobileStr,           L,          y, C3);
+    drawCell('Landline Number', p.work_landline ?? '—', L + C3,     y, C3);
+    drawCell('Email Address',  p.work_email    ?? '—',  L + C3 * 2, y, C3); y += CELL + 7;
+
+    // Sub-header: Address (work)
+    y = checkBreak(7 + (CELL + 4) * 2, y);
+    y = subLabel('Address', y);
+
+    // Row (3-col): Unit No. Building | Street, Subdivision | Barangay
+    drawCell('Unit No. Building / House No. Block No.', p.work_building_unit ?? '—', L,          y, C3);
+    drawCell('Street, Subdivision / Village',           p.work_street        ?? '—', L + C3,     y, C3);
+    drawCell('Barangay',                                p.work_barangay      ?? '—', L + C3 * 2, y, C3); y += CELL + 4;
+
+    // Row (3-col): City/Municipality | Province/Region | Country
+    y = checkBreak(CELL + 4, y);
+    drawCell('City / Municipality', p.work_city_municipality  ?? '—', L,          y, C3);
+    drawCell('Province / Region',   p.work_region_province    ?? '—', L + C3,     y, C3);
+    drawCell('Country',             p.work_country            ?? '—', L + C3 * 2, y, C3); y += CELL + 8;
+
+    return y;
+  };
+
+  // ── BUYER ────────────────────────────────────────────────────────────────
+  let y = 36;
+  const buyerPayload = {
+    last_name:  clientRow?.last_name,
+    first_name: clientRow?.first_name,
+    middle_name: clientRow?.middle_name,
+    suffix:     clientRow?.suffix,
+    gender:     clientRow?.gender ?? buyerInfo?.gender,
+    civil_status: clientRow?.civil_status ?? buyerInfo?.civil_status,
+    citizenship: clientRow?.citizenship,
+    date_of_birth: clientRow?.date_of_birth,
+    mobile_code: clientRow?.country_code,
+    mobile:     clientRow?.mobile_number,
+    landline:   clientRow?.landline_no,
+    email:      clientRow?.email,
+    tin:        buyerInfo?.tin,
+    no_tin:     buyerInfo?.no_tin,
+    home_ownership: buyerInfo?.home_ownership, home_country: buyerInfo?.home_country,
+    home_region_province: buyerInfo?.home_region_province, home_city_municipality: buyerInfo?.home_city_municipality,
+    home_barangay: buyerInfo?.home_barangay, home_street: buyerInfo?.home_street, home_unit: buyerInfo?.home_unit,
+    employer: buyerInfo?.employer, nature_of_business: buyerInfo?.nature_of_business,
+    employment_sector: buyerInfo?.employment_sector, employment_status: buyerInfo?.employment_status,
+    job_title: buyerInfo?.job_title, rank: buyerInfo?.rank, salary_range: buyerInfo?.salary_range,
+    work_mobile_code: buyerInfo?.work_mobile_code, work_mobile: buyerInfo?.work_mobile,
+    work_landline: buyerInfo?.work_landline, work_email: buyerInfo?.work_email,
+    work_country: buyerInfo?.work_country, work_region_province: buyerInfo?.work_region_province,
+    work_city_municipality: buyerInfo?.work_city_municipality, work_barangay: buyerInfo?.work_barangay,
+    work_street: buyerInfo?.work_street, work_building_unit: buyerInfo?.work_building_unit,
+    mailing_type: buyerInfo?.mailing_type,
+  };
+  y = renderPersonBlock('BUYER INFORMATION', buyerPayload, y, { showCivilStatus: true, showHomeOwnership: true });
+
+  // ── SPOUSE ───────────────────────────────────────────────────────────────
+  if (progress?.has_spouse && spouseInfo) {
+    y = renderPersonBlock('SPOUSE INFORMATION', {
+      last_name: spouseInfo.last_name, first_name: spouseInfo.first_name,
+      middle_name: spouseInfo.middle_name, suffix: spouseInfo.suffix,
+      gender: spouseInfo.gender, civil_status: spouseInfo.civil_status,
+      citizenship: spouseInfo.citizenship, date_of_birth: spouseInfo.date_of_birth,
+      mobile_code: spouseInfo.mobile_code, mobile: spouseInfo.mobile,
+      landline: spouseInfo.landline, email: spouseInfo.email,
+      tin: spouseInfo.tin, no_tin: spouseInfo.no_tin,
+      home_ownership: spouseInfo.home_ownership, home_country: spouseInfo.home_country,
+      home_region_province: spouseInfo.home_region_province, home_city_municipality: spouseInfo.home_city_municipality,
+      home_barangay: spouseInfo.home_barangay, home_street: spouseInfo.home_street, home_unit: spouseInfo.home_unit,
+      employer: spouseInfo.employer, nature_of_business: spouseInfo.nature_of_business,
+      employment_sector: spouseInfo.employment_sector, employment_status: spouseInfo.employment_status,
+      job_title: spouseInfo.job_title, rank: spouseInfo.rank, salary_range: spouseInfo.salary_range,
+      work_mobile_code: spouseInfo.work_mobile_code, work_mobile: spouseInfo.work_mobile,
+      work_landline: spouseInfo.work_landline, work_email: spouseInfo.work_email,
+      work_country: spouseInfo.work_country, work_region_province: spouseInfo.work_region_province,
+      work_city_municipality: spouseInfo.work_city_municipality, work_barangay: spouseInfo.work_barangay,
+      work_street: spouseInfo.work_street, work_building_unit: spouseInfo.work_building_unit,
+      mailing_type: spouseInfo.mailing_type,
+    }, y, {
+      preamble: 'If Married, the Buyer agrees that his/her spouse (as applicable) shall sign the Contract-to-Sell.',
+      employmentPrefix: 'SPOUSE',
+      showCivilStatus: false,
+      showHomeOwnership: false,
+    });
+  }
+
+  // ── CO-OWNER (if not the same as spouse) ────────────────────────────────
+  if (progress?.has_co_ownership && !progress.co_owner_is_spouse && coOwnerInfo) {
+    y = renderPersonBlock('CO-OWNER INFORMATION', {
+      last_name: coOwnerInfo.last_name, first_name: coOwnerInfo.first_name,
+      middle_name: coOwnerInfo.middle_name, suffix: coOwnerInfo.suffix,
+      gender: coOwnerInfo.gender, civil_status: coOwnerInfo.civil_status,
+      citizenship: coOwnerInfo.citizenship, date_of_birth: coOwnerInfo.date_of_birth,
+      mobile_code: coOwnerInfo.mobile_code, mobile: coOwnerInfo.mobile,
+      landline: coOwnerInfo.landline, email: coOwnerInfo.email,
+      tin: coOwnerInfo.tin, no_tin: coOwnerInfo.no_tin,
+      home_ownership: coOwnerInfo.home_ownership, home_country: coOwnerInfo.home_country,
+      home_region_province: coOwnerInfo.home_region_province, home_city_municipality: coOwnerInfo.home_city_municipality,
+      home_barangay: coOwnerInfo.home_barangay, home_street: coOwnerInfo.home_street, home_unit: coOwnerInfo.home_unit,
+      employer: coOwnerInfo.employer, nature_of_business: coOwnerInfo.nature_of_business,
+      employment_sector: coOwnerInfo.employment_sector, employment_status: coOwnerInfo.employment_status,
+      job_title: coOwnerInfo.job_title, rank: coOwnerInfo.rank, salary_range: coOwnerInfo.salary_range,
+      work_mobile_code: coOwnerInfo.work_mobile_code, work_mobile: coOwnerInfo.work_mobile,
+      work_landline: coOwnerInfo.work_landline, work_email: coOwnerInfo.work_email,
+      work_country: coOwnerInfo.work_country, work_region_province: coOwnerInfo.work_region_province,
+      work_city_municipality: coOwnerInfo.work_city_municipality, work_barangay: coOwnerInfo.work_barangay,
+      work_street: coOwnerInfo.work_street, work_building_unit: coOwnerInfo.work_building_unit,
+      mailing_type: coOwnerInfo.mailing_type,
+    }, y, {
+      preamble: 'If with Co-Owner, the Buyer agrees that the co-owner and his/her spouse shall sign the Contract-to-Sell should they agree to be co-owners.',
+      employmentPrefix: 'CO-OWNER',
+      showCivilStatus: true,
+      showHomeOwnership: false,
+    });
+
+    // CO-OWNER SPOUSE — rendered when co-owner is married
+    if (coOwnerInfo.civil_status === 'Married') {
+      y = renderPersonBlock('CO-OWNER SPOUSE INFORMATION', {
+        // No separate DB table for co-owner spouse — render empty placeholder
+        last_name: null, first_name: null, middle_name: null, suffix: null,
+        gender: null, civil_status: null, citizenship: null, date_of_birth: null,
+        mobile_code: null, mobile: null, landline: null, email: null,
+        tin: null, no_tin: false,
+        home_ownership: null, home_country: null,
+        home_region_province: null, home_city_municipality: null,
+        home_barangay: null, home_street: null, home_unit: null,
+        employer: null, nature_of_business: null,
+        employment_sector: null, employment_status: null,
+        job_title: null, rank: null, salary_range: null,
+        work_mobile_code: null, work_mobile: null,
+        work_landline: null, work_email: null,
+        work_country: null, work_region_province: null,
+        work_city_municipality: null, work_barangay: null,
+        work_street: null, work_building_unit: null,
+        mailing_type: null,
+      }, y, {
+        employmentPrefix: 'CO-OWNER SPOUSE',
+        showCivilStatus: false,
+        showHomeOwnership: false,
+      });
+    }
+  }
+
+  // ── ATTORNEY-IN-FACT ─────────────────────────────────────────────────────
+  if (progress?.has_atty_in_fact && attyInfo) {
+    y = checkBreak(7 + 7 + (CELL + 4) * 2 + 7 + (CELL + 4) + 8, y);
+    y = drawSecBar('ATTORNEY-IN-FACT INFORMATION:', y) + 2;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(80, 80, 85);
+    doc.text('Full Name (As found in your valid government issued ID)', L, y + 4);
+    y += 7;
+
+    drawCell('Last name',   attyInfo.last_name   ?? '—', L,          y, C3);
+    drawCell('First Name',  attyInfo.first_name  ?? '—', L + C3,     y, C3);
+    drawCell('Middle Name', attyInfo.middle_name ?? '—', L + C3 * 2, y, C3); y += CELL + 7;
+
+    y = subLabel('Contact Information', y);
+
+    const attyMobile = attyInfo.mobile_code && attyInfo.mobile
+      ? `${attyInfo.mobile_code} ${attyInfo.mobile}`
+      : (attyInfo.mobile ?? '—');
+    drawCell('Mobile Number',   attyMobile,              L,          y, C3);
+    drawCell('Landline Number', attyInfo.landline ?? '—', L + C3,     y, C3);
+    drawCell('Email Address',   attyInfo.email   ?? '—', L + C3 * 2, y, C3); y += CELL + 8;
+  }
+
+  // ── DATA PRIVACY POLICY — always starts on a new page ──────────────────
+  addPage();
+  y = 36;
+  doc.addImage(secImg, 'PNG', L, y, W, 7);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(140, 30, 30);
+  doc.text('DATA PRIVACY POLICY', pageW / 2, y + 5, { align: 'center' });
+  y += 10;
+
+  const COL_GAP   = 3;
+  const colW2     = (W - COL_GAP) / 2;
+  const colXs     = [L, L + colW2 + COL_GAP] as [number, number];
+  const colStartY = y;
+  const colMaxY   = pageH - 20;
+  const PL_H      = 3.8;   // line height
+  const PL_GAP    = 2.5;   // gap after each block
+  const ITEM_IN   = 5;     // label indent
+  const BULL_X    = 8;     // bullet dot offset
+  const BULL_TX   = 11;    // bullet text offset
+
+  const justifyPL = (text: string, x: number, ly: number, maxW: number, isLast: boolean) => {
+    if (isLast) { doc.text(text, x, ly); return; }
+    const words = text.split(' ');
+    if (words.length <= 1) { doc.text(text, x, ly); return; }
+    const tw = words.reduce((s: number, w: string) => s + doc.getTextWidth(w), 0);
+    if (tw < maxW * 0.75) { doc.text(text, x, ly); return; }
+    const gap = (maxW - tw) / (words.length - 1);
+    let wx = x;
+    words.forEach((w: string) => { doc.text(w, wx, ly); wx += doc.getTextWidth(w) + gap; });
+  };
+
+  const renderPB = (block: PrivBlock, cx: number, by: number): number => {
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(60, 60, 65);
+    if (block.type === 'para') {
+      const ls: string[] = doc.splitTextToSize(block.text, colW2);
+      ls.forEach((l: string, i: number) => justifyPL(l, cx, by + i * PL_H, colW2, i === ls.length - 1));
+      return ls.length * PL_H;
+    }
+    if (block.type === 'item') {
+      const tw = colW2 - ITEM_IN;
+      const ls: string[] = doc.splitTextToSize(block.text, tw);
+      doc.text(block.label, cx, by);
+      ls.forEach((l: string, i: number) => justifyPL(l, cx + ITEM_IN, by + i * PL_H, tw, i === ls.length - 1));
+      return ls.length * PL_H;
+    }
+    // bullet
+    const tw = colW2 - BULL_TX;
+    const ls: string[] = doc.splitTextToSize(block.text, tw);
+    doc.text('•', cx + BULL_X, by);
+    ls.forEach((l: string, i: number) => justifyPL(l, cx + BULL_TX, by + i * PL_H, tw, i === ls.length - 1));
+    return ls.length * PL_H;
+  };
+
+  const calcPBH = (block: PrivBlock): number => {
+    doc.setFontSize(7);
+    if (block.type === 'para')   return (doc.splitTextToSize(block.text, colW2) as string[]).length * PL_H;
+    if (block.type === 'item')   return (doc.splitTextToSize(block.text, colW2 - ITEM_IN) as string[]).length * PL_H;
+    return (doc.splitTextToSize(block.text, colW2 - BULL_TX) as string[]).length * PL_H;
+  };
+
+  // Left-first column flow
+  let pCol = 0;
+  let pY   = colStartY;
+  for (const block of PRIVACY_BLOCKS) {
+    const bh = calcPBH(block);
+    if (pY + bh > colMaxY) {
+      if (pCol === 0) { pCol = 1; pY = colStartY; }
+      else { addPage(); pCol = 0; pY = 36; }
+    }
+    pY += renderPB(block, colXs[pCol], pY) + PL_GAP;
+  }
+
+  // Consent sentence with "explicit" in bold-italic — continues in current column
+  const cx2 = colXs[pCol];
+  pY += 4;
+  doc.setFontSize(7);
+  const CONSENT_PRE  = 'Your signature below signifies your ';
+  const CONSENT_BOLD = 'explicit';
+  const CONSENT_POST = ' consent to the Processing of your Personal Data by the Company as described in this Policy.';
+  const consentFull  = CONSENT_PRE + CONSENT_BOLD + CONSENT_POST;
+  const consentWrap: string[] = doc.splitTextToSize(consentFull, colW2);
+  consentWrap.forEach((line: string, li: number) => {
+    const boldIdx = line.indexOf(CONSENT_BOLD);
+    const lineY   = pY + li * 4.2;
+    if (boldIdx === -1) {
+      doc.setFont('helvetica', 'italic'); doc.setTextColor(50, 50, 55);
+      doc.text(line, cx2, lineY);
+    } else {
+      const before = line.slice(0, boldIdx);
+      const after  = line.slice(boldIdx + CONSENT_BOLD.length);
+      let lx = cx2;
+      if (before) { doc.setFont('helvetica', 'italic'); doc.setTextColor(50, 50, 55); doc.text(before, lx, lineY); lx += doc.getTextWidth(before); }
+      doc.setFont('helvetica', 'bolditalic'); doc.setTextColor(50, 50, 55); doc.text(CONSENT_BOLD, lx, lineY); lx += doc.getTextWidth(CONSENT_BOLD);
+      if (after)  { doc.setFont('helvetica', 'italic'); doc.text(after, lx, lineY); }
+    }
+  });
+  pY += consentWrap.length * 4.2 + 6;
+
+  // Signature
+  const sigW    = colW2;
+  const sigImgH = 18;
+  const today   = new Date().toLocaleDateString('en-PH', { month: '2-digit', day: '2-digit', year: 'numeric' });
+  const clientSigB64 = clientRow?.signature_base64 ?? null;
+  if (clientSigB64) doc.addImage(clientSigB64, 'PNG', cx2, pY - sigImgH, sigW, sigImgH);
+
+  doc.setDrawColor(100, 100, 100); doc.setLineWidth(0.4);
+  doc.line(cx2, pY, cx2 + sigW, pY);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(110, 110, 115);
+  doc.text('Buyer Signature over Printed Name', cx2, pY + 4);
+  doc.setFontSize(7.5); doc.setTextColor(28, 28, 30);
+  doc.text(today, cx2 + sigW, pY - 1, { align: 'right' });
+
+  if (progress?.privacy_consent) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(34, 120, 34);
+    doc.text('✓ Data Privacy Policy consented', cx2, pY + 12);
+  }
+
+  footerBlock(doc);
+  if (win) win.location.href = doc.output('bloburl') as unknown as string;
+  else doc.output('dataurlnewwindow');
+}
+
+async function generateSampleComputation(): Promise<void> {
+  const win  = window.open('', '_blank');
+  const doc  = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageW = doc.internal.pageSize.getWidth();
+  await headerBlock(doc, 'Sample Computation');
+
+  let y = 38;
+  sectionLabel(doc, 'Property', y); y += 8;
+  fieldRow(doc, 'Project', 'One Marigold', 14, y);
+  fieldRow(doc, 'Unit', 'T1-12-01 — 1BR, 32.00 sqm', 14 + 90, y); y += 20;
+
+  sectionLabel(doc, 'Pricing Breakdown', y); y += 8;
+
+  const pricingRows = [
+    ['List Price',                   '₱3,200,000.00'],
+    ['Promo Discount',               '(₱160,000.00)'],
+    ['Pay Term Discount',            '(₱64,000.00)'],
+    ['Net List Price',               '₱2,976,000.00'],
+    ['VAT (12%)',                    '₱357,120.00'],
+    ['Other Charges',                '₱166,880.00'],
+    ['Total Contract Price',         '₱3,500,000.00'],
+  ];
+
+  pricingRows.forEach((row, i) => {
+    const isBold = row[0] === 'Total Contract Price';
+    if (i % 2 === 0) { doc.setFillColor(248, 248, 250); doc.rect(14, y - 4, pageW - 28, 7, 'F'); }
+    doc.setFont('helvetica', isBold ? 'bold' : 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(isBold ? 28 : 60, isBold ? 28 : 60, isBold ? 30 : 65);
+    doc.text(row[0], 16, y);
+    doc.text(row[1], pageW - 16, y, { align: 'right' });
+    y += 7;
+  });
+
+  y += 8;
+  sectionLabel(doc, 'Payment Scheme', y); y += 8;
+  fieldRow(doc, 'Scheme', 'Bank Financing', 14, y);
+  fieldRow(doc, 'Payment Term', '20% DP / 80% BF', 14 + 90, y); y += 16;
+  fieldRow(doc, 'Reservation Fee', '₱20,000.00', 14, y);
+  fieldRow(doc, 'Down Payment', '₱700,000.00', 14 + 90, y); y += 16;
+  fieldRow(doc, 'Monthly DP (24 mos)', '₱29,167.00', 14, y);
+  fieldRow(doc, 'Bank Monthly (20 yrs)', '₱18,500.00', 14 + 90, y);
+
+  footerBlock(doc);
+  if (win) win.location.href = doc.output('bloburl') as unknown as string;
+  else doc.output('dataurlnewwindow');
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
+
+const CARD_STYLE = {
+  background: 'rgba(255,255,255,0.88)',
+  backdropFilter: 'blur(24px) saturate(160%)',
+  WebkitBackdropFilter: 'blur(24px) saturate(160%)',
+  border: '1px solid rgba(0,0,0,0.06)',
+  boxShadow: '0 2px 16px rgba(0,0,0,0.08)',
+} as const;
+
+export default function EmailAttachmentsPage() {
+  const [clients, setClients]                       = useState<ClientRecord[]>([]);
+  const [selectedClientId, setSelectedClientId]     = useState<string>('');
+  const [reservations, setReservations]                         = useState<ReservationSummary[]>([]);
+  const [selectedReservationId, setSelectedReservationId]       = useState<string>('');
+  const [selectedAgreementId,   setSelectedAgreementId]         = useState<string>('');
+  const [selectedBuyerInfoId,   setSelectedBuyerInfoId]         = useState<string>('');
+
+  useEffect(() => {
+    fetchAllClients().then(setClients).catch(() => {});
+    supabase
+      .from('reservations')
+      .select('reservation_id, client_name, project, inventory_code')
+      .order('reservation_id', { ascending: false })
+      .then(({ data }) => { if (data) setReservations(data as ReservationSummary[]); });
+  }, []);
+
+  const selectedClient = clients.find(c => c.id === selectedClientId) ?? null;
+
+  return (
+    <PageShell title="Email Attachments">
+      <div className="space-y-3 pb-6">
+        <p className="text-xs text-[#8E8E93] px-1">
+          These are the PDF documents that will be automatically attached to system emails. Preview each to review the layout before the email feature goes live.
+        </p>
+
+        {/* Client Registration Form — with client selector */}
+        <div className="rounded-3xl p-4" style={CARD_STYLE}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3 flex-1 min-w-0">
+              <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0"
+                style={{ background: 'rgba(192,61,37,0.10)' }}>
+                <FileText size={18} className="text-[#C03D25]" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-[#1C1C1E] leading-snug">Client Registration Form</p>
+                <p className="text-xs text-[#8E8E93] mt-0.5 leading-relaxed">Sent to the client upon successful registration.</p>
+                <span className="inline-block mt-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                  style={{ background: 'rgba(255,159,10,0.12)', color: '#A05A00' }}>
+                  Draft
+                </span>
+                <select
+                  value={selectedClientId}
+                  onChange={e => setSelectedClientId(e.target.value)}
+                  className="mt-2 w-full text-xs rounded-xl border border-[#E5E5EA] bg-white px-3 py-2 text-[#1C1C1E] focus:outline-none"
+                >
+                  <option value="">— Select a client —</option>
+                  {clients.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.last_name}, {c.first_name}{c.middle_name ? ` ${c.middle_name}` : ''}{c.client_id ? ` (${c.client_id})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => generateClientRegistration(selectedClient)}
+              className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#E5E5EA] bg-white text-xs font-semibold text-[#1C1C1E] active:opacity-70 transition-opacity"
+            >
+              <Eye size={13} />
+              Preview
+            </button>
+          </div>
+        </div>
+
+        {/* Terms of Payment — with reservation selector */}
+        <div className="rounded-3xl p-4" style={CARD_STYLE}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3 flex-1 min-w-0">
+              <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0"
+                style={{ background: 'rgba(192,61,37,0.10)' }}>
+                <FileText size={18} className="text-[#C03D25]" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-[#1C1C1E] leading-snug">Terms of Payment</p>
+                <p className="text-xs text-[#8E8E93] mt-0.5 leading-relaxed">Payment schedule and terms sent after booking.</p>
+                <span className="inline-block mt-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                  style={{ background: 'rgba(255,159,10,0.12)', color: '#A05A00' }}>
+                  Draft
+                </span>
+                <select
+                  value={selectedReservationId}
+                  onChange={e => setSelectedReservationId(e.target.value)}
+                  className="mt-2 w-full text-xs rounded-xl border border-[#E5E5EA] bg-white px-3 py-2 text-[#1C1C1E] focus:outline-none"
+                >
+                  <option value="">— Select a reservation —</option>
+                  {reservations.map(r => (
+                    <option key={r.reservation_id} value={r.reservation_id}>
+                      {r.reservation_id} — {r.client_name} ({r.inventory_code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => generateTermsOfPayment(selectedReservationId || null)}
+              className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#E5E5EA] bg-white text-xs font-semibold text-[#1C1C1E] active:opacity-70 transition-opacity"
+            >
+              <Eye size={13} />
+              Preview
+            </button>
+          </div>
+        </div>
+
+        {/* Reservation Agreement — with reservation selector */}
+        <div className="rounded-3xl p-4" style={CARD_STYLE}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3 flex-1 min-w-0">
+              <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0"
+                style={{ background: 'rgba(192,61,37,0.10)' }}>
+                <FileText size={18} className="text-[#C03D25]" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-[#1C1C1E] leading-snug">Reservation Agreement</p>
+                <p className="text-xs text-[#8E8E93] mt-0.5 leading-relaxed">Signed reservation agreement sent to the client.</p>
+                <span className="inline-block mt-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                  style={{ background: 'rgba(255,159,10,0.12)', color: '#A05A00' }}>Draft</span>
+                <select
+                  value={selectedAgreementId}
+                  onChange={e => setSelectedAgreementId(e.target.value)}
+                  className="mt-2 w-full text-xs rounded-xl border border-[#E5E5EA] bg-white px-3 py-2 text-[#1C1C1E] focus:outline-none"
+                >
+                  <option value="">— Select a reservation —</option>
+                  {reservations.map(r => (
+                    <option key={r.reservation_id} value={r.reservation_id}>
+                      {r.reservation_id} — {r.client_name} ({r.inventory_code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => generateReservationAgreement(selectedAgreementId || null)}
+              className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#E5E5EA] bg-white text-xs font-semibold text-[#1C1C1E] active:opacity-70 transition-opacity"
+            >
+              <Eye size={13} />
+              Preview
+            </button>
+          </div>
+        </div>
+
+        {/* Buyer Information Form — with reservation selector */}
+        <div className="rounded-3xl p-4" style={CARD_STYLE}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3 flex-1 min-w-0">
+              <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0"
+                style={{ background: 'rgba(192,61,37,0.10)' }}>
+                <FileText size={18} className="text-[#C03D25]" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-[#1C1C1E] leading-snug">Buyer Information Form</p>
+                <p className="text-xs text-[#8E8E93] mt-0.5 leading-relaxed">Buyer personal and employment details for booking.</p>
+                <span className="inline-block mt-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                  style={{ background: 'rgba(255,159,10,0.12)', color: '#A05A00' }}>Draft</span>
+                <select
+                  value={selectedBuyerInfoId}
+                  onChange={e => setSelectedBuyerInfoId(e.target.value)}
+                  className="mt-2 w-full text-xs rounded-xl border border-[#E5E5EA] bg-white px-3 py-2 text-[#1C1C1E] focus:outline-none"
+                >
+                  <option value="">— Select a reservation —</option>
+                  {reservations.map(r => (
+                    <option key={r.reservation_id} value={r.reservation_id}>
+                      {r.reservation_id} — {r.client_name} ({r.inventory_code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => generateBuyerInformationForm(selectedBuyerInfoId || null)}
+              className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#E5E5EA] bg-white text-xs font-semibold text-[#1C1C1E] active:opacity-70 transition-opacity"
+            >
+              <Eye size={13} />
+              Preview
+            </button>
+          </div>
+        </div>
+
+        {/* Remaining documents */}
+        {DOCUMENTS.filter(d => !['client-registration','terms-of-payment','reservation-agreement','buyer-information-form'].includes(d.id)).map(doc => (
+          <div key={doc.id} className="rounded-3xl p-4" style={CARD_STYLE}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3 flex-1 min-w-0">
+                <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0"
+                  style={{ background: 'rgba(192,61,37,0.10)' }}>
+                  <FileText size={18} className="text-[#C03D25]" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-[#1C1C1E] leading-snug">{doc.title}</p>
+                  <p className="text-xs text-[#8E8E93] mt-0.5 leading-relaxed">{doc.description}</p>
+                  <span className="inline-block mt-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                    style={{ background: 'rgba(255,159,10,0.12)', color: '#A05A00' }}>
+                    Draft
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { doc.generate(); }}
+                className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#E5E5EA] bg-white text-xs font-semibold text-[#1C1C1E] active:opacity-70 transition-opacity"
+              >
+                <Eye size={13} />
+                Preview
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </PageShell>
+  );
+}

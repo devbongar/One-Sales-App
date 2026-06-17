@@ -7,7 +7,7 @@ import {
   UserPlus, CalendarCheck, BookOpen, DollarSign,
   ShieldCheck, FolderOpen, MessageSquare, Receipt, CreditCard,
   Wallet, Banknote, BookMarked, Users, UserCog, LayoutDashboard,
-  X, ChevronDown, LogOut, Home, Settings, Database, Mail,
+  X, ChevronDown, LogOut, Home, Settings, Database, Mail, Paperclip,
 } from 'lucide-react';
 import { NavGroup } from '@/types';
 import { signOut } from '@/lib/auth';
@@ -48,6 +48,7 @@ const NAV: NavGroup[] = [
       { label: 'Seller Recruitment',   href: '/users/seller-recruitment',   icon: 'Users' },
       { label: "User's Profile",       href: '/users/profile',              icon: 'UserCog',        comingSoon: true },
       { label: 'Admin User',           href: '/users/admin',                icon: 'LayoutDashboard' },
+      { label: 'Email Attachments',    href: '/users/email-attachments',    icon: 'Paperclip' },
     ],
   },
 ];
@@ -89,7 +90,7 @@ const FINANCE_ALLOWED_HREFS = new Set([
 const ICONS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
   UserPlus, CalendarCheck, BookOpen, DollarSign,
   ShieldCheck, FolderOpen, MessageSquare, Receipt, CreditCard,
-  Wallet, Banknote, BookMarked, Users, UserCog, LayoutDashboard, Database,
+  Wallet, Banknote, BookMarked, Users, UserCog, LayoutDashboard, Database, Paperclip,
 };
 
 interface SidebarProps {

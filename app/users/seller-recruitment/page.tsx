@@ -164,6 +164,12 @@ function DetailSheet({ seller, onClose, onSaved }: {
   const [shOptions,  setShOptions]  = useState<string[]>([]);
 
   useEffect(() => {
+    fetchSellerSignature(seller.seller_name).then(sig => {
+      if (sig) setSigPreview(sig);
+    }).catch(() => {});
+  }, [seller.seller_name]);
+
+  useEffect(() => {
     fetchProjects().then(setProjects).catch(() => {});
     fetchAllSalespersons().then(people => {
       setSmOptions( people.filter(p => p.position_rank === 'SM' ).map(p => p.seller_name));
