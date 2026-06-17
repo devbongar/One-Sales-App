@@ -523,8 +523,8 @@ async function generateTermsOfPayment(reservationId: string | null): Promise<voi
     };
 
     let ry = twoColY;
-    ry = amortoCard('BANK AMORTIZATION', ry, res?.balance_for_financing, '5.5%', '10 years', res?.bank_monthly);
-    amortoCard('HDMF AMORTIZATION', ry, res?.balance_for_financing, '5.5%', '10 years', res?.hdmf_monthly);
+    ry = amortoCard('BANK AMORTIZATION', ry, res?.balance_for_financing ?? null, '5.5%', '10 years', res?.bank_monthly ?? null);
+    amortoCard('HDMF AMORTIZATION', ry, res?.balance_for_financing ?? null, '5.5%', '10 years', res?.hdmf_monthly ?? null);
   }
 
   footerBlock(doc);
@@ -593,7 +593,7 @@ async function generateReservationAgreement(reservationId: string | null): Promi
                monthly_stretched_dp, bank_monthly, hdmf_monthly`)
       .eq('reservation_id', reservationId)
       .single();
-    if (rd) res = rd as typeof res;
+    if (rd) res = rd as (ReservationDetail & { created_at?: string });
 
     if (res?.client_id) {
       const { data: cr } = await supabase
