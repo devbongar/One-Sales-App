@@ -211,7 +211,7 @@ export default function SettingsPage() {
           setTemplates(prev => {
             const merged = { ...prev };
             EMAIL_DOCS.forEach(d => {
-              if (saved[d.key]) merged[d.key] = { ...EMPTY_TEMPLATE, triggers: d.defaultTriggers, ...saved[d.key] };
+              if (saved[d.key]) merged[d.key] = { ...EMPTY_TEMPLATE, ...saved[d.key], triggers: saved[d.key].triggers ?? d.defaultTriggers };
             });
             return merged;
           });
