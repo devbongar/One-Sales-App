@@ -10,6 +10,7 @@ import { updateInventoryUnitStatus } from '@/lib/inventory';
 import { generateCommissionSchedule, CommissionGenerateResult } from '@/lib/commission';
 import { addActivityLog } from '@/lib/activity-log';
 import { getSession } from '@/lib/auth';
+import { triggerEmails } from '@/lib/email';
 import {
   FileText, FolderOpen, CheckCircle2, XCircle,
   Hash, User, Building2, Tag,
@@ -201,6 +202,7 @@ export default function FinanceVerifyPage() {
         sales_invoice_no:           salesInvoiceNo.trim(),
         date_of_reservation_fee:    dateOfResFee,
       };
+      triggerEmails('on_finance_verified', booking.reservation_id).catch(e => console.error('[email-trigger]', e));
       sessionStorage.setItem('financeBooking', JSON.stringify(updated));
       setBooking(updated);
       setDone('approved');
@@ -240,6 +242,7 @@ export default function FinanceVerifyPage() {
       if (error) throw new Error(error.message);
 
       await addActivityLog(booking.reservation_id, 'dp-verified', displayName).catch(e => console.error('[activity-log]', e));
+      if (amdDone) triggerEmails('on_booked', booking.reservation_id).catch(e => console.error('[email-trigger]', e));
 
       // 2. Update inventory unit status to Booked
       if (booking.inventory_code) {
@@ -343,6 +346,7 @@ export default function FinanceVerifyPage() {
       if (error) throw new Error(error.message);
 
       await addActivityLog(booking.reservation_id, 'dp-verified', displayName).catch(e => console.error('[activity-log]', e));
+      if (amdDone) triggerEmails('on_booked', booking.reservation_id).catch(e => console.error('[email-trigger]', e));
 
       if (booking.inventory_code) {
         await updateInventoryUnitStatus(booking.inventory_code, 'Booked');

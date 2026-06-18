@@ -12,6 +12,7 @@ import {
   SlidersHorizontal, Plus, PenLine, Upload, RotateCcw,
 } from 'lucide-react';
 import { fetchAllClients, updateClient, updateClientSignature, checkEmailExists, ClientRecord } from '@/lib/clients';
+import { triggerClientEmail } from '@/lib/email';
 import {
   COUNTRY_CODES, CITIZENSHIP_LIST,
   REASON_OPTIONS, SOURCE_OPTIONS, INCOME_OPTIONS,
@@ -375,6 +376,7 @@ export default function ClientRegistrationPage() {
         broker_bir_name:          form.sellerType === 'Broker'   ? brokerBirName          || null : null,
         broker_network_associate: form.sellerType === 'Broker'   ? brokerNetworkAssociate || null : null,
       };
+      triggerClientEmail(updated, 'on_client_updated').catch(e => console.error('[email-trigger]', e));
       setSelectedClient(updated);
       setAllClients(prev => prev.map(c => c.id === updated.id ? updated : c));
       setEditMode(false);

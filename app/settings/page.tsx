@@ -7,11 +7,79 @@ import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import { Project, ProjectPhotos } from '@/types';
 import {
+  generateClientRegistration,
+  generateTermsOfPayment,
+  generateReservationAgreement,
+  generateBuyerInformationForm,
+  generateSampleComputation,
+  generateSOA,
+  fetchAllClients,
+  fetchReservationList,
+  buildPDFBase64,
+  type ClientRecord,
+  type ReservationSummary,
+} from '@/lib/pdf-generators';
+import {
   ImagePlus, Trash2, Pencil, Plus, X, Check,
   ChevronDown, ChevronUp, Upload, Camera, Palette,
   Building2, AlertTriangle, Loader2, Tag, Layers,
-  CarFront, Hash, MapPin, FileText,
+  CarFront, Hash, MapPin, FileText, Mail, ToggleLeft, ToggleRight, Eye,
+  Send, CheckCircle2, Paperclip,
 } from 'lucide-react';
+
+// ── Email test helpers ────────────────────────────────────────
+type DocKey = 'none' | 'client_registration' | 'terms_of_payment' | 'reservation_agreement' | 'buyer_info_form' | 'soa';
+interface DocDef { label: string; selector: 'none' | 'client' | 'reservation'; filename: string }
+const TEST_DOCS: Record<DocKey, DocDef> = {
+  none:                  { label: 'No attachment',            selector: 'none',        filename: '' },
+  client_registration:   { label: 'Client Registration Form', selector: 'client',      filename: 'client-registration.pdf' },
+  terms_of_payment:      { label: 'Terms of Payment',         selector: 'reservation', filename: 'terms-of-payment.pdf' },
+  reservation_agreement: { label: 'Reservation Agreement',    selector: 'reservation', filename: 'reservation-agreement.pdf' },
+  buyer_info_form:       { label: 'Buyer Information Form',   selector: 'reservation', filename: 'buyer-info-form.pdf' },
+  soa:                   { label: 'Statement of Account',     selector: 'reservation', filename: 'statement-of-account.pdf' },
+};
+// ── Email template config ─────────────────────────────────────
+type TriggerKey = 'on_client_created' | 'on_client_updated' | 'on_reservation' | 'on_booked' | 'on_finance_verified' | 'on_docs_submitted';
+
+type EmailTemplate = {
+  enabled: boolean;
+  triggers: TriggerKey[];
+  to: string[];
+  cc: string[];
+  subject: string;
+  body: string;
+};
+type EmailTemplates = Record<string, EmailTemplate>;
+
+const EMAIL_TRIGGERS: { key: TriggerKey; label: string; description: string }[] = [
+  { key: 'on_client_created',    label: 'New client registered',       description: 'Sent when a new client record is created'               },
+  { key: 'on_client_updated',    label: 'Client data edited & saved',  description: 'Sent when an existing client record is updated'          },
+  { key: 'on_reservation',       label: 'On new reservation',          description: 'Sent when a reservation is first created'                },
+  { key: 'on_booked',            label: 'On booked',                   description: 'Sent when the reservation status becomes Booked'         },
+  { key: 'on_finance_verified',  label: 'On finance verified',         description: 'Sent when finance marks the account as verified'         },
+  { key: 'on_docs_submitted',    label: 'Docs submitted to director',  description: 'Sent when booking docs are submitted for director review' },
+];
+
+const EMAIL_DOCS: { key: string; label: string; defaultTriggers: TriggerKey[]; allowedTriggers: TriggerKey[] }[] = [
+  { key: 'client_registration',   label: 'Client Registration Form', defaultTriggers: ['on_client_created', 'on_client_updated'], allowedTriggers: ['on_client_created', 'on_client_updated']                              },
+  { key: 'terms_of_payment',      label: 'Terms of Payment',         defaultTriggers: ['on_booked'],           allowedTriggers: ['on_reservation', 'on_booked', 'on_finance_verified']                       },
+  { key: 'reservation_agreement', label: 'Reservation Agreement',    defaultTriggers: ['on_booked'],           allowedTriggers: ['on_reservation', 'on_booked', 'on_finance_verified']                       },
+  { key: 'buyer_info_form',       label: 'Buyer Information Form',   defaultTriggers: ['on_docs_submitted'],   allowedTriggers: ['on_docs_submitted']                                                        },
+  { key: 'sample_computation',    label: 'Sample Computation',       defaultTriggers: [],                      allowedTriggers: ['on_reservation', 'on_booked', 'on_finance_verified']                       },
+  { key: 'soa',                   label: 'SOA',                      defaultTriggers: ['on_finance_verified'], allowedTriggers: ['on_reservation', 'on_booked', 'on_finance_verified']                       },
+];
+
+const EMAIL_ROLES = [
+  { key: 'client',             label: 'Client'             },
+  { key: 'seller',             label: 'Seller'             },
+  { key: 'sales_director',     label: 'Sales Director'     },
+  { key: 'account_management', label: 'Account Management' },
+  { key: 'finance',            label: 'Finance'            },
+];
+
+const EMPTY_TEMPLATE: EmailTemplate = { enabled: false, triggers: [], to: [], cc: [], subject: '', body: '' };
+
+const TEMPLATE_VARS = '{client_name}, {reservation_id}, {project}, {unit}, {seller_name}';
 
 type PhotoCategory = keyof ProjectPhotos;
 
@@ -84,6 +152,38 @@ export default function SettingsPage() {
   const [appSaved, setAppSaved]       = useState(false);
   const logoFileRef = useRef<HTMLInputElement>(null);
 
+  // Email settings
+  const [emailSender, setEmailSender]   = useState('');
+  const [savingEmail, setSavingEmail]   = useState(false);
+  const [emailSaved, setEmailSaved]     = useState(false);
+
+  // Email attachments
+  const [pdfClients, setPdfClients]                     = useState<ClientRecord[]>([]);
+  const [pdfReservations, setPdfReservations]           = useState<ReservationSummary[]>([]);
+  const [selClientId, setSelClientId]                   = useState('');
+  const [selTopId, setSelTopId]                         = useState('');
+  const [selAgreementId, setSelAgreementId]             = useState('');
+  const [selBuyerInfoId, setSelBuyerInfoId]             = useState('');
+  const [selSOAId, setSelSOAId]                         = useState('');
+
+  // Email test section
+  const [testTo,      setTestTo]      = useState('');
+  const [testSubject, setTestSubject] = useState('Test Email from One Sales App');
+  const [testBody,    setTestBody]    = useState('This is a test email.\n\nIf you received this, the email integration is working correctly.');
+  const [testDocKey,  setTestDocKey]  = useState<DocKey>('none');
+  const [testClientId, setTestClientId] = useState('');
+  const [testResId,   setTestResId]   = useState('');
+  const [testSending, setTestSending] = useState(false);
+  const [testResult,  setTestResult]  = useState<{ ok: boolean; message: string } | null>(null);
+
+  // Email templates
+  const [templates, setTemplates]           = useState<EmailTemplates>(
+    Object.fromEntries(EMAIL_DOCS.map(d => [d.key, { ...EMPTY_TEMPLATE, triggers: d.defaultTriggers }]))
+  );
+  const [savingTpl, setSavingTpl]           = useState(false);
+  const [tplSaved, setTplSaved]             = useState(false);
+  const [expandedTpl, setExpandedTpl]       = useState<string | null>(null);
+
   // Projects
   const [projects, setProjects]               = useState<Project[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(true);
@@ -99,9 +199,24 @@ export default function SettingsPage() {
   const coverFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    fetchAllClients().then(setPdfClients).catch(() => {});
+    fetchReservationList().then(setPdfReservations).catch(() => {});
     fetch('/api/settings').then(r => r.json()).then(s => {
-      if (s.app_name) setAppName(s.app_name);
-      if (s.logo_url) { setLogoUrl(s.logo_url); setLogoPreview(s.logo_url); }
+      if (s.app_name)        setAppName(s.app_name);
+      if (s.logo_url)        { setLogoUrl(s.logo_url); setLogoPreview(s.logo_url); }
+      if (s.email_sender)    setEmailSender(s.email_sender);
+      if (s.email_templates) {
+        try {
+          const saved = JSON.parse(s.email_templates) as EmailTemplates;
+          setTemplates(prev => {
+            const merged = { ...prev };
+            EMAIL_DOCS.forEach(d => {
+              if (saved[d.key]) merged[d.key] = { ...EMPTY_TEMPLATE, triggers: d.defaultTriggers, ...saved[d.key] };
+            });
+            return merged;
+          });
+        } catch {}
+      }
     });
     fetch('/api/projects').then(r => r.json()).then(data => {
       setProjects(data); setLoadingProjects(false);
@@ -126,6 +241,87 @@ export default function SettingsPage() {
     setSavingApp(false); setAppSaved(true);
     setTimeout(() => setAppSaved(false), 2500);
   };
+
+  const saveEmailSettings = async () => {
+    setSavingEmail(true);
+    await fetch('/api/settings', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email_sender: emailSender }),
+    });
+    setSavingEmail(false); setEmailSaved(true);
+    setTimeout(() => setEmailSaved(false), 2500);
+  };
+
+  const saveEmailTemplates = async () => {
+    setSavingTpl(true);
+    await fetch('/api/settings', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email_templates: JSON.stringify(templates) }),
+    });
+    setSavingTpl(false); setTplSaved(true);
+    setTimeout(() => setTplSaved(false), 2500);
+  };
+
+  function updateTemplate(key: string, field: keyof EmailTemplate, value: string | boolean | string[]) {
+    setTemplates(prev => ({ ...prev, [key]: { ...prev[key], [field]: value } }));
+  }
+
+  function toggleTrigger(docKey: string, trigger: TriggerKey) {
+    setTemplates(prev => {
+      const current = prev[docKey].triggers ?? [];
+      const next = current.includes(trigger)
+        ? current.filter(t => t !== trigger)
+        : [...current, trigger];
+      return { ...prev, [docKey]: { ...prev[docKey], triggers: next } };
+    });
+  }
+
+  const testDocDef = TEST_DOCS[testDocKey];
+  const testIsReady = !!testTo && !!testSubject && !!testBody && (
+    testDocDef.selector === 'none' ||
+    (testDocDef.selector === 'client' && !!testClientId) ||
+    (testDocDef.selector === 'reservation' && !!testResId)
+  );
+  const handleTestSend = async () => {
+    if (!testIsReady) return;
+    setTestSending(true);
+    setTestResult(null);
+    try {
+      let attachment: { name: string; base64: string } | undefined;
+      if (testDocKey !== 'none') {
+        const selectedClient = pdfClients.find(c => c.client_id === testClientId) ?? null;
+        const resId = testDocDef.selector === 'reservation' ? testResId : null;
+        const clientOverride = testDocDef.selector === 'client' ? selectedClient : undefined;
+        const result = await buildPDFBase64(testDocKey, resId, clientOverride);
+        attachment = { name: result.filename, base64: result.base64 };
+      }
+      const res = await fetch('/api/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: testTo, subject: testSubject, body: testBody, attachment }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setTestResult({ ok: true, message: `Sent to ${testTo}${attachment ? ' with PDF attached' : ''}` });
+      } else {
+        setTestResult({ ok: false, message: data.error ?? 'Unknown error' });
+      }
+    } catch (e: any) {
+      setTestResult({ ok: false, message: e.message ?? 'Network error' });
+    } finally {
+      setTestSending(false);
+    }
+  };
+
+  function toggleRole(docKey: string, field: 'to' | 'cc', roleKey: string) {
+    setTemplates(prev => {
+      const current = prev[docKey][field] as string[];
+      const next = current.includes(roleKey)
+        ? current.filter(r => r !== roleKey)
+        : [...current, roleKey];
+      return { ...prev, [docKey]: { ...prev[docKey], [field]: next } };
+    });
+  }
 
   const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
@@ -350,6 +546,458 @@ export default function SettingsPage() {
             ))}
           </div>
         )}
+      </GlassCard>
+
+      {/* ── Email Settings ────────────────────────────────── */}
+      <GlassCard className="p-5 space-y-5">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-[#C03D25]/10 flex items-center justify-center">
+            <Mail size={16} className="text-[#C03D25]" />
+          </div>
+          <p className="text-base font-bold text-[#1C1C1E]">Email Settings</p>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold text-[#8E8E93]">Sender Email Address</label>
+          <input
+            type="email"
+            value={emailSender}
+            onChange={e => setEmailSender(e.target.value)}
+            placeholder="e.g. onesalesapp@megawide.com"
+            className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/50 focus:bg-white transition-colors"
+          />
+          <p className="text-[11px] text-[#8E8E93]">
+            All emails sent by the app will come from this address. Must be a Megawide Outlook mailbox authorized in Azure.
+          </p>
+        </div>
+
+        <button type="button" onClick={saveEmailSettings} disabled={savingEmail || !emailSender.trim()}
+          className={`w-full py-3.5 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${
+            emailSaved ? 'bg-green-500 text-white' : 'bg-[#C03D25] text-white active:opacity-80 disabled:opacity-60'
+          }`}>
+          {emailSaved
+            ? <><Check size={16} /> Saved!</>
+            : savingEmail
+              ? <><Loader2 size={15} className="animate-spin" /> Saving…</>
+              : 'Save Email Settings'
+          }
+        </button>
+      </GlassCard>
+
+      {/* ── Email Templates ───────────────────────────────── */}
+      <GlassCard className="p-5 space-y-4">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-[#C03D25]/10 flex items-center justify-center">
+            <FileText size={16} className="text-[#C03D25]" />
+          </div>
+          <div className="flex-1">
+            <p className="text-base font-bold text-[#1C1C1E]">Email Templates</p>
+            <p className="text-[11px] text-[#8E8E93]">Configure recipients and content per document</p>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          {EMAIL_DOCS.map(doc => {
+            const tpl = templates[doc.key];
+            const isOpen = expandedTpl === doc.key;
+            return (
+              <div key={doc.key} className="rounded-2xl border border-black/[0.07] overflow-hidden">
+
+                {/* Row header */}
+                <div className="flex items-center gap-3 px-4 py-3 bg-white">
+                  {/* Toggle */}
+                  <button
+                    type="button"
+                    onClick={() => updateTemplate(doc.key, 'enabled', !tpl.enabled)}
+                    className="shrink-0"
+                  >
+                    {tpl.enabled
+                      ? <ToggleRight size={26} className="text-[#C03D25]" />
+                      : <ToggleLeft  size={26} className="text-[#C7C7CC]" />
+                    }
+                  </button>
+
+                  {/* Label */}
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm font-semibold truncate ${tpl.enabled ? 'text-[#1C1C1E]' : 'text-[#8E8E93]'}`}>
+                      {doc.label}
+                    </p>
+                    {tpl.enabled && (
+                      <p className="text-[11px] text-[#8E8E93] truncate mt-0.5">
+                        {tpl.triggers.length > 0
+                          ? tpl.triggers.map(t => EMAIL_TRIGGERS.find(x => x.key === t)?.label).join(', ')
+                          : 'No trigger set'}
+                        {tpl.to.length > 0 && ` · To: ${tpl.to.map(r => EMAIL_ROLES.find(x => x.key === r)?.label ?? r).join(', ')}`}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Expand */}
+                  <button
+                    type="button"
+                    onClick={() => setExpandedTpl(isOpen ? null : doc.key)}
+                    className="p-1.5 rounded-xl bg-[#F2F2F7] text-[#8E8E93] shrink-0"
+                  >
+                    {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  </button>
+                </div>
+
+                {/* Expanded fields */}
+                {isOpen && (
+                  <div className="px-4 pb-4 pt-1 bg-[#FAFAFA] border-t border-black/[0.05] space-y-3">
+
+                    {/* Triggers */}
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-semibold text-[#8E8E93] uppercase tracking-wide">Send Triggers</label>
+                      <div className="space-y-1">
+                        {EMAIL_TRIGGERS.filter(t => doc.allowedTriggers.includes(t.key)).map(t => {
+                          const active = (tpl.triggers ?? []).includes(t.key);
+                          return (
+                            <button
+                              key={t.key}
+                              type="button"
+                              onClick={() => toggleTrigger(doc.key, t.key)}
+                              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-all active:scale-[0.99]"
+                              style={active
+                                ? { background: 'rgba(192,61,37,0.06)', borderColor: 'rgba(192,61,37,0.3)' }
+                                : { background: 'white', borderColor: 'rgba(0,0,0,0.08)' }
+                              }
+                            >
+                              <div className={`w-4 h-4 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${active ? 'bg-[#C03D25] border-[#C03D25]' : 'border-[#C7C7CC]'}`}>
+                                {active && <Check size={10} className="text-white" />}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className={`text-sm font-semibold ${active ? 'text-[#C03D25]' : 'text-[#1C1C1E]'}`}>{t.label}</p>
+                                <p className="text-[11px] text-[#8E8E93] leading-snug">{t.description}</p>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* To */}
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-semibold text-[#8E8E93] uppercase tracking-wide">To</label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {EMAIL_ROLES.map(role => {
+                          const selected = tpl.to.includes(role.key);
+                          return (
+                            <button
+                              key={role.key}
+                              type="button"
+                              onClick={() => toggleRole(doc.key, 'to', role.key)}
+                              className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all active:scale-95"
+                              style={selected
+                                ? { background: '#C03D25', color: '#fff' }
+                                : { background: 'rgba(0,0,0,0.06)', color: '#6C6C70' }
+                              }
+                            >
+                              {role.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* CC */}
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-semibold text-[#8E8E93] uppercase tracking-wide">CC</label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {EMAIL_ROLES.map(role => {
+                          const selected = tpl.cc.includes(role.key);
+                          return (
+                            <button
+                              key={role.key}
+                              type="button"
+                              onClick={() => toggleRole(doc.key, 'cc', role.key)}
+                              className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all active:scale-95"
+                              style={selected
+                                ? { background: '#5856D6', color: '#fff' }
+                                : { background: 'rgba(0,0,0,0.06)', color: '#6C6C70' }
+                              }
+                            >
+                              {role.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Subject */}
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-semibold text-[#8E8E93] uppercase tracking-wide">Subject</label>
+                      <input
+                        type="text"
+                        value={tpl.subject}
+                        onChange={e => updateTemplate(doc.key, 'subject', e.target.value)}
+                        placeholder={`${doc.label} – {client_name}`}
+                        className="w-full px-3 py-2 rounded-xl border border-black/[0.1] bg-white text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/50 transition-colors"
+                      />
+                    </div>
+
+                    {/* Body */}
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-semibold text-[#8E8E93] uppercase tracking-wide">Body</label>
+                      <textarea
+                        value={tpl.body}
+                        onChange={e => updateTemplate(doc.key, 'body', e.target.value)}
+                        rows={5}
+                        placeholder={`Dear {client_name},\n\nPlease find attached your ${doc.label}.\n\nBest regards,\n{seller_name}`}
+                        className="w-full px-3 py-2 rounded-xl border border-black/[0.1] bg-white text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/50 transition-colors resize-none font-mono"
+                      />
+                      <p className="text-[10px] text-[#8E8E93] leading-relaxed">
+                        Available variables: <span className="font-mono">{TEMPLATE_VARS}</span>
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <button
+          type="button"
+          onClick={saveEmailTemplates}
+          disabled={savingTpl}
+          className={`w-full py-3.5 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${
+            tplSaved ? 'bg-green-500 text-white' : 'bg-[#C03D25] text-white active:opacity-80 disabled:opacity-60'
+          }`}
+        >
+          {tplSaved
+            ? <><Check size={16} /> Saved!</>
+            : savingTpl
+              ? <><Loader2 size={15} className="animate-spin" /> Saving…</>
+              : 'Save Email Templates'
+          }
+        </button>
+      </GlassCard>
+
+      {/* ── Email Attachments ─────────────────────────────── */}
+      <GlassCard className="p-5 space-y-4">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-[#C03D25]/10 flex items-center justify-center">
+            <FileText size={16} className="text-[#C03D25]" />
+          </div>
+          <div className="flex-1">
+            <p className="text-base font-bold text-[#1C1C1E]">Email Attachments</p>
+            <p className="text-[11px] text-[#8E8E93]">Preview PDF documents before the email feature goes live</p>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+
+          {/* Client Registration Form */}
+          <div className="rounded-2xl border border-black/[0.07] p-3 bg-white space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-[#1C1C1E]">Client Registration Form</p>
+              <button type="button" onClick={() => generateClientRegistration(pdfClients.find(c => c.id === selClientId) ?? null)}
+                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70">
+                <Eye size={12} /> Preview
+              </button>
+            </div>
+            <select value={selClientId} onChange={e => setSelClientId(e.target.value)}
+              className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none">
+              <option value="">— Select a client —</option>
+              {pdfClients.map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.last_name}, {c.first_name}{c.middle_name ? ` ${c.middle_name}` : ''}{c.client_id ? ` (${c.client_id})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Terms of Payment */}
+          <div className="rounded-2xl border border-black/[0.07] p-3 bg-white space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-[#1C1C1E]">Terms of Payment</p>
+              <button type="button" onClick={() => generateTermsOfPayment(selTopId || null)}
+                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70">
+                <Eye size={12} /> Preview
+              </button>
+            </div>
+            <select value={selTopId} onChange={e => setSelTopId(e.target.value)}
+              className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none">
+              <option value="">— Select a reservation —</option>
+              {pdfReservations.map(r => (
+                <option key={r.reservation_id} value={r.reservation_id}>
+                  {r.reservation_id} — {r.client_name} ({r.inventory_code})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Reservation Agreement */}
+          <div className="rounded-2xl border border-black/[0.07] p-3 bg-white space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-[#1C1C1E]">Reservation Agreement</p>
+              <button type="button" onClick={() => generateReservationAgreement(selAgreementId || null)}
+                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70">
+                <Eye size={12} /> Preview
+              </button>
+            </div>
+            <select value={selAgreementId} onChange={e => setSelAgreementId(e.target.value)}
+              className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none">
+              <option value="">— Select a reservation —</option>
+              {pdfReservations.map(r => (
+                <option key={r.reservation_id} value={r.reservation_id}>
+                  {r.reservation_id} — {r.client_name} ({r.inventory_code})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Buyer Information Form */}
+          <div className="rounded-2xl border border-black/[0.07] p-3 bg-white space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-[#1C1C1E]">Buyer Information Form</p>
+              <button type="button" onClick={() => generateBuyerInformationForm(selBuyerInfoId || null)}
+                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70">
+                <Eye size={12} /> Preview
+              </button>
+            </div>
+            <select value={selBuyerInfoId} onChange={e => setSelBuyerInfoId(e.target.value)}
+              className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none">
+              <option value="">— Select a reservation —</option>
+              {pdfReservations.map(r => (
+                <option key={r.reservation_id} value={r.reservation_id}>
+                  {r.reservation_id} — {r.client_name} ({r.inventory_code})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Sample Computation */}
+          <div className="rounded-2xl border border-black/[0.07] p-3 bg-white flex items-center justify-between gap-3">
+            <p className="text-sm font-semibold text-[#1C1C1E]">Sample Computation</p>
+            <button type="button" onClick={() => generateSampleComputation()}
+              className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70">
+              <Eye size={12} /> Preview
+            </button>
+          </div>
+
+          {/* SOA */}
+          <div className="rounded-2xl border border-black/[0.07] p-3 bg-white space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-[#1C1C1E]">Statement of Account (SOA)</p>
+              <button type="button" onClick={() => generateSOA(selSOAId || null)}
+                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70">
+                <Eye size={12} /> Preview
+              </button>
+            </div>
+            <select value={selSOAId} onChange={e => setSelSOAId(e.target.value)}
+              className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none">
+              <option value="">— Select a reservation —</option>
+              {pdfReservations.map(r => (
+                <option key={r.reservation_id} value={r.reservation_id}>
+                  {r.reservation_id} — {r.client_name} ({r.inventory_code})
+                </option>
+              ))}
+            </select>
+          </div>
+
+        </div>
+      </GlassCard>
+
+      {/* ── Email Test ────────────────────────────────────── */}
+      <GlassCard className="p-5 space-y-4">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-xl bg-[rgba(192,61,37,0.10)] flex items-center justify-center shrink-0">
+            <Send size={16} className="text-[#C03D25]" />
+          </div>
+          <div className="flex-1">
+            <p className="text-base font-bold text-[#1C1C1E]">Email Test</p>
+            <p className="text-[11px] text-[#8E8E93]">Send a test email via Microsoft Graph API with optional PDF attachment</p>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+
+          {/* To */}
+          <div className="space-y-1">
+            <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Recipient Email</p>
+            <input type="email" value={testTo} onChange={e => setTestTo(e.target.value)}
+              placeholder="recipient@example.com"
+              className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none" />
+          </div>
+
+          {/* Subject */}
+          <div className="space-y-1">
+            <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Subject</p>
+            <input type="text" value={testSubject} onChange={e => setTestSubject(e.target.value)}
+              className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none" />
+          </div>
+
+          {/* Body */}
+          <div className="space-y-1">
+            <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Message</p>
+            <textarea value={testBody} onChange={e => setTestBody(e.target.value)} rows={3}
+              className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none resize-none" />
+          </div>
+
+          {/* PDF Attachment */}
+          <div className="space-y-2">
+            <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider flex items-center gap-1">
+              <Paperclip size={11} /> PDF Attachment
+            </p>
+            <select value={testDocKey} onChange={e => { setTestDocKey(e.target.value as DocKey); setTestClientId(''); setTestResId(''); setTestResult(null); }}
+              className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none">
+              {(Object.entries(TEST_DOCS) as [DocKey, DocDef][]).map(([key, d]) => (
+                <option key={key} value={key}>{d.label}</option>
+              ))}
+            </select>
+            {testDocDef.selector === 'client' && (
+              <select value={testClientId} onChange={e => setTestClientId(e.target.value)}
+                className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none">
+                <option value="">— Select a client —</option>
+                {pdfClients.map(c => (
+                  <option key={c.client_id ?? ''} value={c.client_id ?? ''}>
+                    {c.client_id} — {c.last_name}, {c.first_name}
+                  </option>
+                ))}
+              </select>
+            )}
+            {testDocDef.selector === 'reservation' && (
+              <select value={testResId} onChange={e => setTestResId(e.target.value)}
+                className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none">
+                <option value="">— Select a reservation —</option>
+                {pdfReservations.map(r => (
+                  <option key={r.reservation_id} value={r.reservation_id}>
+                    {r.reservation_id} — {r.client_name} ({r.inventory_code})
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {/* Result */}
+          {testResult && (
+            <div className={`rounded-2xl p-3 flex items-start gap-2 ${testResult.ok ? 'bg-green-50' : 'bg-red-50'}`}>
+              {testResult.ok
+                ? <CheckCircle2 size={15} className="text-green-600 shrink-0 mt-0.5" />
+                : <AlertTriangle size={15} className="text-red-500 shrink-0 mt-0.5" />
+              }
+              <p className={`text-xs font-medium flex-1 ${testResult.ok ? 'text-green-700' : 'text-red-600'}`}>
+                {testResult.message}
+              </p>
+              <button type="button" onClick={() => setTestResult(null)} className="shrink-0 text-[#8E8E93] active:opacity-60">
+                <X size={13} />
+              </button>
+            </div>
+          )}
+
+          <button type="button" disabled={testSending || !testIsReady} onClick={handleTestSend}
+            className={`w-full py-3.5 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${
+              testSending || !testIsReady ? 'bg-[#E5E5EA] text-[#C7C7CC] cursor-not-allowed' : 'bg-[#C03D25] text-white active:opacity-80'
+            }`}>
+            {testSending
+              ? <><Loader2 size={15} className="animate-spin" />{testDocKey !== 'none' ? 'Generating PDF & Sending…' : 'Sending…'}</>
+              : <><Send size={15} />{testDocKey !== 'none' ? 'Generate PDF & Send' : 'Send Test Email'}</>
+            }
+          </button>
+
+        </div>
       </GlassCard>
 
       {/* ── Delete Confirmation Modal ──────────────────────── */}

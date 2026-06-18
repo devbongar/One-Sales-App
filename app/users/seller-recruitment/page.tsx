@@ -4,9 +4,15 @@ import { useEffect, useRef, useState } from 'react';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import SearchInput from '@/components/ui/SearchInput';
-import { Loader2, Users, UserPlus, Plus, ChevronLeft, Edit2, Check, X, Briefcase, Mail, Calendar, Building2, Tag, User, ChevronDown, SlidersHorizontal, PenLine, Upload, RotateCcw } from 'lucide-react';
-import { fetchAllSellerRecruits, fetchAllSalespersons, addSellerRecruit, updateSellerRecruit, fetchSellerSignature, updateSellerSignature, SellerRecruitRecord } from '@/lib/salesperson';
+import { Loader2, Users, UserPlus, Plus, ChevronLeft, Edit2, Check, X, Briefcase, Mail, Calendar, Building2, Tag, User, ChevronDown, SlidersHorizontal, PenLine, Upload, RotateCcw, Shield, UserCheck, UserX, KeyRound } from 'lucide-react';
+import { fetchAllSellerRecruits, fetchAllSalespersons, addSellerRecruit, updateSellerRecruit, fetchSellerSignature, updateSellerSignature, fetchAccessRoles, SellerRecruitRecord, AccessRole } from '@/lib/salesperson';
 import { fetchProjects } from '@/lib/inventory';
+import { supabase } from '@/lib/supabase';
+
+async function fetchProfileEmails(): Promise<string[]> {
+  const { data } = await supabase.from('profiles').select('email');
+  return (data ?? []).map((p: any) => (p.email as string | null)?.toLowerCase()).filter(Boolean) as string[];
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -95,8 +101,8 @@ function ERow({ label, icon, children }: { label: string; icon?: React.ReactNode
   );
 }
 
-function ESelect({ value, options, onChange, disabled }: {
-  value: string; options: string[]; onChange: (v: string) => void; disabled?: boolean;
+function ESelect({ value, options, onChange, disabled, upward }: {
+  value: string; options: string[]; onChange: (v: string) => void; disabled?: boolean; upward?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   if (disabled) return <div className={readCls}>{value || '—'}</div>;
@@ -109,7 +115,7 @@ function ESelect({ value, options, onChange, disabled }: {
       </button>
       {open && (
         <div
-          className="absolute left-0 right-0 mt-1 rounded-xl border border-black/[0.08] overflow-hidden z-20 backdrop-blur-2xl"
+          className={`absolute left-0 right-0 rounded-xl border border-black/[0.08] overflow-hidden z-20 backdrop-blur-2xl ${upward ? 'bottom-full mb-1' : 'mt-1'}`}
           style={{ background: 'rgba(255, 255, 255, 0.98)' }}
         >
           {options.map(o => (
@@ -162,6 +168,7 @@ function DetailSheet({ seller, onClose, onSaved }: {
   const [sdOptions,  setSdOptions]  = useState<string[]>([]);
   const [sdhOptions, setSdhOptions] = useState<string[]>([]);
   const [shOptions,  setShOptions]  = useState<string[]>([]);
+  const [roles,      setRoles]      = useState<AccessRole[]>([]);
 
   useEffect(() => {
     fetchSellerSignature(seller.seller_name).then(sig => {
@@ -171,6 +178,7 @@ function DetailSheet({ seller, onClose, onSaved }: {
 
   useEffect(() => {
     fetchProjects().then(setProjects).catch(() => {});
+    fetchAccessRoles().then(setRoles).catch(() => {});
     fetchAllSalespersons().then(people => {
       setSmOptions( people.filter(p => p.position_rank === 'SM' ).map(p => p.seller_name));
       setSdOptions( people.filter(p => p.position_rank === 'SD' ).map(p => p.seller_name));
@@ -424,6 +432,19 @@ function DetailSheet({ seller, onClose, onSaved }: {
             </ERow>
           </SectionCard>
 
+          {/* App Account */}
+          <SectionCard title="App Account">
+            <ERow label="App Role" icon={<Shield size={10} />}>
+              <ESelect
+                value={roles.find(r => r.id === form.app_role_id)?.role_name ?? ''}
+                options={roles.map(r => r.role_name)}
+                onChange={v => setForm(f => ({ ...f, app_role_id: roles.find(r => r.role_name === v)?.id ?? null }))}
+                disabled={!editMode}
+                upward
+              />
+            </ERow>
+          </SectionCard>
+
           {/* Seller Signature */}
           <SectionCard title="Seller Signature">
             {(() => {
@@ -501,7 +522,7 @@ const EMPTY_RECRUIT: SellerRecruitRecord = {
   sales_manager: null, sales_director: null, sales_division_head: null,
   sales_head: null, sales_team: null, payroll_code: null,
   payroll_account_number: null, vat_registration_type: null, tin: null,
-  ewt_rate: null, bir_cor_address: null, signature_base64: null,
+  ewt_rate: null, bir_cor_address: null, signature_base64: null, app_role_id: null,
 };
 
 function AddSheet({ onClose, onAdded }: {
@@ -524,9 +545,11 @@ function AddSheet({ onClose, onAdded }: {
   const [sdOptions,  setSdOptions]  = useState<string[]>([]);
   const [sdhOptions, setSdhOptions] = useState<string[]>([]);
   const [shOptions,  setShOptions]  = useState<string[]>([]);
+  const [roles,      setRoles]      = useState<AccessRole[]>([]);
 
   useEffect(() => {
     fetchProjects().then(setProjects).catch(() => {});
+    fetchAccessRoles().then(setRoles).catch(() => {});
     fetchAllSalespersons().then(people => {
       setSmOptions( people.filter(p => p.position_rank === 'SM' ).map(p => p.seller_name));
       setSdOptions( people.filter(p => p.position_rank === 'SD' ).map(p => p.seller_name));
@@ -590,14 +613,14 @@ function AddSheet({ onClose, onAdded }: {
   const initials = form.seller_name.trim().split(' ').filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
   async function handleSave() {
-    if (!form.seller_name.trim()) { setError('Seller Name is required.'); return; }
+    if (!form.seller_name.trim())  { setError('Seller Name is required.');     return; }
+    if (!form.email_address?.trim()) { setError('Email Address is required.');  return; }
+    if (!form.app_role_id)           { setError('App Role is required.');        return; }
     setSaving(true);
     setError('');
     try {
       await addSellerRecruit(form);
-      if (sigPreview) {
-        try { await updateSellerSignature(form.seller_name, sigPreview); } catch {}
-      }
+      try { await updateSellerSignature(form.seller_name, sigPreview); } catch {}
       onAdded({ ...form, signature_base64: sigPreview });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to save. Please try again.');
@@ -673,7 +696,7 @@ function AddSheet({ onClose, onAdded }: {
           <ERow label="Last Name" icon={<User size={10} />}>
             <input className={inputCls} value={form.last_name ?? ''} onChange={e => set('last_name')(e.target.value)} />
           </ERow>
-          <ERow label="Email Address" icon={<Mail size={10} />}>
+          <ERow label="Email Address *" icon={<Mail size={10} />}>
             <input className={inputCls} type="email" inputMode="email" value={form.email_address ?? ''} onChange={e => set('email_address')(e.target.value)} />
           </ERow>
           <ERow label="Hired Date" icon={<Calendar size={10} />}>
@@ -732,8 +755,20 @@ function AddSheet({ onClose, onAdded }: {
           </ERow>
         </SectionCard>
 
+        {/* App Account */}
+        <SectionCard title="App Account">
+          <ERow label="App Role *" icon={<Shield size={10} />}>
+            <ESelect
+              value={roles.find(r => r.id === form.app_role_id)?.role_name ?? ''}
+              options={roles.map(r => r.role_name)}
+              onChange={v => setForm(f => ({ ...f, app_role_id: roles.find(r => r.role_name === v)?.id ?? null }))}
+              upward
+            />
+          </ERow>
+        </SectionCard>
+
         {/* Seller Signature */}
-        <SectionCard title="Seller Signature (optional)">
+        <SectionCard title="Seller Signature">
           {sigMode === 'draw' ? (
             <div className="space-y-2">
               <div className="relative rounded-2xl border-2 border-dashed border-[#C03D25]/40 overflow-hidden bg-white">
@@ -795,6 +830,184 @@ function AddSheet({ onClose, onAdded }: {
   );
 }
 
+// ─── Create Account Sheet ─────────────────────────────────────────────────────
+
+function CreateAccountSheet({ recruits, accountEmails, onClose, onEmailsAdded }: {
+  recruits:        SellerRecruitRecord[];
+  accountEmails:   Set<string>;
+  onClose:         () => void;
+  onEmailsAdded:   (newEmails: string[]) => void;
+}) {
+  // All sellers who don't have an account yet (regardless of email)
+  const candidates = recruits.filter(
+    r => !r.email_address || !accountEmails.has(r.email_address.toLowerCase())
+  );
+  const invitable = candidates.filter(r => !!r.email_address);
+
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [sending,  setSending]  = useState(false);
+  const [result,   setResult]   = useState<{ invited: number; errors: { seller_name: string; reason?: string }[] } | null>(null);
+  const [search,   setSearch]   = useState('');
+
+  const visibleCandidates = search.trim()
+    ? candidates.filter(c => c.seller_name.toLowerCase().includes(search.toLowerCase()))
+    : candidates;
+  const visibleInvitable = visibleCandidates.filter(r => !!r.email_address);
+
+  function toggle(name: string) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      next.has(name) ? next.delete(name) : next.add(name);
+      return next;
+    });
+  }
+
+  async function handleCreate() {
+    if (selected.size === 0) return;
+    setSending(true);
+    setResult(null);
+    try {
+      const res = await fetch('/api/admin/seller-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ seller_names: [...selected] }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Failed');
+      const errors = (data.results ?? []).filter((r: any) => r.status === 'error');
+      setResult({ invited: data.invited ?? 0, errors });
+      const newEmails = candidates
+        .filter(c => selected.has(c.seller_name) && !errors.find((e: any) => e.seller_name === c.seller_name))
+        .map(c => c.email_address!.toLowerCase());
+      if (newEmails.length > 0) onEmailsAdded(newEmails);
+    } catch (e: any) {
+      setResult({ invited: 0, errors: [{ seller_name: 'All', reason: e.message }] });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col" style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}>
+      <div className="mt-auto rounded-t-3xl flex flex-col max-h-[85vh]"
+        style={{ background: 'rgba(242,242,247,0.98)', backdropFilter: 'blur(24px)' }}>
+
+        {/* Handle */}
+        <div className="flex justify-center pt-3 pb-1">
+          <div className="w-9 h-1 rounded-full bg-[#D1D1D6]" />
+        </div>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-black/[0.06]">
+          <div>
+            <p className="text-base font-bold text-[#1C1C1E]">Create App Accounts</p>
+            <p className="text-xs text-[#8E8E93] mt-0.5">{candidates.length} seller{candidates.length !== 1 ? 's' : ''} without an account · {invitable.length} ready to invite</p>
+          </div>
+          <button type="button" onClick={onClose}
+            className="w-8 h-8 rounded-full bg-black/[0.06] flex items-center justify-center active:opacity-60">
+            <X size={16} className="text-[#3C3C43]" />
+          </button>
+        </div>
+
+        {/* Result banner */}
+        {result && (
+          <div className={`mx-4 mt-3 px-3 py-2 rounded-xl text-xs font-medium space-y-0.5 ${result.errors.length > 0 ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-700'}`}>
+            {result.invited > 0 && (
+              <p className={result.errors.length === 0 ? 'text-green-700' : 'text-green-600'}>
+                ✓ {result.invited} invitation{result.invited !== 1 ? 's' : ''} sent successfully.
+              </p>
+            )}
+            {result.errors.map((e, i) => <p key={i}>✕ {e.seller_name}: {e.reason}</p>)}
+          </div>
+        )}
+
+        {/* Search */}
+        {candidates.length > 0 && (
+          <div className="px-4 pt-3">
+            <div className="flex items-center gap-2 px-3 py-2.5 rounded-2xl bg-black/[0.06]">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8E8E93" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search sellers…"
+                className="flex-1 bg-transparent text-sm text-[#1C1C1E] placeholder:text-[#8E8E93] outline-none"
+              />
+              {search && (
+                <button type="button" onClick={() => setSearch('')} className="text-[#8E8E93] active:opacity-60">
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* List */}
+        {candidates.length === 0 ? (
+          <div className="flex-1 flex flex-col items-center justify-center py-10 gap-2">
+            <UserCheck size={32} className="text-[#34C759]" />
+            <p className="text-sm font-semibold text-[#1C1C1E]">All sellers have accounts</p>
+            <p className="text-xs text-[#8E8E93]">No pending invitations needed</p>
+          </div>
+        ) : (
+          <>
+            {/* Select all */}
+            {visibleInvitable.length > 0 && (
+              <button type="button" onClick={() => setSelected(prev => prev.size === visibleInvitable.length ? new Set() : new Set(visibleInvitable.map(c => c.seller_name)))}
+                className="flex items-center gap-2 px-5 py-3 text-xs font-semibold text-[#007AFF] active:opacity-60">
+                {visibleInvitable.every(c => selected.has(c.seller_name)) ? 'Deselect All' : 'Select All'}
+              </button>
+            )}
+
+            <div className="flex-1 overflow-y-auto px-4 space-y-2 pb-2">
+              {visibleCandidates.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8 gap-1">
+                  <p className="text-sm font-semibold text-[#1C1C1E]">No results</p>
+                  <p className="text-xs text-[#8E8E93]">Try a different name</p>
+                </div>
+              ) : null}
+              {visibleCandidates.map(c => {
+                const canInvite = !!c.email_address;
+                return (
+                  <button key={c.seller_name} type="button"
+                    onClick={() => canInvite && toggle(c.seller_name)}
+                    disabled={!canInvite}
+                    className={`w-full flex items-center gap-3 p-3 rounded-2xl border text-left transition-opacity ${canInvite ? 'bg-white/80 border-black/[0.06] active:opacity-70' : 'bg-black/[0.03] border-black/[0.04] opacity-50 cursor-not-allowed'}`}>
+                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${selected.has(c.seller_name) ? 'bg-[#007AFF] border-[#007AFF]' : 'border-[#C7C7CC]'}`}>
+                      {selected.has(c.seller_name) && <Check size={11} className="text-white" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-[#1C1C1E] truncate">{c.seller_name}</p>
+                      <p className="text-xs text-[#8E8E93] truncate">{canInvite ? c.email_address : 'No email address — edit seller record first'}</p>
+                    </div>
+                    {!canInvite
+                      ? <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full shrink-0" style={{ background: 'rgba(255,59,48,0.10)', color: '#C0001E' }}>No email</span>
+                      : c.app_role_id
+                        ? <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full shrink-0" style={{ background: 'rgba(88,86,214,0.12)', color: '#3634A3' }}>Role set</span>
+                        : <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full shrink-0" style={{ background: 'rgba(255,159,10,0.12)', color: '#A05A00' }}>No role</span>
+                    }
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        {/* Footer */}
+        <div className="px-4 py-4 border-t border-black/[0.06]">
+          <button type="button" onClick={handleCreate}
+            disabled={selected.size === 0 || sending}
+            className="w-full py-3.5 rounded-2xl text-sm font-bold text-white flex items-center justify-center gap-2 active:opacity-80 disabled:opacity-40 transition-opacity"
+            style={{ background: 'linear-gradient(135deg, #1C1C1E 0%, #3A3A3C 100%)' }}>
+            {sending ? <Loader2 size={16} className="animate-spin" /> : <KeyRound size={16} />}
+            {sending ? 'Sending Invitations…' : selected.size === 0 ? 'Select sellers to invite' : `Send ${selected.size} Invitation${selected.size !== 1 ? 's' : ''}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SellerRecruitmentPage() {
@@ -806,11 +1019,17 @@ export default function SellerRecruitmentPage() {
   const [filterPositionOpen, setFilterPositionOpen] = useState(false);
   const [selected,       setSelected]       = useState<SellerRecruitRecord | null>(null);
   const [adding,         setAdding]         = useState(false);
+  const [accountSheet,   setAccountSheet]   = useState(false);
+  const [accountEmails,  setAccountEmails]  = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetchAllSellerRecruits()
       .then(setRecruits)
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    fetchProfileEmails().then(emails => setAccountEmails(new Set(emails)));
   }, []);
 
   const filtered = recruits.filter(r => {
@@ -876,7 +1095,14 @@ export default function SellerRecruitmentPage() {
                   <p className="text-sm font-semibold text-[#1C1C1E] truncate">{r.seller_name}</p>
                   <p className="text-xs text-[#8E8E93]">{r.sales_team ?? '—'}</p>
                 </div>
-                <PositionBadge rank={r.position_rank} />
+                <div className="flex flex-col items-end gap-1 shrink-0 min-w-[56px]">
+                  <PositionBadge rank={r.position_rank} />
+                  {r.email_address && (
+                    accountEmails.has(r.email_address.toLowerCase())
+                      ? <span className="flex items-center gap-0.5 text-[9px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: 'rgba(52,199,89,0.12)', color: '#1A7F37' }}><UserCheck size={9} />Account</span>
+                      : <span className="flex items-center gap-0.5 text-[9px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ background: 'rgba(142,142,147,0.12)', color: '#6C6C70' }}><UserX size={9} />No Acct</span>
+                  )}
+                </div>
               </GlassCard>
             ))}
           </div>
@@ -884,15 +1110,25 @@ export default function SellerRecruitmentPage() {
 
       </div>
 
-      {/* FAB */}
-      <button
-        type="button"
-        onClick={() => setAdding(true)}
-        className="fixed bottom-6 right-6 w-14 h-14 rounded-full flex items-center justify-center active:scale-95 transition-transform z-30"
-        style={{ background: 'rgba(192, 61, 37, 0.75)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}
-      >
-        <Plus size={26} className="text-white" />
-      </button>
+      {/* FABs — stacked vertically */}
+      <div className="fixed bottom-6 right-6 flex flex-col items-center gap-3 z-30">
+        <button
+          type="button"
+          onClick={() => setAccountSheet(true)}
+          className="w-12 h-12 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+          style={{ background: 'rgba(28,28,30,0.75)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}
+        >
+          <KeyRound size={20} className="text-white" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setAdding(true)}
+          className="w-14 h-14 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+          style={{ background: 'rgba(192, 61, 37, 0.75)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}
+        >
+          <Plus size={26} className="text-white" />
+        </button>
+      </div>
 
     </PageShell>
 
@@ -915,6 +1151,18 @@ export default function SellerRecruitmentPage() {
         onAdded={(rec) => {
           setRecruits(prev => [rec, ...prev]);
           setAdding(false);
+        }}
+      />
+    )}
+
+    {/* Create Accounts Sheet */}
+    {accountSheet && (
+      <CreateAccountSheet
+        recruits={recruits}
+        accountEmails={accountEmails}
+        onClose={() => setAccountSheet(false)}
+        onEmailsAdded={(newEmails) => {
+          setAccountEmails(prev => new Set([...prev, ...newEmails]));
         }}
       />
     )}

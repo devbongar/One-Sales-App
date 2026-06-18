@@ -1,5 +1,13 @@
 import { supabase } from '@/lib/supabase';
 
+export interface AccessRole { id: number; role_name: string; }
+
+export async function fetchAccessRoles(): Promise<AccessRole[]> {
+  const { data, error } = await supabase.from('access_roles').select('id, role_name').order('role_name');
+  if (error) throw error;
+  return (data ?? []) as AccessRole[];
+}
+
 export interface SalespersonRecord {
   seller_name: string;
   seller_id: string | null;
@@ -100,6 +108,7 @@ export interface SellerRecruitRecord {
   ewt_rate:               string | null;
   bir_cor_address:        string | null;
   signature_base64:       string | null;
+  app_role_id:            number | null;
 }
 
 export async function fetchAllSellerRecruits(): Promise<SellerRecruitRecord[]> {
@@ -143,6 +152,7 @@ export async function addSellerRecruit(rec: SellerRecruitRecord): Promise<void> 
       'TIN':                    rec.tin,
       'EWT/WT Rate':            rec.ewt_rate,
       'BIR COR Address':        rec.bir_cor_address,
+      'app_role_id':            rec.app_role_id,
     });
   if (error) throw error;
 }
@@ -177,6 +187,7 @@ export async function updateSellerRecruit(
       'TIN':                    rec.tin,
       'EWT/WT Rate':            rec.ewt_rate,
       'BIR COR Address':        rec.bir_cor_address,
+      'app_role_id':            rec.app_role_id,
     })
     .eq('Seller Name', originalSellerName);
   if (error) throw error;

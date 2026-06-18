@@ -13,6 +13,7 @@ import {
   REASON_OPTIONS, SOURCE_OPTIONS, INCOME_OPTIONS,
 } from '@/lib/client-form-options';
 import { saveClient, updateClientSignatureByClientId, fetchAllClients, checkEmailExists, ClientRecord } from '@/lib/clients';
+import { triggerClientEmail } from '@/lib/email';
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
 import { fetchAllBrokers, BrokerRecord } from '@/lib/brokers';
 
@@ -264,6 +265,25 @@ export default function NewClientPage() {
       if (sigPreview) {
         try { await updateClientSignatureByClientId(clientId, sigPreview); } catch {}
       }
+      triggerClientEmail({
+        id: clientId, client_id: null, client_type: form.clientType,
+        last_name: form.lastName, first_name: form.firstName, middle_name: form.middleName || null,
+        suffix: form.suffix || null, gender: form.gender || null, civil_status: form.civilStatus || null,
+        date_of_birth: form.dateOfBirth || null, citizenship: form.citizenship || null,
+        country_code: form.countryCode || null, mobile_number: form.mobileNumber || null,
+        landline_no: form.landlineNo || null, email: form.email || null,
+        reason_for_buying: form.reasonForBuying || null, source_of_sale: form.sourceOfSale || null,
+        monthly_household_income: form.monthlyHouseholdIncome || null, is_megawide_employee: null,
+        seller_type: form.sellerType || null,
+        sales_director: form.sellerType === 'In House' ? sellerDirector : null,
+        sales_manager: form.sellerType === 'In House' ? sellerManager : null,
+        property_specialist: form.sellerType === 'In House' ? sellerSpecialist : null,
+        broker_director_head: form.sellerType === 'Broker' ? brokerDirectorHead : null,
+        broker_network_officer: form.sellerType === 'Broker' ? brokerNetworkOfficer : null,
+        broker_bir_name: form.sellerType === 'Broker' ? brokerBirName : null,
+        broker_network_associate: form.sellerType === 'Broker' ? brokerNetworkAssociate : null,
+        signature_base64: sigPreview, created_at: new Date().toISOString(),
+      } as ClientRecord, 'on_client_created').catch(e => console.error('[email-trigger]', e));
       setSavedClient({ ...form });
       setSavedClientId(clientId);
       setShowSuccess(true);

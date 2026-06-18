@@ -33,7 +33,6 @@ function daysElapsedLabel(createdAt: string | null): string {
 }
 
 interface StatusCounts {
-  reserved: number;
   forVerification: number;
   rfApproved: number;
   total: number;
@@ -55,7 +54,7 @@ function getInitials(name: string) {
 
 export default function ReservationPage() {
   const router = useRouter();
-  const [counts, setCounts]   = useState<StatusCounts>({ reserved: 0, forVerification: 0, rfApproved: 0, total: 0 });
+  const [counts, setCounts]   = useState<StatusCounts>({ forVerification: 0, rfApproved: 0, total: 0 });
   const [recent, setRecent]   = useState<RecentReservation[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -81,7 +80,6 @@ export default function ReservationPage() {
 
       if (data) {
         setCounts({
-          reserved:        data.filter(r => !r.finance_status).length,
           forVerification: data.filter(r => r.finance_status === 'proof-submitted' || r.finance_status === 'rf-rejected').length,
           rfApproved:      data.filter(r => r.finance_status === 'rf-verified').length,
           total:           data.length,
@@ -124,17 +122,7 @@ export default function ReservationPage() {
         </button>
 
         {/* ── Status summary ─────────────────────────────── */}
-        <div className="grid grid-cols-3 gap-2">
-          {/* Pending Proof */}
-          <GlassCard className="p-3 flex flex-col gap-1">
-            <div className="flex items-center gap-1.5">
-              <Clock size={12} style={{ color: '#A05A00' }} />
-              <span className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wide">Pending Proof</span>
-            </div>
-            <p className="text-2xl font-bold text-[#1C1C1E] leading-none">
-              {loading ? '–' : counts.reserved}
-            </p>
-          </GlassCard>
+        <div className="grid grid-cols-2 gap-2">
           {/* For Verification */}
           <GlassCard className="p-3 flex flex-col gap-1">
             <div className="flex items-center gap-1.5">

@@ -14,6 +14,7 @@ import { withdrawSubmission, submitForReview, directorReview, amdReview } from '
 import { addActivityLog, getActivityLog, ActivityLogEntry } from '@/lib/activity-log';
 import { getSession } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
+import { triggerEmails } from '@/lib/email';
 import {
   Building2, Tag, User, ChevronRight,
   Lock, Check, FileText, Loader2, UserCheck, ShieldCheck, ShieldAlert, Heart,
@@ -277,6 +278,7 @@ export default function BookingDetailPage() {
       const isResubmit = prevStatus === 'director-rejected' || prevStatus === 'amd-rejected';
       await submitForReview(reservation.reservation_id);
       await addActivityLog(reservation.reservation_id, isResubmit ? 'resubmitted' : 'submitted', displayName).catch(e => console.error('[activity-log]', e));
+      triggerEmails('on_docs_submitted', reservation.reservation_id).catch(e => console.error('[email-trigger]', e));
       setProgress(prev => prev ? { ...prev, booking_review_status: 'submitted' } : prev);
       getActivityLog(reservation.reservation_id).then(setActivityLog).catch(e => console.error('[activity-log]', e));
     } catch (e) {

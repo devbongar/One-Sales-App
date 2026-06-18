@@ -11,9 +11,11 @@ import {
   ChevronDown, CreditCard, ShieldCheck, Clock,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { uploadPaymentProof, uploadDocumentFile, updateReservationPayment, updateReservationStatus } from '@/lib/reservations';
+import { generateReservationId, saveReservation, uploadPaymentProof, uploadDocumentFile, updateReservationPayment, updateReservationStatus } from '@/lib/reservations';
 import { generateReceivableLines } from '@/lib/receivables';
 import { updateInventoryUnitStatus } from '@/lib/inventory';
+import { markQuotationConverted } from '@/lib/quotations';
+import { triggerEmails } from '@/lib/email';
 
 const MAX_FILES     = 5;
 const MAX_DOC_FILES = 3;
@@ -348,20 +350,38 @@ export default function ProofOfPaymentPage() {
 
   async function handleConfirmPayment() {
     const totalPayment = existingPaymentUrls.length + files.length;
-    if (!totalPayment || !reservationId) return;
+    const hasPending = !!sessionStorage.getItem('pendingReservationPayload');
+    if (!totalPayment || (!reservationId && !hasPending)) return;
     setSaving(true);
     setSaveError('');
     try {
+      // Generate ID and write reservation to DB on first submit (deferred from agreement page)
+      let activeId = reservationId;
+      const pendingPayload = sessionStorage.getItem('pendingReservationPayload');
+      if (pendingPayload) {
+        activeId = await generateReservationId();
+        const payload = { ...JSON.parse(pendingPayload), reservation_id: activeId };
+        await saveReservation(payload);
+        sessionStorage.removeItem('pendingReservationPayload');
+        sessionStorage.setItem('currentReservationId', activeId);
+        setReservationId(activeId);
+        const quotationId = sessionStorage.getItem('pendingQuotationId');
+        if (quotationId) {
+          try { await markQuotationConverted(quotationId); } catch {}
+          sessionStorage.removeItem('pendingQuotationId');
+        }
+      }
+
       // Upload only new blobs; existing URLs are kept as-is
       const [newPaymentUrls, newValidIdUrls, newFdpUrls] = await Promise.all([
         Promise.all(files.map((f, i) =>
-          uploadPaymentProof(reservationId, f.blob, `${Date.now()}_${i + 1}_${f.name}`)
+          uploadPaymentProof(activeId, f.blob, `${Date.now()}_${i + 1}_${f.name}`)
         )),
         Promise.all(validIdFiles.map((f, i) =>
-          uploadDocumentFile(reservationId, 'valid-id', f.blob, `${Date.now()}_${i + 1}_${f.name}`)
+          uploadDocumentFile(activeId, 'valid-id', f.blob, `${Date.now()}_${i + 1}_${f.name}`)
         )),
         Promise.all(fdpFiles.map((f, i) =>
-          uploadDocumentFile(reservationId, 'fdp', f.blob, `${Date.now()}_${i + 1}_${f.name}`)
+          uploadDocumentFile(activeId, 'fdp', f.blob, `${Date.now()}_${i + 1}_${f.name}`)
         )),
       ]);
 
@@ -370,7 +390,7 @@ export default function ProofOfPaymentPage() {
       const mergedValidId = [...existingValidIdUrls, ...newValidIdUrls];
       const mergedFdp     = [...existingFdpUrls, ...newFdpUrls];
 
-      await updateReservationPayment(reservationId, paymentDate, mergedPayment, {
+      await updateReservationPayment(activeId, paymentDate, mergedPayment, {
         subsequentMode,
         adaBank: adaBank || undefined,
         billingUrls: preservedBillingUrls.length > 0 ? preservedBillingUrls : undefined,
@@ -383,17 +403,19 @@ export default function ProofOfPaymentPage() {
           rf_payment_mode:   reservationPaymentMode || null,
           proof_of_fdp_urls: firstPaymentAgreed ? JSON.stringify(mergedFdp) : null,
         })
-        .eq('reservation_id', reservationId);
+        .eq('reservation_id', activeId);
 
       const inventoryCode = getInventoryCode();
       if (inventoryCode) await updateInventoryUnitStatus(inventoryCode, 'Reserved');
 
       // Generate receivable lines (non-fatal)
       try {
-        await generateReceivableLines(reservationId, paymentDate);
+        await generateReceivableLines(activeId, paymentDate);
       } catch (e) {
         console.error('[receivables] Failed to generate lines:', e);
       }
+
+      triggerEmails('on_reservation', activeId).catch(e => console.error('[email-trigger]', e));
 
       sessionStorage.removeItem('currentReservationId');
       sessionStorage.removeItem('reservationData');
@@ -1122,10 +1144,12 @@ export default function ProofOfPaymentPage() {
               </p>
             </div>
             <div className="px-6 py-3 border-b border-black/[0.06] space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-[#8E8E93]">Reservation ID</span>
-                <span className="text-xs font-bold text-[#C03D25]">{reservationId}</span>
-              </div>
+              {reservationId && (
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-[#8E8E93]">Reservation ID</span>
+                  <span className="text-xs font-bold text-[#C03D25]">{reservationId}</span>
+                </div>
+              )}
               <div className="flex items-center justify-between">
                 <span className="text-xs text-[#8E8E93]">Payment Date</span>
                 <span className="text-xs font-semibold text-[#1C1C1E]">{paymentDate}</span>

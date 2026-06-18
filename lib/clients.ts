@@ -71,11 +71,11 @@ export async function checkEmailExists(email: string, excludeId?: string): Promi
   return (data ?? []).length > 0;
 }
 
-export async function fetchClientSignature(id: string): Promise<string | null> {
+export async function fetchClientSignature(clientId: string): Promise<string | null> {
   const { data, error } = await supabase
     .from('clients')
     .select('signature_base64')
-    .eq('id', id)
+    .eq('client_id', clientId)
     .single();
   if (error) return null;
   return (data as { signature_base64: string | null })?.signature_base64 ?? null;

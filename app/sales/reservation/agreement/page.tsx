@@ -5,10 +5,8 @@ import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import { Check, Building2, Tag, LayoutGrid, Ruler, Banknote, Receipt, RotateCcw, AlertTriangle, Loader2 } from 'lucide-react';
-import { generateReservationId, saveReservation } from '@/lib/reservations';
-import { updateClientSignature, fetchClientSignature } from '@/lib/clients';
+import { updateClientSignatureByClientId, fetchClientSignature } from '@/lib/clients';
 import { getSession } from '@/lib/auth';
-import { markQuotationConverted } from '@/lib/quotations';
 
 interface ReservationData {
   // Unit
@@ -83,7 +81,6 @@ export default function ReservationAgreementPage() {
   const [checked1, setChecked1] = useState(false);
   const [checked2, setChecked2] = useState(false);
   const [hasSigned, setHasSigned] = useState(false);
-  const [reservationId, setReservationId] = useState<string | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -188,84 +185,83 @@ export default function ReservationAgreementPage() {
     setHasSigned(false);
   }
 
-  async function handleProceed() {
-    if (!reservationId) {
-      const id = await generateReservationId();
-      setReservationId(id);
-    }
-    setShowConfirm(true);
-  }
-
   async function handleConfirm() {
-    if (!data || !reservationId) return;
+    if (!data) return;
     setSaving(true);
     setSaveError('');
     try {
       const signature = canvasRef.current?.toDataURL('image/png') ?? '';
-      await saveReservation({
-        reservation_id: reservationId,
-        client_name: data.clientName,
-        signature_base64: signature,
-        project: data.project,
-        tower: data.tower,
-        floor: data.floor,
-        unit_no: data.unitNo,
-        inventory_code: data.inventoryCode,
-        unit_type: data.unitType,
-        unit_area: data.unitArea,
-        unit_category: data.unitCategory,
-        payment_scheme: data.paymentScheme,
-        scheme_name: data.schemeName,
-        payment_term: data.paymentTerm,
-        dp_rate: data.dpRate,
-        term_months: data.termMonths,
-        list_price: data.listPrice,
-        promo_discount_pct: data.promoPct,
-        promo_discount_amount: data.promoAmount,
-        employee_discount_amount: data.employeeAmount,
-        payterm_discount_pct: data.paytermPctDisplay,
-        payterm_discount_amount: data.paytermAmount,
-        hic_discount: data.hicDiscount ?? 0,
-        net_list_price: data.netListPrice,
-        vat: data.vat,
-        other_charges: data.otherCharges,
-        total_contract_price: data.totalContractPrice,
-        reservation_fee: data.reservationFee ?? 0,
-        retention_fee: 50000,
-        net_amount: data.netAmount,
-        dp_amount: data.dpAmount,
-        net_spot_dp: data.netSpotDP,
-        balance_for_financing: data.balanceForFinancing,
-        monthly_deferred: data.monthlyDeferred,
-        monthly_stretched_dp: data.monthlyStretchedDP,
-        bank_monthly: data.bankMonthly,
-        hdmf_monthly: data.hdmfMonthly,
-        client_id: data.clientId ?? null,
-        seller_id: data.sellerId ?? null,
-        created_by_uuid: creatorUuid,
-        seller_name: data.sellerName,
-        sales_manager: data.salesManager,
-        sales_director: data.salesDirector,
-        sales_division_head: data.salesDivisionHead,
-        status: 'Pending Proof',
-        first_payment_agreed: data.firstPaymentAgreed ?? false,
-      });
+
+      // Save client signature (update clients record)
       if (data.clientId) {
-        try { await updateClientSignature(data.clientId, signature); } catch {}
+        try { await updateClientSignatureByClientId(data.clientId, signature); } catch {}
       }
+
+      // Stash full reservation payload — proof page generates the ID and writes to DB on RF upload
+      sessionStorage.setItem('pendingReservationPayload', JSON.stringify({
+        client_name:               data.clientName,
+        signature_base64:          signature,
+        project:                   data.project,
+        tower:                     data.tower,
+        floor:                     data.floor,
+        unit_no:                   data.unitNo,
+        inventory_code:            data.inventoryCode,
+        unit_type:                 data.unitType,
+        unit_area:                 data.unitArea,
+        unit_category:             data.unitCategory,
+        payment_scheme:            data.paymentScheme,
+        scheme_name:               data.schemeName,
+        payment_term:              data.paymentTerm,
+        dp_rate:                   data.dpRate,
+        term_months:               data.termMonths,
+        list_price:                data.listPrice,
+        promo_discount_pct:        data.promoPct,
+        promo_discount_amount:     data.promoAmount,
+        employee_discount_amount:  data.employeeAmount,
+        payterm_discount_pct:      data.paytermPctDisplay,
+        payterm_discount_amount:   data.paytermAmount,
+        hic_discount:              data.hicDiscount ?? 0,
+        net_list_price:            data.netListPrice,
+        vat:                       data.vat,
+        other_charges:             data.otherCharges,
+        total_contract_price:      data.totalContractPrice,
+        reservation_fee:           data.reservationFee ?? 0,
+        retention_fee:             50000,
+        net_amount:                data.netAmount,
+        dp_amount:                 data.dpAmount,
+        net_spot_dp:               data.netSpotDP,
+        balance_for_financing:     data.balanceForFinancing,
+        monthly_deferred:          data.monthlyDeferred,
+        monthly_stretched_dp:      data.monthlyStretchedDP,
+        bank_monthly:              data.bankMonthly,
+        hdmf_monthly:              data.hdmfMonthly,
+        client_id:                 data.clientId ?? null,
+        seller_id:                 data.sellerId ?? null,
+        created_by_uuid:           creatorUuid,
+        seller_name:               data.sellerName,
+        sales_manager:             data.salesManager,
+        sales_director:            data.salesDirector,
+        sales_division_head:       data.salesDivisionHead,
+        status:                    'Pending Proof',
+        first_payment_agreed:      data.firstPaymentAgreed ?? false,
+      }));
       if (data.quotationId) {
-        try { await markQuotationConverted(data.quotationId); } catch {}
+        sessionStorage.setItem('pendingQuotationId', data.quotationId);
+      } else {
+        sessionStorage.removeItem('pendingQuotationId');
       }
-      sessionStorage.setItem('currentReservationId', reservationId);
+
+      sessionStorage.removeItem('currentReservationId');
       sessionStorage.setItem('proofEntrySource', 'agreement');
       sessionStorage.setItem('selectedReservation', JSON.stringify({
-        reservation_id:   reservationId,
-        client_name:      data.clientName,
-        project:          data.project,
-        inventory_code:   data.inventoryCode,
-        unit_type:        data.unitType,
-        status:           'Pending Proof',
-        seller_name:      data.sellerName,
+        reservation_id:    null,
+        client_name:       data.clientName,
+        project:           data.project,
+        inventory_code:    data.inventoryCode,
+        unit_type:         data.unitType,
+        status:            'Pending Proof',
+        finance_status:    null,
+        seller_name:       data.sellerName,
         payment_proof_url: null,
       }));
       setShowConfirm(false);
@@ -388,16 +384,8 @@ export default function ReservationAgreementPage() {
         </GlassCard>
       )}
 
-      {/* Reservation ID */}
-      {reservationId && (
-        <GlassCard className="px-4 py-3 flex items-center justify-between">
-          <span className="text-sm font-medium text-[#1C1C1E]">Reservation ID</span>
-          <span className="text-sm font-bold text-[#C03D25] tracking-wider">{reservationId}</span>
-        </GlassCard>
-      )}
-
       {/* Proceed button */}
-      <button type="button" disabled={!checked1 || !checked2 || !hasSigned} onClick={handleProceed}
+      <button type="button" disabled={!checked1 || !checked2 || !hasSigned} onClick={() => setShowConfirm(true)}
         className={`w-full py-4 rounded-2xl text-sm font-bold transition-all ${
           checked1 && checked2 && hasSigned
             ? 'bg-[#C03D25] text-white active:opacity-80'
@@ -421,10 +409,6 @@ export default function ReservationAgreementPage() {
               </p>
             </div>
             <div className="px-6 py-3 border-b border-black/[0.06]">
-              <div className="flex items-center justify-between py-1">
-                <span className="text-xs text-[#8E8E93]">Reservation ID</span>
-                <span className="text-xs font-bold text-[#C03D25]">{reservationId}</span>
-              </div>
               <div className="flex items-center justify-between py-1">
                 <span className="text-xs text-[#8E8E93]">Client</span>
                 <span className="text-xs font-semibold text-[#1C1C1E]">{data?.clientName}</span>

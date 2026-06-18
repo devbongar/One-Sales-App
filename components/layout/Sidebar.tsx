@@ -48,7 +48,6 @@ const NAV: NavGroup[] = [
       { label: 'Seller Recruitment',   href: '/users/seller-recruitment',   icon: 'Users' },
       { label: "User's Profile",       href: '/users/profile',              icon: 'UserCog',        comingSoon: true },
       { label: 'Admin User',           href: '/users/admin',                icon: 'LayoutDashboard' },
-      { label: 'Email Attachments',    href: '/users/email-attachments',    icon: 'Paperclip' },
     ],
   },
 ];
@@ -365,17 +364,6 @@ export default function Sidebar({ open, onClose, userName, displayName, userRole
               >
                 <Settings size={15} className="text-white/50 shrink-0" />
                 System Settings
-              </Link>
-            )}
-            {!isSeller && !isDirector && !isAMD && !isFinance && (
-              <Link
-                href="/test-email"
-                onClick={handleClose}
-                className="sb-footer w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-[13px] font-medium text-white/75 active:scale-[0.97]"
-                style={{ transition: 'background-color 150ms ease, color 150ms ease, transform 100ms ease-out' }}
-              >
-                <Mail size={15} className="text-white/50 shrink-0" />
-                Email Test
               </Link>
             )}
             <button
