@@ -36,6 +36,16 @@ function toProperCase(str: string) {
 }
 
 // ── Reusable components ───────────────────────────────────────
+function ReadOnlyInput({ value, placeholder }: { value: string; placeholder: string }) {
+  return (
+    <div className="w-full flex items-center px-3 py-2.5 rounded-xl border border-black/[0.06] bg-black/[0.03]">
+      <span className={`text-sm ${value ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
+        {value || placeholder}
+      </span>
+    </div>
+  );
+}
+
 function InputRow({ label, icon, error, required, children }: {
   label: string; icon: React.ReactNode; error?: string; required?: boolean; children: React.ReactNode;
 }) {
@@ -51,19 +61,28 @@ function InputRow({ label, icon, error, required, children }: {
   );
 }
 
-function SelectInput({ value, options, onChange, placeholder }: {
-  value: string; options: string[]; onChange: (v: string) => void; placeholder: string;
+function SelectInput({ value, options, onChange, placeholder, searchable }: {
+  value: string; options: string[]; onChange: (v: string) => void; placeholder: string; searchable?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const optionsRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (open && optionsRef.current) {
+    if (open) {
       setTimeout(() => {
         optionsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        if (searchable) searchRef.current?.focus();
       }, 30);
+    } else {
+      setQuery('');
     }
-  }, [open]);
+  }, [open, searchable]);
+
+  const filtered = searchable && query.trim()
+    ? options.filter(o => o.toLowerCase().includes(query.toLowerCase()))
+    : options;
 
   return (
     <div>
@@ -85,17 +104,101 @@ function SelectInput({ value, options, onChange, placeholder }: {
       </div>
       {open && (
         <div ref={optionsRef} className="mt-1 rounded-xl border border-black/[0.08] bg-white shadow-md overflow-hidden">
-          {options.map(o => (
-            <button key={o} type="button"
-              onClick={() => { onChange(o); setOpen(false); }}
-              className={`w-full flex items-center justify-between px-3 py-2.5 text-sm border-b border-black/[0.05] last:border-0 active:bg-gray-50 ${
-                o === value ? 'bg-[#C03D25]/10 text-[#C03D25] font-semibold' : 'text-[#1C1C1E]'
-              }`}>
-              {o}
-              {o === value && <Check size={13} className="shrink-0" />}
-            </button>
-          ))}
+          {searchable && (
+            <div className="px-2 py-2 border-b border-black/[0.05]">
+              <input
+                ref={searchRef}
+                type="text"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                onClick={e => e.stopPropagation()}
+                placeholder="Search…"
+                className="w-full px-2 py-1.5 text-sm rounded-lg border border-black/[0.10] bg-white/80 outline-none placeholder:text-[#C7C7CC]"
+              />
+            </div>
+          )}
+          <div className="max-h-48 overflow-y-auto">
+            {filtered.length === 0
+              ? <p className="px-3 py-2.5 text-sm text-[#C7C7CC]">No results</p>
+              : filtered.map(o => (
+                <button key={o} type="button"
+                  onClick={() => { onChange(o); setOpen(false); }}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 text-sm border-b border-black/[0.05] last:border-0 active:bg-gray-50 ${
+                    o === value ? 'bg-[#C03D25]/10 text-[#C03D25] font-semibold' : 'text-[#1C1C1E]'
+                  }`}>
+                  {o}
+                  {o === value && <Check size={13} className="shrink-0" />}
+                </button>
+              ))
+            }
+          </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+function SearchableCombobox({ value, options, onChange, placeholder }: {
+  value: string; options: string[]; onChange: (v: string) => void; placeholder: string;
+}) {
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+
+  const filtered = query.trim()
+    ? options.filter(o => o.toLowerCase().includes(query.toLowerCase()))
+    : options;
+
+  function select(name: string) {
+    onChange(name);
+    setQuery('');
+    setOpen(false);
+  }
+
+  function clear(e: React.MouseEvent) {
+    e.stopPropagation();
+    onChange('');
+    setQuery('');
+    setOpen(false);
+  }
+
+  return (
+    <div className="relative">
+      <div className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/80">
+        <input
+          type="text"
+          value={open ? query : value}
+          placeholder={value || placeholder}
+          onFocus={() => { setOpen(true); setQuery(''); }}
+          onChange={e => setQuery(e.target.value)}
+          className="flex-1 bg-transparent outline-none text-sm text-[#1C1C1E] placeholder:text-[#C7C7CC] min-w-0"
+        />
+        {value && !open
+          ? <button type="button" onClick={clear}><X size={13} className="text-[#C7C7CC]" /></button>
+          : <ChevronDown size={14} className="text-[#C7C7CC] shrink-0" />
+        }
+      </div>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => { setOpen(false); setQuery(''); }} />
+          <div className="absolute left-0 right-0 top-full z-50 mt-1 rounded-xl border border-black/[0.08] bg-white shadow-md overflow-hidden">
+            <div className="max-h-52 overflow-y-auto">
+              {filtered.length === 0
+                ? <p className="px-3 py-2.5 text-sm text-[#C7C7CC]">No results</p>
+                : filtered.map(o => (
+                  <button key={o} type="button"
+                    onMouseDown={e => { e.preventDefault(); select(o); }}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 text-sm border-b border-black/[0.05] last:border-0 active:bg-gray-50 ${
+                      o === value ? 'bg-[#C03D25]/10 text-[#C03D25] font-semibold' : 'text-[#1C1C1E]'
+                    }`}>
+                    {o}
+                    {o === value && <Check size={13} className="shrink-0" />}
+                  </button>
+                ))
+              }
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
@@ -156,16 +259,14 @@ export default function NewClientPage() {
     fetchAllBrokers().then(setAllBrokers).catch(console.error);
   }, []);
 
-  // In House cascading filter logic
-  const directors   = allSalespersons.filter(s => s.position_code === 'Sales Director');
-  const managers    = allSalespersons.filter(s =>
-    s.position_code === 'Sales Manager' &&
-    (!sellerDirector || s.sales_director === sellerDirector)
-  );
-  const specialists = allSalespersons.filter(s =>
-    s.position_code === 'Property Specialist' &&
-    (!sellerManager || s.sales_manager === sellerManager)
-  );
+  // In House — specialist-first: pick PS, manager+director auto-fill from PS record
+  const specialists = allSalespersons.filter(s => s.position_code === 'Property Specialist');
+  function handleSpecialistChange(name: string) {
+    setSellerSpecialist(name);
+    const ps = allSalespersons.find(s => s.seller_name === name);
+    setSellerManager(ps?.sales_manager ?? '');
+    setSellerDirector(ps?.sales_director ?? '');
+  }
 
   // Broker cascading filter logic — unique values per level
   function uniqueNonNull(arr: (string | null)[]): string[] {
@@ -621,32 +722,22 @@ export default function NewClientPage() {
             ))}
           </div>
 
-          {/* In House — cascading dropdowns */}
+          {/* In House — specialist-first, manager+director auto-fill */}
           {form.sellerType === 'In House' && (
             <>
-              <InputRow label="Sales Director" icon={<UserCog size={11} />}>
-                <SelectInput
-                  value={sellerDirector}
-                  options={directors.map(s => s.seller_name)}
-                  onChange={v => { setSellerDirector(v); setSellerManager(''); setSellerSpecialist(''); }}
-                  placeholder={directors.length === 0 ? 'Loading…' : 'Select Sales Director'}
+              <InputRow label="Property Specialist" icon={<User size={11} />}>
+                <SearchableCombobox
+                  value={sellerSpecialist}
+                  options={specialists.map(s => s.seller_name)}
+                  onChange={handleSpecialistChange}
+                  placeholder={specialists.length === 0 ? 'Loading…' : 'Search property specialist…'}
                 />
               </InputRow>
               <InputRow label="Sales Manager" icon={<Users size={11} />}>
-                <SelectInput
-                  value={sellerManager}
-                  options={managers.map(s => s.seller_name)}
-                  onChange={v => { setSellerManager(v); setSellerSpecialist(''); }}
-                  placeholder={managers.length === 0 ? 'No results' : 'Select Sales Manager'}
-                />
+                <ReadOnlyInput value={sellerManager} placeholder="Auto-filled from specialist" />
               </InputRow>
-              <InputRow label="Property Specialist" icon={<User size={11} />}>
-                <SelectInput
-                  value={sellerSpecialist}
-                  options={specialists.map(s => s.seller_name)}
-                  onChange={setSellerSpecialist}
-                  placeholder={specialists.length === 0 ? 'No results' : 'Select Property Specialist'}
-                />
+              <InputRow label="Sales Director" icon={<UserCog size={11} />}>
+                <ReadOnlyInput value={sellerDirector} placeholder="Auto-filled from specialist" />
               </InputRow>
             </>
           )}

@@ -273,17 +273,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    // ── Client mode: { document_key, client_uuid, attachment? } ─────────────────
+    // ── Client mode: { document_key, client_uuid, attachment?, extra_vars? } ─────
     if (body.client_uuid) {
-      const { document_key, client_uuid, attachment } = body as {
+      const { document_key, client_uuid, attachment, extra_vars } = body as {
         document_key: string; client_uuid: string; attachment?: Attachment;
+        extra_vars?: Record<string, string>;
       };
       const templates = await getEmailTemplates();
       const tpl = templates[document_key];
       if (!tpl)              return NextResponse.json({ error: `No template configured for "${document_key}"` }, { status: 400 });
       if (!tpl.enabled)      return NextResponse.json({ error: `Email template for "${document_key}" is disabled` }, { status: 400 });
 
-      const [toEmails, ccEmails, vars, accessToken, senderEmail] = await Promise.all([
+      const [toEmails, ccEmails, baseVars, accessToken, senderEmail] = await Promise.all([
         resolveClientRoleEmails(tpl.to ?? [], client_uuid),
         resolveClientRoleEmails(tpl.cc ?? [], client_uuid),
         resolveClientVars(client_uuid),
@@ -293,16 +294,17 @@ export async function POST(req: NextRequest) {
 
       if (!toEmails.length) return NextResponse.json({ error: 'No To recipients resolved — check template role assignments' }, { status: 400 });
 
+      const vars = { ...baseVars, ...(extra_vars ?? {}) };
       const subject  = applyVars(tpl.subject ?? '', vars);
       const htmlBody = applyVars((tpl.body ?? '').replace(/\n/g, '<br>'), vars);
       await sendViaGraph(accessToken, senderEmail, toEmails, ccEmails, subject, htmlBody, attachment ? [attachment] : undefined);
       return NextResponse.json({ ok: true, to: toEmails, cc: ccEmails });
     }
 
-    // ── Auto mode: { document_key, reservation_id } ───────────────────────────
-    const { document_key, reservation_id, attachment } = body as {
+    // ── Auto mode: { document_key, reservation_id, attachment?, attachments? } ──
+    const { document_key, reservation_id, attachment, attachments } = body as {
       document_key: string; reservation_id: string;
-      attachment?: Attachment;
+      attachment?: Attachment; attachments?: Attachment[];
     };
     if (!document_key || !reservation_id) {
       return NextResponse.json(
@@ -338,8 +340,8 @@ export async function POST(req: NextRequest) {
     const subject  = applyVars(tpl.subject ?? '', vars);
     const htmlBody = applyVars((tpl.body ?? '').replace(/\n/g, '<br>'), vars);
 
-    await sendViaGraph(accessToken, senderEmail, toEmails, ccEmails, subject, htmlBody,
-      attachment ? [attachment] : undefined);
+    const allAttachments = attachments ?? (attachment ? [attachment] : undefined);
+    await sendViaGraph(accessToken, senderEmail, toEmails, ccEmails, subject, htmlBody, allAttachments);
     return NextResponse.json({ ok: true, to: toEmails, cc: ccEmails });
 
   } catch (e: any) {

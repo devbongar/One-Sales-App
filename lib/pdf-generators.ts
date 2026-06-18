@@ -97,7 +97,7 @@ function compressImage(b64: string, maxW: number, maxH: number, quality = 0.75):
   });
 }
 
-async function loadLogo(): Promise<{ b64: string; w: number; h: number }> {
+export async function loadLogo(): Promise<{ b64: string; w: number; h: number }> {
   try {
     const res  = await fetch('/document logo.png');
     const blob = await res.blob();

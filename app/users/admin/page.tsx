@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { AlertTriangle, Calendar, ChevronLeft, ChevronRight, CheckCircle2, DollarSign, CalendarDays, Loader2, Save, Plus, Trash2, Eraser, Building2, Layers, Percent, Home, ShieldCheck, GripVertical, Users, Crown, UserPlus, Network, FileCheck, Eye, KeyRound, Briefcase, Globe, Check, X } from 'lucide-react';
+import { AlertTriangle, Calendar, ChevronLeft, ChevronRight, CheckCircle2, DollarSign, CalendarDays, Loader2, Save, Plus, Trash2, Eraser, Building2, Layers, Percent, Home, ShieldCheck, GripVertical, Users, Crown, UserPlus, Network, FileCheck, Eye, EyeOff, KeyRound, Briefcase, Globe, Check, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import {
   DndContext, closestCenter, PointerSensor, TouchSensor,
@@ -2152,10 +2152,10 @@ function CreateUserSheet({
 
   return (
     <div className="fixed inset-0 z-60 flex items-end" style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}>
-      <div className="w-full bg-white rounded-t-3xl px-5 pt-5 pb-10 space-y-4" style={{ animation: 'overlaySlideUp 0.28s cubic-bezier(0.32,0.72,0,1) both' }}>
+      <div className="w-full bg-white rounded-t-3xl px-5 pt-5 pb-10 space-y-4 max-h-[90vh] overflow-y-auto" style={{ animation: 'overlaySlideUp 0.28s cubic-bezier(0.32,0.72,0,1) both' }}>
         <div className="flex items-center justify-between mb-1">
           <h2 className="text-base font-bold text-[#1C1C1E]">Create User</h2>
-          <button onClick={onClose} className="p-2 rounded-xl bg-[#F2F2F7] active:opacity-70"><Eraser size={16} /></button>
+          <button onClick={onClose} className="p-2 rounded-xl bg-[#F2F2F7] active:opacity-70"><X size={16} /></button>
         </div>
 
         <div className="space-y-1.5">
@@ -2184,7 +2184,7 @@ function CreateUserSheet({
               placeholder="Min. 8 characters" className={overlayInputCls + ' pr-10'} />
             <button type="button" onClick={() => setShowPass(p => !p)}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-[#C7C7CC] active:opacity-70">
-              {showPass ? <Eye size={16} /> : <Eye size={16} className="opacity-40" />}
+              {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
           </div>
         </div>

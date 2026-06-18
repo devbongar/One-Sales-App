@@ -7,10 +7,12 @@ import GlassCard from '@/components/ui/GlassCard';
 import { fetchProjects, fetchTowers, fetchFloorsByCategory, fetchUnitTypes, fetchInventoryUnits, InventoryUnit } from '@/lib/inventory';
 import { fetchAllPayterms, PaytermRecord } from '@/lib/paytems';
 import { fetchAllClients, ClientRecord } from '@/lib/clients';
+import { loadLogo } from '@/lib/pdf-generators';
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
 import { fetchReservationFee, fetchVatThreshold, computeVat, fetchHicTarget } from '@/lib/admin';
 import { getSession } from '@/lib/auth';
 import { saveQuotation } from '@/lib/quotations';
+import { triggerQuotationEmail } from '@/lib/email';
 import { supabase } from '@/lib/supabase';
 import {
   Check, ChevronDown, ChevronLeft, Calculator,
@@ -393,7 +395,8 @@ export default function SampleComputationPage() {
   const compScrollRef   = useRef<HTMLDivElement>(null);
   const [compScrollPct, setCompScrollPct] = useState(0);
 
-  const generateComparisonPDF = async () => {
+  const generateComparisonPDF = async (options?: { cards?: ComparisonItem[]; returnBase64?: boolean }): Promise<string | undefined> => {
+    const cardsToRender = options?.cards ?? comparisons;
     const { jsPDF } = await import('jspdf');
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const pageW  = 210;
@@ -449,28 +452,8 @@ export default function SampleComputationPage() {
       }
     }
 
-    // Load logo once — preserve aspect ratio
-    let logoB64 = '';
-    let logoW = 22, logoH = 22;
-    try {
-      const res  = await fetch('/document logo.png');
-      const blob = await res.blob();
-      logoB64 = await new Promise<string>(resolve => {
-        const r = new FileReader();
-        r.onloadend = () => resolve(r.result as string);
-        r.readAsDataURL(blob);
-      });
-      // Get natural dimensions to compute aspect ratio
-      const dims = await new Promise<{ w: number; h: number }>(resolve => {
-        const img = new Image();
-        img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
-        img.onerror = () => resolve({ w: 1, h: 1 });
-        img.src = logoB64;
-      });
-      const maxH = 22;
-      logoH = maxH;
-      logoW = Math.round((dims.w / dims.h) * maxH);
-    } catch {}
+    // Load logo — resized PNG to keep PDF size small
+    const { b64: logoB64, w: logoW, h: logoH } = await loadLogo();
 
     const drawHeader = () => {
       // Coral header band
@@ -571,7 +554,7 @@ export default function SampleComputationPage() {
     };
 
     // ── One page per comparison ───────────────────────────────────────────────
-    comparisons.forEach((c, idx) => {
+    cardsToRender.forEach((c, idx) => {
       if (idx > 0) { doc.addPage(); }
       drawHeader();
       drawFooter();
@@ -668,6 +651,9 @@ export default function SampleComputationPage() {
       }
     });
 
+    if (options?.returnBase64) {
+      return doc.output('datauristring').split(',')[1];
+    }
     doc.save(`SampleComputation_${Date.now()}.pdf`);
   };
 
@@ -925,6 +911,28 @@ export default function SampleComputationPage() {
       const count = toSave.length;
       setSaveToast(count === 1 ? '1 quotation saved' : `${count} quotations saved`);
       setTimeout(() => setSaveToast(null), 3000);
+      // Fire email with saved cards PDF — fire-and-forget
+      const firstCard = toSave[0];
+      const quotationIds = toSave
+        .map(c => `${c.inventoryCode ?? c.unitNo}_${c.schemeName}_${c.termMonths}_${c.dpRate}`)
+        .join(', ');
+      const emailMeta: Record<string, string> = {
+        '{client_id}':    selectedClientRecord?.client_id ?? '',
+        '{project}':      firstCard.project,
+        '{tower}':        firstCard.tower,
+        '{unit}':         firstCard.inventoryCode ?? firstCard.unitNo,
+        '{quotation_id}': quotationIds,
+      };
+      generateComparisonPDF({ cards: toSave, returnBase64: true }).then(base64 => {
+        if (base64) {
+          triggerQuotationEmail(
+            base64,
+            selectedClientRecord?.id ?? null,
+            clientEmail || null,
+            emailMeta,
+          ).catch(e => console.error('[email-trigger] on_quotation_saved:', e));
+        }
+      }).catch(e => console.error('[pdf-gen] quotation email:', e));
     } catch {
       setSaveToast('Save failed — please try again');
       setTimeout(() => setSaveToast(null), 3000);
@@ -2283,7 +2291,7 @@ export default function SampleComputationPage() {
           {comparisons.length > 0 && (
             <button
               type="button"
-              onClick={generateComparisonPDF}
+              onClick={() => generateComparisonPDF()}
               className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-[#C03D25] text-[#C03D25] text-sm font-semibold active:bg-[#C03D25]/10 transition-colors"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

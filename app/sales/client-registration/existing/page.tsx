@@ -40,20 +40,29 @@ function DarkInputRow({ label, icon, error, required, children }: {
   );
 }
 
-function DarkSelectInput({ value, options, onChange, placeholder, disabled }: {
+function DarkSelectInput({ value, options, onChange, placeholder, disabled, searchable }: {
   value: string; options: string[]; onChange: (v: string) => void;
-  placeholder: string; disabled?: boolean;
+  placeholder: string; disabled?: boolean; searchable?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const optionsRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (open && optionsRef.current) {
+    if (open) {
       setTimeout(() => {
         optionsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        if (searchable) searchRef.current?.focus();
       }, 30);
+    } else {
+      setQuery('');
     }
-  }, [open]);
+  }, [open, searchable]);
+
+  const filtered = searchable && query.trim()
+    ? options.filter(o => o.toLowerCase().includes(query.toLowerCase()))
+    : options;
 
   return (
     <div>
@@ -84,17 +93,115 @@ function DarkSelectInput({ value, options, onChange, placeholder, disabled }: {
           backdropFilter: 'blur(24px)',
           border: '1px solid rgba(255,255,255,0.12)',
         }}>
-          {options.map(o => (
-            <button key={o} type="button"
-              onClick={() => { onChange(o); setOpen(false); }}
-              className={`w-full flex items-center justify-between px-3 py-2.5 text-sm border-b border-white/[0.06] last:border-0 active:bg-white/10 ${
-                o === value ? 'text-[#C03D25] font-semibold' : 'text-white/80'
-              }`}>
-              {o}
-              {o === value && <Check size={13} className="shrink-0" />}
-            </button>
-          ))}
+          {searchable && (
+            <div className="px-2 py-2 border-b border-white/[0.08]">
+              <input
+                ref={searchRef}
+                type="text"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                onClick={e => e.stopPropagation()}
+                placeholder="Search…"
+                className="w-full px-2 py-1.5 text-sm rounded-lg bg-white/10 border border-white/20 text-white placeholder:text-white/30 outline-none"
+              />
+            </div>
+          )}
+          <div className="max-h-48 overflow-y-auto">
+            {filtered.length === 0
+              ? <p className="px-3 py-2.5 text-sm text-white/30">No results</p>
+              : filtered.map(o => (
+                <button key={o} type="button"
+                  onClick={() => { onChange(o); setOpen(false); }}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 text-sm border-b border-white/[0.06] last:border-0 active:bg-white/10 ${
+                    o === value ? 'text-[#C03D25] font-semibold' : 'text-white/80'
+                  }`}>
+                  {o}
+                  {o === value && <Check size={13} className="shrink-0" />}
+                </button>
+              ))
+            }
+          </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+function DarkSearchableCombobox({ value, options, onChange, placeholder, disabled }: {
+  value: string; options: string[]; onChange: (v: string) => void;
+  placeholder: string; disabled?: boolean;
+}) {
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const filtered = query.trim()
+    ? options.filter(o => o.toLowerCase().includes(query.toLowerCase()))
+    : options;
+
+  function select(name: string) {
+    onChange(name);
+    setQuery('');
+    setOpen(false);
+  }
+
+  function clear(e: React.MouseEvent) {
+    e.stopPropagation();
+    onChange('');
+    setQuery('');
+    setOpen(false);
+  }
+
+  return (
+    <div className="relative">
+      <div className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-sm ${
+        disabled ? 'border-transparent bg-white/10 cursor-default' : 'border-white/20 bg-white/10 cursor-text'
+      }`}>
+        <input
+          ref={inputRef}
+          type="text"
+          value={open ? query : value}
+          readOnly={disabled}
+          placeholder={value || placeholder}
+          onFocus={() => { if (!disabled) { setOpen(true); setQuery(''); } }}
+          onChange={e => setQuery(e.target.value)}
+          className="flex-1 bg-transparent outline-none text-sm text-white placeholder:text-white/30 min-w-0"
+        />
+        {!disabled && value && !open && (
+          <button type="button" onClick={clear}>
+            <X size={13} className="text-white/40" />
+          </button>
+        )}
+        {!disabled && !value && (
+          <ChevronDown size={14} className="text-white/40 shrink-0" />
+        )}
+      </div>
+
+      {open && !disabled && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => { setOpen(false); setQuery(''); }} />
+          <div className="absolute left-0 right-0 top-full z-50 mt-1 rounded-xl overflow-hidden" style={{
+            background: 'rgba(18, 10, 45, 0.96)',
+            backdropFilter: 'blur(24px)',
+            border: '1px solid rgba(255,255,255,0.12)',
+          }}>
+            <div className="max-h-52 overflow-y-auto">
+              {filtered.length === 0
+                ? <p className="px-3 py-2.5 text-sm text-white/30">No results</p>
+                : filtered.map(o => (
+                  <button key={o} type="button"
+                    onMouseDown={e => { e.preventDefault(); select(o); }}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 text-sm border-b border-white/[0.06] last:border-0 active:bg-white/10 ${
+                      o === value ? 'text-[#C03D25] font-semibold' : 'text-white/80'
+                    }`}>
+                    {o}
+                    {o === value && <Check size={13} className="shrink-0" />}
+                  </button>
+                ))
+              }
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
@@ -209,16 +316,15 @@ export default function ExistingClientPage() {
     fetchAllBrokers().then(setAllBrokers).catch(console.error);
   }, []);
 
-  // In House cascading
-  const directors   = allSalespersons.filter(s => s.position_code === 'Sales Director');
-  const managers    = allSalespersons.filter(s =>
-    s.position_code === 'Sales Manager' &&
-    (!sellerDirector || s.sales_director === sellerDirector)
-  );
-  const specialists = allSalespersons.filter(s =>
-    s.position_code === 'Property Specialist' &&
-    (!sellerManager || s.sales_manager === sellerManager)
-  );
+  // In House — specialist-first: pick PS, manager+director auto-fill from PS record
+  const specialists = allSalespersons.filter(s => s.position_code === 'Property Specialist');
+  function handleSpecialistChange(name: string) {
+    if (!editMode) return;
+    setSellerSpecialist(name);
+    const ps = allSalespersons.find(s => s.seller_name === name);
+    setSellerManager(ps?.sales_manager ?? '');
+    setSellerDirector(ps?.sales_director ?? '');
+  }
 
   // Broker cascading
   function uniqueNonNull(arr: (string | null)[]): string[] {
@@ -740,31 +846,31 @@ export default function ExistingClientPage() {
 
                   {form.sellerType === 'In House' && (
                     <>
-                      <DarkInputRow label="Sales Director" icon={<UserCog size={11} />}>
-                        <DarkSelectInput
-                          value={sellerDirector}
-                          options={directors.map(s => s.seller_name)}
-                          onChange={v => { if (editMode) { setSellerDirector(v); setSellerManager(''); setSellerSpecialist(''); } }}
-                          placeholder="Select Sales Director"
+                      <DarkInputRow label="Property Specialist" icon={<User size={11} />}>
+                        <DarkSearchableCombobox
+                          value={sellerSpecialist}
+                          options={specialists.map(s => s.seller_name)}
+                          onChange={handleSpecialistChange}
+                          placeholder="Search property specialist…"
                           disabled={!editMode}
                         />
                       </DarkInputRow>
                       <DarkInputRow label="Sales Manager" icon={<Users size={11} />}>
                         <DarkSelectInput
                           value={sellerManager}
-                          options={managers.map(s => s.seller_name)}
-                          onChange={v => { if (editMode) { setSellerManager(v); setSellerSpecialist(''); } }}
-                          placeholder="Select Sales Manager"
-                          disabled={!editMode}
+                          options={[]}
+                          onChange={() => {}}
+                          placeholder="Auto-filled from specialist"
+                          disabled
                         />
                       </DarkInputRow>
-                      <DarkInputRow label="Property Specialist" icon={<User size={11} />}>
+                      <DarkInputRow label="Sales Director" icon={<UserCog size={11} />}>
                         <DarkSelectInput
-                          value={sellerSpecialist}
-                          options={specialists.map(s => s.seller_name)}
-                          onChange={v => { if (editMode) setSellerSpecialist(v); }}
-                          placeholder="Select Property Specialist"
-                          disabled={!editMode}
+                          value={sellerDirector}
+                          options={[]}
+                          onChange={() => {}}
+                          placeholder="Auto-filled from specialist"
+                          disabled
                         />
                       </DarkInputRow>
                     </>

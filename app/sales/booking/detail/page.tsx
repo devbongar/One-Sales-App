@@ -312,6 +312,7 @@ export default function BookingDetailPage() {
       await supabase.from('reservations').update({ director_filled: true }).eq('reservation_id', reservation.reservation_id);
       setDirectorFilled(true);
       await addActivityLog(reservation.reservation_id, 'director-approved', displayName).catch(e => console.error('[activity-log]', e));
+      triggerEmails('on_docs_submitted', reservation.reservation_id).catch(e => console.error('[email-trigger]', e));
       setProgress(prev => prev ? { ...prev, booking_review_status: 'director-approved' } : prev);
       getActivityLog(reservation.reservation_id).then(setActivityLog).catch(e => console.error('[activity-log]', e));
     } catch (e) {
@@ -466,7 +467,7 @@ export default function BookingDetailPage() {
   const isBooked     = reservationStatus === 'Booked';
   const isAllAccess    = userRoleName === 'All Access';
   const isDirector     = userRoleName === 'Sales Director' || isAllAccess;
-  const isAMD          = userRoleName === 'Account Management' || isAllAccess;
+  const isAMD          = userRoleName === 'Account Management';
   // Stage 1 locked for pure AMD role only — All Access can still fill the form
   const stage1Locked   = userRoleName === 'Account Management' || rs === 'submitted' || dirApproved;
   const stage2Complete = docsReady;
@@ -791,12 +792,12 @@ export default function BookingDetailPage() {
             </StageCard>
 
             {/* ── Review Pipeline (director, AMD & post-approval) ── */}
-            {(isDirector || isAMD || dirApproved) && (
+            {(isDirector || isAMD || isAllAccess || dirApproved) && (
                 <>
 
 
-                  {/* Director approval status — visible to AMD */}
-                  {isAMD && (rs === 'director-approved' || rs === 'amd-approved') && (
+                  {/* Director approval status — visible to AMD and All Access */}
+                  {(isAMD || isAllAccess) && (rs === 'director-approved' || rs === 'amd-approved') && (
                     <GlassCard className="px-4 py-3 flex items-center gap-2.5 border border-green-200 bg-green-50/60">
                       <CheckCircle2 size={14} className="text-green-600 shrink-0" />
                       <div>
@@ -911,7 +912,7 @@ export default function BookingDetailPage() {
             )}
 
             {/* ── AMD Review actions ── */}
-            {isAMD && rs === 'director-approved' && (
+            {(isAMD || isAllAccess) && rs === 'director-approved' && (
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -934,7 +935,7 @@ export default function BookingDetailPage() {
             )}
 
             {/* ── Director submit / resubmit directly to AMD ── */}
-            {isDirector && docsReady && (rs === null || (rs === 'amd-rejected' && directorFilled)) && (
+            {isDirector && !isAllAccess && docsReady && (rs === null || (rs === 'amd-rejected' && directorFilled)) && (
               <div className="space-y-3">
                 {rs === 'amd-rejected' && (
                   <GlassCard className="px-4 py-3 space-y-2 overflow-hidden border border-red-200">
@@ -964,7 +965,7 @@ export default function BookingDetailPage() {
             )}
 
             {/* ── Submit / Recall area (agents only) ── */}
-            {!isDirector && !isAMD && !dirApproved && (
+            {(!isDirector || isAllAccess) && !isAMD && !dirApproved && (
               <div className="space-y-3">
                 {rs === 'director-rejected' && (
                   <GlassCard className="px-4 py-3 space-y-2 overflow-hidden border border-red-200">

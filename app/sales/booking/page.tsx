@@ -123,6 +123,9 @@ export default function BookingPage() {
   const [sellerTab, setSellerTab] = useState<SellerTab>('to-submit');
   const [sellerRejectedCount, setSellerRejectedCount] = useState(0);
 
+  type AllAccessTab = 'reserved' | 'for-booking' | 'booked' | 'all';
+  const [allAccessTab, setAllAccessTab] = useState<AllAccessTab>('all');
+
   useEffect(() => {
     getSession().then(s => {
       setUserRoleName(s?.role_name ?? null);
@@ -230,6 +233,15 @@ export default function BookingPage() {
 
   // ── Client-side search + status filter ────────────────────
   const filtered = reservations.filter(r => {
+    if (isAllAccess && allAccessTab !== 'all') {
+      const isBooked     = r.status === 'Booked';
+      const isForBooking = !isBooked && (
+        progressMap[r.reservation_id]?.booking_review_status === 'amd-approved' ||
+        r.finance_status === 'dp-verified'
+      );
+      const badgeKey = isBooked ? 'booked' : isForBooking ? 'for-booking' : 'reserved';
+      if (badgeKey !== allAccessTab) return false;
+    }
     if (statusFilter) {
       const bs = computeBookingStatus(progressMap[r.reservation_id]);
       if (bs !== statusFilter) return false;
@@ -374,6 +386,31 @@ export default function BookingPage() {
                     sellerTab === tab.key ? 'border-[#C03D25] bg-yellow-400' : 'border-white bg-yellow-400'
                   }`} />
                 )}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* ── All Access tab filter ─────────────────────── */}
+        {isAllAccess && (
+          <div className="flex gap-2 overflow-x-auto pb-0.5 no-scrollbar">
+            {([
+              { key: 'all',         label: 'All' },
+              { key: 'reserved',    label: 'Reserved' },
+              { key: 'for-booking', label: 'For Booking' },
+              { key: 'booked',      label: 'Booked' },
+            ] as { key: AllAccessTab; label: string }[]).map(tab => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setAllAccessTab(tab.key)}
+                className={`px-4 py-2 rounded-2xl text-xs font-bold shrink-0 transition-all ${
+                  allAccessTab === tab.key
+                    ? 'bg-[#C03D25] text-white shadow-sm'
+                    : 'bg-white/80 border border-black/[0.08] text-[#6C6C70]'
+                }`}
+              >
+                {tab.label}
               </button>
             ))}
           </div>

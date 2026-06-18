@@ -1292,8 +1292,9 @@ export default function CollectionPostingPage() {
   }, [summaries, statusFilter, projectFilter, clientFilter, search]);
 
   const sorted = useMemo(() => {
-    const order: Record<string, number> = { Overdue: 0, Unpaid: 1, Complete: 2 };
-    return [...filtered].sort((a, b) => (order[a.status] ?? 3) - (order[b.status] ?? 3));
+    return [...filtered].sort((a, b) =>
+      b.reservation_id.localeCompare(a.reservation_id, undefined, { numeric: true })
+    );
   }, [filtered]);
 
   // ── Export ──────────────────────────────────────────────────────────────────

@@ -28,18 +28,17 @@ import {
 } from 'lucide-react';
 
 // ── Email test helpers ────────────────────────────────────────
-type DocKey = 'none' | 'client_registration' | 'terms_of_payment' | 'reservation_agreement' | 'buyer_info_form' | 'soa';
+type DocKey = 'none' | 'client_registration' | 'reservation_package' | 'buyer_info_form' | 'soa';
 interface DocDef { label: string; selector: 'none' | 'client' | 'reservation'; filename: string }
 const TEST_DOCS: Record<DocKey, DocDef> = {
-  none:                  { label: 'No attachment',            selector: 'none',        filename: '' },
-  client_registration:   { label: 'Client Registration Form', selector: 'client',      filename: 'client-registration.pdf' },
-  terms_of_payment:      { label: 'Terms of Payment',         selector: 'reservation', filename: 'terms-of-payment.pdf' },
-  reservation_agreement: { label: 'Reservation Agreement',    selector: 'reservation', filename: 'reservation-agreement.pdf' },
-  buyer_info_form:       { label: 'Buyer Information Form',   selector: 'reservation', filename: 'buyer-info-form.pdf' },
-  soa:                   { label: 'Statement of Account',     selector: 'reservation', filename: 'statement-of-account.pdf' },
+  none:                  { label: 'No attachment',                                    selector: 'none',        filename: '' },
+  client_registration:   { label: 'Client Registration Form',                         selector: 'client',      filename: 'client-registration.pdf' },
+  reservation_package:   { label: 'Reservation Agreement & Terms of Payment',         selector: 'reservation', filename: 'reservation-agreement.pdf' },
+  buyer_info_form:       { label: 'Buyer Information Form',                           selector: 'reservation', filename: 'buyer-info-form.pdf' },
+  soa:                   { label: 'Statement of Account',                             selector: 'reservation', filename: 'statement-of-account.pdf' },
 };
 // ── Email template config ─────────────────────────────────────
-type TriggerKey = 'on_client_created' | 'on_client_updated' | 'on_reservation' | 'on_booked' | 'on_finance_verified' | 'on_docs_submitted';
+type TriggerKey = 'on_client_created' | 'on_client_updated' | 'on_reservation' | 'on_booked' | 'on_finance_verified' | 'on_docs_submitted' | 'on_quotation_saved';
 
 type EmailTemplate = {
   enabled: boolean;
@@ -58,14 +57,14 @@ const EMAIL_TRIGGERS: { key: TriggerKey; label: string; description: string }[] 
   { key: 'on_booked',            label: 'On booked',                   description: 'Sent when the reservation status becomes Booked'         },
   { key: 'on_finance_verified',  label: 'On finance verified',         description: 'Sent when finance marks the account as verified'         },
   { key: 'on_docs_submitted',    label: 'Docs submitted to director',  description: 'Sent when booking docs are submitted for director review' },
+  { key: 'on_quotation_saved',   label: 'Quotation saved',             description: 'Sent when a sample computation quotation is saved'        },
 ];
 
 const EMAIL_DOCS: { key: string; label: string; defaultTriggers: TriggerKey[]; allowedTriggers: TriggerKey[] }[] = [
   { key: 'client_registration',   label: 'Client Registration Form', defaultTriggers: ['on_client_created', 'on_client_updated'], allowedTriggers: ['on_client_created', 'on_client_updated']                              },
-  { key: 'terms_of_payment',      label: 'Terms of Payment',         defaultTriggers: ['on_booked'],           allowedTriggers: ['on_reservation', 'on_booked', 'on_finance_verified']                       },
-  { key: 'reservation_agreement', label: 'Reservation Agreement',    defaultTriggers: ['on_booked'],           allowedTriggers: ['on_reservation', 'on_booked', 'on_finance_verified']                       },
+  { key: 'reservation_package',   label: 'Reservation Agreement & Terms of Payment', defaultTriggers: ['on_reservation'], allowedTriggers: ['on_reservation']                              },
   { key: 'buyer_info_form',       label: 'Buyer Information Form',   defaultTriggers: ['on_docs_submitted'],   allowedTriggers: ['on_docs_submitted']                                                        },
-  { key: 'sample_computation',    label: 'Sample Computation',       defaultTriggers: [],                      allowedTriggers: ['on_reservation', 'on_booked', 'on_finance_verified']                       },
+  { key: 'sample_computation',    label: 'Sample Computation',       defaultTriggers: ['on_quotation_saved'],  allowedTriggers: ['on_quotation_saved']                                                      },
   { key: 'soa',                   label: 'SOA',                      defaultTriggers: ['on_finance_verified'], allowedTriggers: ['on_reservation', 'on_booked', 'on_finance_verified']                       },
 ];
 

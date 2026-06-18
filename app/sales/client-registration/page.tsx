@@ -116,6 +116,67 @@ function DarkSectionCard({ title, children }: { title: string; children: React.R
   );
 }
 
+function SearchableCombobox({ value, options, onChange, placeholder, disabled }: {
+  value: string; options: string[]; onChange: (v: string) => void;
+  placeholder: string; disabled?: boolean;
+}) {
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+
+  const filtered = query.trim()
+    ? options.filter(o => o.toLowerCase().includes(query.toLowerCase()))
+    : options;
+
+  function select(name: string) { onChange(name); setQuery(''); setOpen(false); }
+  function clear(e: React.MouseEvent) { e.stopPropagation(); onChange(''); setQuery(''); setOpen(false); }
+
+  return (
+    <div className="relative">
+      <div className={`w-full flex items-center gap-1 px-3 py-2.5 rounded-xl border text-sm ${
+        disabled ? 'border-transparent bg-white/60 cursor-default' : 'border-black/[0.10] bg-white/70'
+      }`}>
+        <input
+          type="text"
+          readOnly={disabled}
+          value={open ? query : value}
+          placeholder={value || placeholder}
+          onFocus={() => { if (!disabled) { setOpen(true); setQuery(''); } }}
+          onChange={e => setQuery(e.target.value)}
+          className="flex-1 bg-transparent outline-none text-sm text-[#1C1C1E] placeholder:text-[#C7C7CC] min-w-0"
+        />
+        {!disabled && value && !open && (
+          <button type="button" onClick={clear}><X size={13} className="text-[#8E8E93]" /></button>
+        )}
+        {!disabled && !value && <ChevronDown size={14} className="text-[#8E8E93] shrink-0" />}
+      </div>
+
+      {open && !disabled && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => { setOpen(false); setQuery(''); }} />
+          <div className="absolute left-0 right-0 top-full z-50 mt-1 rounded-xl overflow-hidden"
+            style={{ background: 'rgba(255,255,255,0.98)', backdropFilter: 'blur(24px)', border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 8px 32px rgba(0,0,0,0.12)' }}>
+            <div className="max-h-52 overflow-y-auto">
+              {filtered.length === 0
+                ? <p className="px-3 py-2.5 text-sm text-[#C7C7CC]">No results</p>
+                : filtered.map(o => (
+                  <button key={o} type="button"
+                    onMouseDown={e => { e.preventDefault(); select(o); }}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 text-sm border-b border-black/[0.05] last:border-0 active:bg-black/[0.04] ${
+                      o === value ? 'bg-[#C03D25]/5 text-[#C03D25] font-semibold' : 'text-[#3C3C43]'
+                    }`}>
+                    {o}
+                    {o === value && <Check size={13} className="shrink-0 text-[#C03D25]" />}
+                  </button>
+                ))
+              }
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Helpers ───────────────────────────────────────────────────
 function toProperCase(str: string) {
   return str.replace(/\S+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
@@ -219,16 +280,14 @@ export default function ClientRegistrationPage() {
     fetchAllBrokers().then(setAllBrokers).catch(console.error);
   }, []);
 
-  // In House cascading
-  const directors   = allSalespersons.filter(s => s.position_code === 'Sales Director');
-  const managers    = allSalespersons.filter(s =>
-    s.position_code === 'Sales Manager' &&
-    (!sellerDirector || s.sales_director === sellerDirector)
-  );
-  const specialists = allSalespersons.filter(s =>
-    s.position_code === 'Property Specialist' &&
-    (!sellerManager || s.sales_manager === sellerManager)
-  );
+  // In House — specialist-first: pick PS, manager+director auto-fill
+  const specialists = allSalespersons.filter(s => s.position_code === 'Property Specialist');
+  function handleSpecialistChange(name: string) {
+    setSellerSpecialist(name);
+    const ps = allSalespersons.find(s => s.seller_name === name);
+    setSellerManager(ps?.sales_manager ?? '');
+    setSellerDirector(ps?.sales_director ?? '');
+  }
 
   // Broker cascading
   function uniqueNonNull(arr: (string | null)[]): string[] {
@@ -757,20 +816,22 @@ export default function ClientRegistrationPage() {
 
                   {form.sellerType === 'In House' && (
                     <>
-                      <DarkInputRow label="Sales Director" icon={<UserCog size={11} />}>
-                        <DarkSelectInput value={sellerDirector} options={directors.map(s => s.seller_name)}
-                          onChange={v => { if (editMode) { setSellerDirector(v); setSellerManager(''); setSellerSpecialist(''); } }}
-                          placeholder="Select Sales Director" disabled={!editMode} />
+                      <DarkInputRow label="Property Specialist" icon={<User size={11} />}>
+                        <SearchableCombobox
+                          value={sellerSpecialist}
+                          options={specialists.map(s => s.seller_name)}
+                          onChange={name => { if (editMode) handleSpecialistChange(name); }}
+                          placeholder="Search property specialist…"
+                          disabled={!editMode}
+                        />
                       </DarkInputRow>
                       <DarkInputRow label="Sales Manager" icon={<Users size={11} />}>
-                        <DarkSelectInput value={sellerManager} options={managers.map(s => s.seller_name)}
-                          onChange={v => { if (editMode) { setSellerManager(v); setSellerSpecialist(''); } }}
-                          placeholder="Select Sales Manager" disabled={!editMode} />
+                        <DarkSelectInput value={sellerManager} options={[]} onChange={() => {}}
+                          placeholder="Auto-filled from specialist" disabled />
                       </DarkInputRow>
-                      <DarkInputRow label="Property Specialist" icon={<User size={11} />}>
-                        <DarkSelectInput value={sellerSpecialist} options={specialists.map(s => s.seller_name)}
-                          onChange={v => { if (editMode) setSellerSpecialist(v); }}
-                          placeholder="Select Property Specialist" disabled={!editMode} />
+                      <DarkInputRow label="Sales Director" icon={<UserCog size={11} />}>
+                        <DarkSelectInput value={sellerDirector} options={[]} onChange={() => {}}
+                          placeholder="Auto-filled from specialist" disabled />
                       </DarkInputRow>
                     </>
                   )}
