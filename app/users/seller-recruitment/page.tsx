@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import SearchInput from '@/components/ui/SearchInput';
-import { Loader2, Users, UserPlus, Plus, ChevronLeft, Edit2, Check, X, Briefcase, Mail, Calendar, Building2, Tag, User, ChevronDown, SlidersHorizontal, PenLine, Upload, RotateCcw, Shield, UserCheck, UserX, KeyRound } from 'lucide-react';
+import { Loader2, Users, UserPlus, Plus, ChevronLeft, Edit2, Check, X, Briefcase, Mail, Calendar, Building2, Tag, User, ChevronDown, SlidersHorizontal, PenLine, Upload, RotateCcw, Shield, UserCheck, UserX, KeyRound, Search } from 'lucide-react';
 import { fetchAllSellerRecruits, fetchAllSalespersons, addSellerRecruit, updateSellerRecruit, fetchSellerSignature, updateSellerSignature, fetchAccessRoles, SellerRecruitRecord, AccessRole } from '@/lib/salesperson';
 import { fetchProjects } from '@/lib/inventory';
 import { supabase } from '@/lib/supabase';
@@ -101,31 +101,104 @@ function ERow({ label, icon, children }: { label: string; icon?: React.ReactNode
   );
 }
 
-function ESelect({ value, options, onChange, disabled, upward }: {
+function ESelect({ value, options, onChange, disabled, upward: _upward }: {
   value: string; options: string[]; onChange: (v: string) => void; disabled?: boolean; upward?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open,  setOpen]  = useState(false);
+  const [query, setQuery] = useState('');
+
+  function close() { setOpen(false); setQuery(''); }
+
   if (disabled) return <div className={readCls}>{value || '—'}</div>;
+
+  const filtered = options.filter(o => !query.trim() || o.toLowerCase().includes(query.toLowerCase()));
+
   return (
-    <div className="relative">
-      <button type="button" onClick={() => setOpen(p => !p)}
-        className={`${inputCls} flex items-center justify-between`}>
+    <div>
+      <button type="button" onClick={() => { if (open) close(); else setOpen(true); }}
+        className={`${inputCls} flex items-center justify-between ${open ? '!rounded-b-none' : ''}`}>
         <span className={value ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}>{value || 'Select…'}</span>
-        <ChevronDown size={12} className={`text-[#8E8E93] transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown size={12} className={`text-[#8E8E93] transition-transform duration-200 shrink-0 ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div
-          className={`absolute left-0 right-0 rounded-xl border border-black/[0.08] overflow-hidden z-20 backdrop-blur-2xl ${upward ? 'bottom-full mb-1' : 'mt-1'}`}
-          style={{ background: 'rgba(255, 255, 255, 0.98)' }}
-        >
-          {options.map(o => (
-            <button key={o} type="button"
-              onClick={() => { onChange(o); setOpen(false); }}
-              className={`w-full flex items-center justify-between px-3 py-2.5 text-sm border-b border-black/[0.05] last:border-0 active:bg-black/[0.04] ${o === value ? 'bg-black/[0.04] text-[#1C1C1E] font-semibold' : 'text-[#3C3C43]'}`}>
-              {o}
-              {o === value && <Check size={12} className="shrink-0 text-[#8E8E93]" />}
-            </button>
-          ))}
+        <div className="border border-t-0 border-black/[0.10] rounded-b-xl overflow-hidden bg-white/80">
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-black/[0.06] bg-white/60">
+            <Search size={12} className="text-[#8E8E93] shrink-0" />
+            <input
+              autoFocus
+              type="text"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Search…"
+              className="flex-1 text-sm text-[#1C1C1E] bg-transparent outline-none placeholder:text-[#C7C7CC]"
+            />
+            {query && <button type="button" onClick={() => setQuery('')}><X size={11} className="text-[#8E8E93]" /></button>}
+          </div>
+          <div className="overflow-y-auto max-h-40">
+            {filtered.length === 0
+              ? <p className="text-xs text-[#8E8E93] text-center py-3">No matches</p>
+              : filtered.map(o => (
+                <button key={o} type="button"
+                  onClick={() => { onChange(o === value ? '' : o); close(); }}
+                  className="w-full flex items-center justify-between px-3 py-2.5 text-sm border-b border-black/[0.05] last:border-0 active:bg-black/[0.04]"
+                  style={{
+                    background: o === value ? 'rgba(192,61,37,0.06)' : undefined,
+                    color:      o === value ? '#C03D25' : '#1C1C1E',
+                    fontWeight: o === value ? 600 : 400,
+                  }}>
+                  {o}
+                  {o === value && <Check size={12} className="shrink-0" style={{ color: '#C03D25' }} />}
+                </button>
+              ))
+            }
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ECombobox({ value, options, onChange }: {
+  value: string; options: string[]; onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const filtered = options.filter(o => !value.trim() || o.toLowerCase().includes(value.toLowerCase()));
+
+  return (
+    <div>
+      <input
+        ref={inputRef}
+        type="text"
+        value={value}
+        onChange={e => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 120)}
+        placeholder="Type or select…"
+        className={`${inputCls} ${open && filtered.length > 0 ? '!rounded-b-none' : ''}`}
+      />
+      {open && options.length > 0 && (
+        <div className="border border-t-0 border-black/[0.10] rounded-b-xl overflow-hidden bg-white/80">
+          <div className="overflow-y-auto max-h-40">
+            {filtered.length === 0
+              ? <p className="text-xs text-[#8E8E93] text-center py-3">No matches</p>
+              : filtered.map(o => (
+                <button key={o} type="button"
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => { onChange(o); setOpen(false); inputRef.current?.blur(); }}
+                  className="w-full flex items-center justify-between px-3 py-2.5 text-sm border-b border-black/[0.05] last:border-0 active:bg-black/[0.04]"
+                  style={{
+                    background: o === value ? 'rgba(192,61,37,0.06)' : undefined,
+                    color:      o === value ? '#C03D25' : '#1C1C1E',
+                    fontWeight: o === value ? 600 : 400,
+                  }}>
+                  {o}
+                  {o === value && <Check size={12} className="shrink-0" style={{ color: '#C03D25' }} />}
+                </button>
+              ))
+            }
+          </div>
         </div>
       )}
     </div>
@@ -163,12 +236,17 @@ function DetailSheet({ seller, onClose, onSaved }: {
   const sigFileRef   = useRef<HTMLInputElement>(null);
 
   // Dropdown option lists
-  const [projects,   setProjects]   = useState<string[]>([]);
-  const [smOptions,  setSmOptions]  = useState<string[]>([]);
-  const [sdOptions,  setSdOptions]  = useState<string[]>([]);
-  const [sdhOptions, setSdhOptions] = useState<string[]>([]);
-  const [shOptions,  setShOptions]  = useState<string[]>([]);
-  const [roles,      setRoles]      = useState<AccessRole[]>([]);
+  const [projects,      setProjects]      = useState<string[]>([]);
+  const [allPeople,     setAllPeople]     = useState<import('@/lib/salesperson').SalespersonRecord[]>([]);
+  const [smOptions,     setSmOptions]     = useState<string[]>([]);
+  const [sdOptions,     setSdOptions]     = useState<string[]>([]);
+  const [sdhOptions,    setSdhOptions]    = useState<string[]>([]);
+  const [shOptions,     setShOptions]     = useState<string[]>([]);
+  const [teamOptions,   setTeamOptions]   = useState<string[]>([]);
+  const [roles,         setRoles]         = useState<AccessRole[]>([]);
+  const [cascadeSource, setCascadeSource] = useState<null | 'sm' | 'sd' | 'sdh'>(() =>
+    seller.sales_manager ? 'sm' : seller.sales_director ? 'sd' : seller.sales_division_head ? 'sdh' : null
+  );
 
   useEffect(() => {
     fetchSellerSignature(seller.seller_name).then(sig => {
@@ -180,12 +258,56 @@ function DetailSheet({ seller, onClose, onSaved }: {
     fetchProjects().then(setProjects).catch(() => {});
     fetchAccessRoles().then(setRoles).catch(() => {});
     fetchAllSalespersons().then(people => {
+      setAllPeople(people);
       setSmOptions( people.filter(p => p.position_rank === 'SM' ).map(p => p.seller_name));
       setSdOptions( people.filter(p => p.position_rank === 'SD' ).map(p => p.seller_name));
       setSdhOptions(people.filter(p => p.position_rank === 'SDH').map(p => p.seller_name));
       setShOptions( people.filter(p => p.position_rank === 'SH' ).map(p => p.seller_name));
+      const teams = [...new Set(people.map(p => p.sales_team).filter(Boolean))].sort() as string[];
+      setTeamOptions(teams);
     }).catch(() => {});
   }, []);
+
+  function setNameField(key: 'first_name' | 'middle_name' | 'last_name', val: string) {
+    setForm(f => {
+      const updated = { ...f, [key]: val || null };
+      const composed = [updated.first_name, updated.middle_name, updated.last_name].filter(Boolean).join(' ');
+      return { ...updated, seller_name: composed };
+    });
+  }
+
+  function onSmChange(name: string) {
+    const rec = name ? allPeople.find(p => p.seller_name === name) : null;
+    setForm(f => ({
+      ...f,
+      sales_manager:       name || null,
+      sales_director:      rec?.sales_director      ?? null,
+      sales_division_head: rec?.sales_division_head ?? null,
+      sales_head:          rec?.sales_head          ?? f.sales_head,
+    }));
+    setCascadeSource(name ? 'sm' : null);
+  }
+
+  function onSdChange(name: string) {
+    const rec = name ? allPeople.find(p => p.seller_name === name) : null;
+    setForm(f => ({
+      ...f,
+      sales_director:      name || null,
+      sales_division_head: rec?.sales_division_head ?? null,
+      sales_head:          rec?.sales_head          ?? f.sales_head,
+    }));
+    setCascadeSource(name ? 'sd' : null);
+  }
+
+  function onSdhChange(name: string) {
+    const rec = name ? allPeople.find(p => p.seller_name === name) : null;
+    setForm(f => ({
+      ...f,
+      sales_division_head: name || null,
+      sales_head:          rec?.sales_head ?? f.sales_head,
+    }));
+    setCascadeSource(name ? 'sdh' : null);
+  }
 
   // Canvas touch listeners for drawing
   useEffect(() => {
@@ -249,15 +371,25 @@ function DetailSheet({ seller, onClose, onSaved }: {
     setSigPreview(seller.signature_base64 ?? null);
   }
 
+  function generateSellerId(): string {
+    const nums = allPeople
+      .map(p => p.seller_id)
+      .filter(id => id && /^SLS-\d{6}$/.test(id))
+      .map(id => parseInt(id!.replace('SLS-', ''), 10));
+    const max = nums.length > 0 ? Math.max(...nums) : 0;
+    return `SLS-${String(max + 1).padStart(6, '0')}`;
+  }
+
   async function handleSave() {
     setSaving(true);
     setError('');
     try {
-      await updateSellerRecruit(seller.seller_name, form);
+      const savedForm = form.seller_id ? form : { ...form, seller_id: generateSellerId() };
+      await updateSellerRecruit(seller.seller_name, savedForm);
       if (sigPreview !== (seller.signature_base64 ?? null)) {
         await updateSellerSignature(seller.seller_name, sigPreview);
       }
-      onSaved({ ...form, signature_base64: sigPreview });
+      onSaved({ ...savedForm, signature_base64: sigPreview });
       setEditMode(false);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to save. Please try again.');
@@ -341,17 +473,17 @@ function DetailSheet({ seller, onClose, onSaved }: {
             </ERow>
             <ERow label="First Name" icon={<User size={10} />}>
               {editMode
-                ? <input className={inputCls} value={form.first_name ?? ''} onChange={e => set('first_name')(e.target.value)} />
+                ? <input className={inputCls} value={form.first_name ?? ''} onChange={e => setNameField('first_name', e.target.value)} />
                 : <div className={readCls}>{fmt(form.first_name)}</div>}
             </ERow>
             <ERow label="Middle Name" icon={<User size={10} />}>
               {editMode
-                ? <input className={inputCls} value={form.middle_name ?? ''} onChange={e => set('middle_name')(e.target.value)} />
+                ? <input className={inputCls} value={form.middle_name ?? ''} onChange={e => setNameField('middle_name', e.target.value)} />
                 : <div className={readCls}>{fmt(form.middle_name)}</div>}
             </ERow>
             <ERow label="Last Name" icon={<User size={10} />}>
               {editMode
-                ? <input className={inputCls} value={form.last_name ?? ''} onChange={e => set('last_name')(e.target.value)} />
+                ? <input className={inputCls} value={form.last_name ?? ''} onChange={e => setNameField('last_name', e.target.value)} />
                 : <div className={readCls}>{fmt(form.last_name)}</div>}
             </ERow>
             <ERow label="Email Address" icon={<Mail size={10} />}>
@@ -361,7 +493,7 @@ function DetailSheet({ seller, onClose, onSaved }: {
             </ERow>
             <ERow label="Hired Date" icon={<Calendar size={10} />}>
               {editMode
-                ? <input className={inputCls} type="date" value={form.hired_date ?? ''} onChange={e => set('hired_date')(e.target.value)} />
+                ? <input className={inputCls} type="date" max={new Date().toISOString().split('T')[0]} value={form.hired_date ?? ''} onChange={e => set('hired_date')(e.target.value)} />
                 : <div className={readCls}>{fmtDate(form.hired_date)}</div>}
             </ERow>
           </SectionCard>
@@ -372,28 +504,45 @@ function DetailSheet({ seller, onClose, onSaved }: {
               <ESelect
                 value={form.position_code ?? ''}
                 options={POSITION_CODE_OPTIONS}
-                onChange={v => setForm(f => ({ ...f, position_code: v || null, position_rank: POSITION_RANK_MAP[v] ?? f.position_rank }))}
+                onChange={v => {
+                  const rank = POSITION_RANK_MAP[v] ?? null;
+                  setForm(f => ({
+                    ...f,
+                    position_code: v || null,
+                    position_rank: rank,
+                    sales_head: f.sales_head || (rank && rank !== 'SH' ? 'Amy Rose Tagalicud' : f.sales_head),
+                  }));
+                }}
                 disabled={!editMode}
               />
             </ERow>
-            <ERow label="Position Code" icon={<Tag size={10} />}>
-              <div className={readCls}>{fmt(form.position_rank)}</div>
-            </ERow>
-            <ERow label="Sales Manager" icon={<User size={10} />}>
-              <ESelect value={form.sales_manager ?? ''} options={smOptions} onChange={set('sales_manager')} disabled={!editMode} />
-            </ERow>
-            <ERow label="Sales Director" icon={<User size={10} />}>
-              <ESelect value={form.sales_director ?? ''} options={sdOptions} onChange={set('sales_director')} disabled={!editMode} />
-            </ERow>
-            <ERow label="Sales Division Head" icon={<User size={10} />}>
-              <ESelect value={form.sales_division_head ?? ''} options={sdhOptions} onChange={set('sales_division_head')} disabled={!editMode} />
-            </ERow>
-            <ERow label="Sales Head" icon={<User size={10} />}>
-              <ESelect value={form.sales_head ?? ''} options={shOptions} onChange={set('sales_head')} disabled={!editMode} />
-            </ERow>
+            {form.position_rank === 'PS' && (
+              <ERow label="Sales Manager" icon={<User size={10} />}>
+                <ESelect value={form.sales_manager ?? ''} options={smOptions}
+                  onChange={onSmChange} disabled={!editMode} />
+              </ERow>
+            )}
+            {(form.position_rank === 'PS' || form.position_rank === 'SM') && (
+              <ERow label="Sales Director" icon={<User size={10} />}>
+                <ESelect value={form.sales_director ?? ''} options={sdOptions}
+                  onChange={onSdChange} disabled={!editMode || cascadeSource === 'sm'} />
+              </ERow>
+            )}
+            {(['PS', 'SM', 'SD'] as string[]).includes(form.position_rank ?? '') && (
+              <ERow label="Sales Division Head" icon={<User size={10} />}>
+                <ESelect value={form.sales_division_head ?? ''} options={sdhOptions}
+                  onChange={onSdhChange} disabled={!editMode || cascadeSource === 'sm' || cascadeSource === 'sd'} />
+              </ERow>
+            )}
+            {(['PS', 'SM', 'SD', 'SDH'] as string[]).includes(form.position_rank ?? '') && (
+              <ERow label="Sales Head" icon={<User size={10} />}>
+                <ESelect value={form.sales_head ?? ''} options={shOptions}
+                  onChange={set('sales_head')} disabled={!editMode || cascadeSource === 'sm' || cascadeSource === 'sd' || cascadeSource === 'sdh'} />
+              </ERow>
+            )}
             <ERow label="Sales Team" icon={<Users size={10} />}>
               {editMode
-                ? <input className={inputCls} value={form.sales_team ?? ''} onChange={e => set('sales_team')(e.target.value)} />
+                ? <ECombobox value={form.sales_team ?? ''} options={teamOptions} onChange={v => setForm(f => ({ ...f, sales_team: v || null }))} />
                 : <div className={readCls}>{fmt(form.sales_team)}</div>}
             </ERow>
           </SectionCard>
@@ -435,13 +584,21 @@ function DetailSheet({ seller, onClose, onSaved }: {
           {/* App Account */}
           <SectionCard title="App Account">
             <ERow label="App Role" icon={<Shield size={10} />}>
-              <ESelect
-                value={roles.find(r => r.id === form.app_role_id)?.role_name ?? ''}
-                options={roles.map(r => r.role_name)}
-                onChange={v => setForm(f => ({ ...f, app_role_id: roles.find(r => r.role_name === v)?.id ?? null }))}
-                disabled={!editMode}
-                upward
-              />
+              {(() => {
+                const SELLER_ROLE_KEYWORDS = ['broker network', 'sales director', 'sales manager', 'seller'];
+                const sellerRoles = roles.filter(r =>
+                  SELLER_ROLE_KEYWORDS.some(kw => r.role_name.toLowerCase().includes(kw))
+                );
+                return (
+                  <ESelect
+                    value={sellerRoles.find(r => r.id === form.app_role_id)?.role_name ?? ''}
+                    options={sellerRoles.map(r => r.role_name)}
+                    onChange={v => setForm(f => ({ ...f, app_role_id: sellerRoles.find(r => r.role_name === v)?.id ?? null }))}
+                    disabled={!editMode}
+                    upward
+                  />
+                );
+              })()}
             </ERow>
           </SectionCard>
 
@@ -540,23 +697,62 @@ function AddSheet({ onClose, onAdded }: {
   const sigLastPos   = useRef<{ x: number; y: number } | null>(null);
   const sigFileRef   = useRef<HTMLInputElement>(null);
 
-  const [projects,   setProjects]   = useState<string[]>([]);
-  const [smOptions,  setSmOptions]  = useState<string[]>([]);
-  const [sdOptions,  setSdOptions]  = useState<string[]>([]);
-  const [sdhOptions, setSdhOptions] = useState<string[]>([]);
-  const [shOptions,  setShOptions]  = useState<string[]>([]);
-  const [roles,      setRoles]      = useState<AccessRole[]>([]);
+  const [projects,        setProjects]        = useState<string[]>([]);
+  const [allPeople,       setAllPeople]       = useState<import('@/lib/salesperson').SalespersonRecord[]>([]);
+  const [smOptions,       setSmOptions]       = useState<string[]>([]);
+  const [sdOptions,       setSdOptions]       = useState<string[]>([]);
+  const [sdhOptions,      setSdhOptions]      = useState<string[]>([]);
+  const [shOptions,       setShOptions]       = useState<string[]>([]);
+  const [teamOptions,     setTeamOptions]     = useState<string[]>([]);
+  const [roles,           setRoles]           = useState<AccessRole[]>([]);
+  const [cascadeSource,   setCascadeSource]   = useState<null | 'sm' | 'sd' | 'sdh'>(null);
 
   useEffect(() => {
     fetchProjects().then(setProjects).catch(() => {});
     fetchAccessRoles().then(setRoles).catch(() => {});
     fetchAllSalespersons().then(people => {
+      setAllPeople(people);
       setSmOptions( people.filter(p => p.position_rank === 'SM' ).map(p => p.seller_name));
       setSdOptions( people.filter(p => p.position_rank === 'SD' ).map(p => p.seller_name));
       setSdhOptions(people.filter(p => p.position_rank === 'SDH').map(p => p.seller_name));
       setShOptions( people.filter(p => p.position_rank === 'SH' ).map(p => p.seller_name));
+      const teams = [...new Set(people.map(p => p.sales_team).filter(Boolean))].sort() as string[];
+      setTeamOptions(teams);
     }).catch(() => {});
   }, []);
+
+  function onSmChange(name: string) {
+    const rec = name ? allPeople.find(p => p.seller_name === name) : null;
+    setForm(f => ({
+      ...f,
+      sales_manager:       name || null,
+      sales_director:      rec?.sales_director      ?? null,
+      sales_division_head: rec?.sales_division_head ?? null,
+      sales_head:          rec?.sales_head          ?? f.sales_head,
+    }));
+    setCascadeSource(name ? 'sm' : null);
+  }
+
+  function onSdChange(name: string) {
+    const rec = name ? allPeople.find(p => p.seller_name === name) : null;
+    setForm(f => ({
+      ...f,
+      sales_director:      name || null,
+      sales_division_head: rec?.sales_division_head ?? null,
+      sales_head:          rec?.sales_head          ?? f.sales_head,
+    }));
+    setCascadeSource(name ? 'sd' : null);
+  }
+
+  function onSdhChange(name: string) {
+    const rec = name ? allPeople.find(p => p.seller_name === name) : null;
+    setForm(f => ({
+      ...f,
+      sales_division_head: name || null,
+      sales_head:          rec?.sales_head ?? f.sales_head,
+    }));
+    setCascadeSource(name ? 'sdh' : null);
+  }
 
   useEffect(() => {
     if (sigMode !== 'draw') return;
@@ -610,18 +806,36 @@ function AddSheet({ onClose, onAdded }: {
   const set = (key: keyof SellerRecruitRecord) => (val: string) =>
     setForm(f => ({ ...f, [key]: val || null }));
 
+  function setNameField(key: 'first_name' | 'middle_name' | 'last_name', val: string) {
+    setForm(f => {
+      const updated = { ...f, [key]: val || null };
+      const composed = [updated.first_name, updated.middle_name, updated.last_name].filter(Boolean).join(' ');
+      return { ...updated, seller_name: composed };
+    });
+  }
+
   const initials = form.seller_name.trim().split(' ').filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
+  function generateSellerId(): string {
+    const nums = allPeople
+      .map(p => p.seller_id)
+      .filter(id => id && /^SLS-\d{6}$/.test(id))
+      .map(id => parseInt(id!.replace('SLS-', ''), 10));
+    const max = nums.length > 0 ? Math.max(...nums) : 0;
+    return `SLS-${String(max + 1).padStart(6, '0')}`;
+  }
+
   async function handleSave() {
-    if (!form.seller_name.trim())  { setError('Seller Name is required.');     return; }
+    if (!form.first_name?.trim() && !form.last_name?.trim()) { setError('First and Last Name are required.'); return; }
     if (!form.email_address?.trim()) { setError('Email Address is required.');  return; }
     if (!form.app_role_id)           { setError('App Role is required.');        return; }
     setSaving(true);
     setError('');
     try {
-      await addSellerRecruit(form);
-      try { await updateSellerSignature(form.seller_name, sigPreview); } catch {}
-      onAdded({ ...form, signature_base64: sigPreview });
+      const formWithId = { ...form, seller_id: generateSellerId() };
+      await addSellerRecruit(formWithId);
+      try { await updateSellerSignature(formWithId.seller_name, sigPreview); } catch {}
+      onAdded({ ...formWithId, signature_base64: sigPreview });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to save. Please try again.');
     } finally {
@@ -667,16 +881,30 @@ function AddSheet({ onClose, onAdded }: {
 
           <div className="space-y-4">
 
-          {error && <p className="text-xs text-red-500 bg-red-50 px-3 py-2 rounded-xl">{error}</p>}
-
           {/* Seller Information */}
         <SectionCard title="Seller Information">
+          <ERow label="First Name *" icon={<User size={10} />}>
+            <input className={inputCls} value={form.first_name ?? ''} onChange={e => setNameField('first_name', e.target.value)} />
+          </ERow>
+          <ERow label="Middle Name" icon={<User size={10} />}>
+            <input className={inputCls} value={form.middle_name ?? ''} onChange={e => setNameField('middle_name', e.target.value)} />
+          </ERow>
+          <ERow label="Last Name *" icon={<User size={10} />}>
+            <input className={inputCls} value={form.last_name ?? ''} onChange={e => setNameField('last_name', e.target.value)} />
+          </ERow>
           <ERow label="Seller Name" icon={<User size={10} />}>
-            <input className={inputCls} placeholder="Full name" value={form.seller_name}
-              onChange={e => setForm(f => ({ ...f, seller_name: e.target.value }))} />
+            <div className={`${readCls} ${form.seller_name ? 'text-[#1C1C1E]' : 'text-[#C7C7CC] italic'}`}>
+              {form.seller_name || 'Auto-composed from name'}
+            </div>
           </ERow>
           <ERow label="Seller Code" icon={<Tag size={10} />}>
             <div className={`${readCls} text-[#8E8E93] italic`}>Auto-generated</div>
+          </ERow>
+          <ERow label="Email Address *" icon={<Mail size={10} />}>
+            <input className={inputCls} type="email" inputMode="email" value={form.email_address ?? ''} onChange={e => set('email_address')(e.target.value)} />
+          </ERow>
+          <ERow label="Hired Date" icon={<Calendar size={10} />}>
+            <input className={inputCls} type="date" max={new Date().toISOString().split('T')[0]} value={form.hired_date ?? ''} onChange={e => set('hired_date')(e.target.value)} />
           </ERow>
           <ERow label="Business Units" icon={<Building2 size={10} />}>
             <input className={inputCls} value={form.business_units ?? ''} onChange={e => set('business_units')(e.target.value)} />
@@ -687,21 +915,6 @@ function AddSheet({ onClose, onAdded }: {
           <ERow label="Seller Status" icon={<User size={10} />}>
             <ESelect value={form.seller_status ?? ''} options={SELLER_STATUS_OPTIONS} onChange={set('seller_status')} />
           </ERow>
-          <ERow label="First Name" icon={<User size={10} />}>
-            <input className={inputCls} value={form.first_name ?? ''} onChange={e => set('first_name')(e.target.value)} />
-          </ERow>
-          <ERow label="Middle Name" icon={<User size={10} />}>
-            <input className={inputCls} value={form.middle_name ?? ''} onChange={e => set('middle_name')(e.target.value)} />
-          </ERow>
-          <ERow label="Last Name" icon={<User size={10} />}>
-            <input className={inputCls} value={form.last_name ?? ''} onChange={e => set('last_name')(e.target.value)} />
-          </ERow>
-          <ERow label="Email Address *" icon={<Mail size={10} />}>
-            <input className={inputCls} type="email" inputMode="email" value={form.email_address ?? ''} onChange={e => set('email_address')(e.target.value)} />
-          </ERow>
-          <ERow label="Hired Date" icon={<Calendar size={10} />}>
-            <input className={inputCls} type="date" value={form.hired_date ?? ''} onChange={e => set('hired_date')(e.target.value)} />
-          </ERow>
         </SectionCard>
 
         {/* Sales Hierarchy */}
@@ -710,26 +923,42 @@ function AddSheet({ onClose, onAdded }: {
             <ESelect
               value={form.position_code ?? ''}
               options={POSITION_CODE_OPTIONS}
-              onChange={v => setForm(f => ({ ...f, position_code: v || null, position_rank: POSITION_RANK_MAP[v] ?? null }))}
+              onChange={v => {
+                const rank = POSITION_RANK_MAP[v] ?? null;
+                setForm(f => ({
+                  ...f,
+                  position_code: v || null,
+                  position_rank: rank,
+                  sales_head: f.sales_head || (rank && rank !== 'SH' ? 'Amy Rose Tagalicud' : f.sales_head),
+                }));
+              }}
             />
           </ERow>
-          <ERow label="Position Code" icon={<Tag size={10} />}>
-            <div className={readCls}>{form.position_rank ?? '—'}</div>
-          </ERow>
-          <ERow label="Sales Manager" icon={<User size={10} />}>
-            <ESelect value={form.sales_manager ?? ''} options={smOptions} onChange={set('sales_manager')} />
-          </ERow>
-          <ERow label="Sales Director" icon={<User size={10} />}>
-            <ESelect value={form.sales_director ?? ''} options={sdOptions} onChange={set('sales_director')} />
-          </ERow>
-          <ERow label="Sales Division Head" icon={<User size={10} />}>
-            <ESelect value={form.sales_division_head ?? ''} options={sdhOptions} onChange={set('sales_division_head')} />
-          </ERow>
-          <ERow label="Sales Head" icon={<User size={10} />}>
-            <ESelect value={form.sales_head ?? ''} options={shOptions} onChange={set('sales_head')} />
-          </ERow>
+          {form.position_rank === 'PS' && (
+            <ERow label="Sales Manager" icon={<User size={10} />}>
+              <ESelect value={form.sales_manager ?? ''} options={smOptions} onChange={onSmChange} />
+            </ERow>
+          )}
+          {(form.position_rank === 'PS' || form.position_rank === 'SM') && (
+            <ERow label="Sales Director" icon={<User size={10} />}>
+              <ESelect value={form.sales_director ?? ''} options={sdOptions} onChange={onSdChange}
+                disabled={cascadeSource === 'sm'} />
+            </ERow>
+          )}
+          {(['PS', 'SM', 'SD'] as string[]).includes(form.position_rank ?? '') && (
+            <ERow label="Sales Division Head" icon={<User size={10} />}>
+              <ESelect value={form.sales_division_head ?? ''} options={sdhOptions} onChange={onSdhChange}
+                disabled={cascadeSource === 'sm' || cascadeSource === 'sd'} />
+            </ERow>
+          )}
+          {(['PS', 'SM', 'SD', 'SDH'] as string[]).includes(form.position_rank ?? '') && (
+            <ERow label="Sales Head" icon={<User size={10} />}>
+              <ESelect value={form.sales_head ?? ''} options={shOptions} onChange={set('sales_head')}
+                disabled={cascadeSource === 'sm' || cascadeSource === 'sd' || cascadeSource === 'sdh'} />
+            </ERow>
+          )}
           <ERow label="Sales Team" icon={<Users size={10} />}>
-            <input className={inputCls} value={form.sales_team ?? ''} onChange={e => set('sales_team')(e.target.value)} />
+            <ECombobox value={form.sales_team ?? ''} options={teamOptions} onChange={v => setForm(f => ({ ...f, sales_team: v || null }))} />
           </ERow>
         </SectionCard>
 
@@ -758,12 +987,20 @@ function AddSheet({ onClose, onAdded }: {
         {/* App Account */}
         <SectionCard title="App Account">
           <ERow label="App Role *" icon={<Shield size={10} />}>
-            <ESelect
-              value={roles.find(r => r.id === form.app_role_id)?.role_name ?? ''}
-              options={roles.map(r => r.role_name)}
-              onChange={v => setForm(f => ({ ...f, app_role_id: roles.find(r => r.role_name === v)?.id ?? null }))}
-              upward
-            />
+            {(() => {
+              const SELLER_ROLE_KEYWORDS = ['broker network', 'sales director', 'sales manager', 'seller'];
+              const sellerRoles = roles.filter(r =>
+                SELLER_ROLE_KEYWORDS.some(kw => r.role_name.toLowerCase().includes(kw))
+              );
+              return (
+                <ESelect
+                  value={sellerRoles.find(r => r.id === form.app_role_id)?.role_name ?? ''}
+                  options={sellerRoles.map(r => r.role_name)}
+                  onChange={v => setForm(f => ({ ...f, app_role_id: sellerRoles.find(r => r.role_name === v)?.id ?? null }))}
+                  upward
+                />
+              );
+            })()}
           </ERow>
         </SectionCard>
 

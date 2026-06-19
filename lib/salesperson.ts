@@ -17,6 +17,8 @@ export interface SalespersonRecord {
   sales_manager: string | null;
   sales_director: string | null;
   sales_division_head: string | null;
+  sales_head: string | null;
+  sales_team: string | null;
 }
 
 export interface SellerTaxInfo {

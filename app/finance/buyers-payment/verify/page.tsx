@@ -203,6 +203,10 @@ export default function FinanceVerifyPage() {
         date_of_reservation_fee:    dateOfResFee,
       };
       triggerEmails('on_finance_verified', booking.reservation_id).catch(e => console.error('[email-trigger]', e));
+      // Generate commission schedule on RF verification
+      generateCommissionSchedule(booking.reservation_id).then(result => {
+        if (!result.ok && result.reason !== 'already-exists') setCommissionWarn(result);
+      }).catch(e => console.error('[commission] Failed to generate schedule:', e));
       sessionStorage.setItem('financeBooking', JSON.stringify(updated));
       setBooking(updated);
       setDone('approved');
@@ -249,15 +253,7 @@ export default function FinanceVerifyPage() {
         await updateInventoryUnitStatus(booking.inventory_code, 'Booked');
       }
 
-      // 3. Generate commission schedule if not yet generated (idempotent)
-      try {
-        const result = await generateCommissionSchedule(booking.reservation_id);
-        if (!result.ok && result.reason !== 'already-exists') setCommissionWarn(result);
-      } catch (e) {
-        console.error('[commission] Failed to generate schedule:', e);
-      }
-
-      // 4. Post the 1st receivable line (excluding Reservation Fee) as Paid
+      // 3. Post the 1st receivable line (excluding Reservation Fee) as Paid
       const { data: lines } = await supabase
         .from('receivables_database')
         .select('id, type_of_payment, total_amount_due')
@@ -324,6 +320,10 @@ export default function FinanceVerifyPage() {
 
       // RF verification
       await approvePaymentReview(booking.reservation_id, ackReceiptNo.trim(), salesInvoiceNo.trim(), dateOfResFee);
+      // Generate commission schedule on RF verification
+      generateCommissionSchedule(booking.reservation_id).then(result => {
+        if (!result.ok && result.reason !== 'already-exists') setCommissionWarn(result);
+      }).catch(e => console.error('[commission] Failed to generate schedule:', e));
 
       // DP verification — check AMD status then write dp fields + jump straight to dp-verified
       const { data: resRow } = await supabase
@@ -350,13 +350,6 @@ export default function FinanceVerifyPage() {
 
       if (booking.inventory_code) {
         await updateInventoryUnitStatus(booking.inventory_code, 'Booked');
-      }
-
-      try {
-        const result = await generateCommissionSchedule(booking.reservation_id);
-        if (!result.ok && result.reason !== 'already-exists') setCommissionWarn(result);
-      } catch (e) {
-        console.error('[commission] Failed to generate schedule:', e);
       }
 
       // Mark 1st installment line as Paid

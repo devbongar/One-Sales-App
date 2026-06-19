@@ -57,54 +57,105 @@ export async function generateCommissionSchedule(reservationId: string): Promise
     .eq('reservation_id', reservationId);
   if (count && count > 0) return { ok: false, reason: 'already-exists' };
 
-  // Fetch commission data for this reservation only (targeted RPC — no full-table scan)
+  // Fetch commission data for this reservation
   const rec = await fetchCommissionRecord(reservationId);
   if (!rec) return { ok: false, reason: 'no-commission-record' };
 
-  // client_id and seller_id are new columns on reservations
-  const { data: ids } = await supabase
-    .from('reservations')
-    .select('client_id, seller_id')
-    .eq('reservation_id', reservationId)
-    .single();
-
-  const client_id = (ids as any)?.client_id ?? null;
-  const seller_id = (ids as any)?.seller_id ?? null;
-
-  // Can't build schedule without tranche lookup keys
-  if (!rec.position_rank || !rec.product_type || !rec.seller_type)
+  if (!rec.product_type || !rec.seller_type)
     return { ok: false, reason: 'missing-fields' };
 
-  const tranches = await fetchCommissionTranches(
-    rec.project, rec.position_rank, rec.product_type, rec.seller_type,
-  );
-  if (!tranches || tranches.length === 0)
-    return { ok: false, reason: 'no-tranches' };
+  // Case 3: SD or higher — no commission generated
+  if (rec.position_rank && ['SD', 'SDH', 'SH'].includes(rec.position_rank))
+    return { ok: true };
 
-  const rate = Number(rec.commission_rate) || 0;
-  const nlp  = Number(rec.net_list_price)  || 0;
+  const { data: ids } = await supabase
+    .from('reservations')
+    .select('client_id, hic_discount')
+    .eq('reservation_id', reservationId)
+    .single();
+  const client_id    = (ids as any)?.client_id    ?? null;
+  const hic_discount = Number((ids as any)?.hic_discount) || 0;
 
-  const lines = tranches.map((t) => ({
-    reservation_id:          reservationId,
-    client_id,
-    client_name:             rec.client_name,
-    seller_id,
-    seller_name:             rec.seller_name,
-    inventory_code:          rec.inventory_code,
-    project:                 rec.project,
-    tower:                   rec.tower,
-    tranche:                 t.tranche,
-    percentage_collection:   t.percentage_collection,
-    commission_release_rate: t.commission_release_rate,
-    commission_rate:         t.commission_rate,
-    gross_commission:
-      Math.round(nlp * (rate / 100) * (t.commission_release_rate / 100) * 100) / 100,
-    status: 'Pending',
-  }));
+  // Look up seller's Salesperson row to get the full hierarchy chain
+  const { data: sellerRow } = await supabase
+    .from('Salesperson')
+    .select('"Seller Id", "Sales Manager", "Sales Director", "Sales Division Head", "Sales Head"')
+    .eq('"Seller Name"', rec.seller_name)
+    .maybeSingle();
+
+  const sm  = (sellerRow as any)?.['Sales Manager']       as string | null ?? null;
+  const sd  = (sellerRow as any)?.['Sales Director']      as string | null ?? null;
+  const sdh = (sellerRow as any)?.['Sales Division Head'] as string | null ?? null;
+  const sh  = (sellerRow as any)?.['Sales Head']          as string | null ?? null;
+
+  // Build targets: { name, positionRank }
+  // positionRank controls which tranche row is fetched from Commission_Tranching
+  type Target = { name: string; positionRank: string };
+  const targets: Target[] = [];
+
+  if (rec.position_rank === 'PS') {
+    targets.push({ name: rec.seller_name!, positionRank: 'PS' });
+    if (sm)  targets.push({ name: sm,  positionRank: 'SM'  });
+    if (sd)  targets.push({ name: sd,  positionRank: 'SD'  });
+    if (sdh) targets.push({ name: sdh, positionRank: 'SDH' });
+    if (sh)  targets.push({ name: sh,  positionRank: 'SH'  });
+  } else if (rec.position_rank === 'SM') {
+    // SM acts as direct seller — gets PS rates
+    targets.push({ name: rec.seller_name!, positionRank: 'PS' });
+    if (sd)  targets.push({ name: sd,  positionRank: 'SD'  });
+    if (sdh) targets.push({ name: sdh, positionRank: 'SDH' });
+    if (sh)  targets.push({ name: sh,  positionRank: 'SH'  });
+  }
+
+  if (targets.length === 0) return { ok: false, reason: 'missing-fields' };
+
+  // Use pre-HIC NLP as commission base (hic_discount was deducted from net_list_price)
+  const nlp = (Number(rec.net_list_price) || 0) + hic_discount;
+  const allLines: object[] = [];
+
+  for (const target of targets) {
+    // Look up seller_id for this person (chain members are always In-house)
+    const { data: targetRow } = await supabase
+      .from('Salesperson')
+      .select('"Seller Id"')
+      .eq('"Seller Name"', target.name)
+      .maybeSingle();
+    const targetSellerId = (targetRow as any)?.['Seller Id'] ?? null;
+
+    // Direct seller uses their own seller_type (could be Broker); chain members are always In-house
+    const sellerType = target.name === rec.seller_name ? rec.seller_type : 'In-house';
+
+    const tranches = await fetchCommissionTranches(
+      rec.project, target.positionRank, rec.product_type, sellerType,
+    );
+    if (!tranches || tranches.length === 0) continue; // skip levels with no tranching configured
+
+    for (const t of tranches) {
+      allLines.push({
+        reservation_id:          reservationId,
+        client_id,
+        client_name:             rec.client_name,
+        seller_id:               targetSellerId,
+        seller_name:             target.name,
+        inventory_code:          rec.inventory_code,
+        project:                 rec.project,
+        tower:                   rec.tower,
+        tranche:                 t.tranche,
+        percentage_collection:   t.percentage_collection,
+        commission_release_rate: t.commission_release_rate,
+        commission_rate:         t.commission_rate,
+        gross_commission:
+          Math.round(nlp * (Number(t.commission_rate) / 100) * (Number(t.commission_release_rate) / 100) * 100) / 100,
+        status: 'Pending',
+      });
+    }
+  }
+
+  if (allLines.length === 0) return { ok: false, reason: 'no-tranches' };
 
   const { error: insertError } = await supabase
     .from('commission_schedule')
-    .insert(lines);
+    .insert(allLines);
   if (insertError) throw insertError;
   return { ok: true };
 }
