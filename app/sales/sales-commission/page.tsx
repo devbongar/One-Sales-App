@@ -25,6 +25,7 @@ function positionLabel(rank: string | null) {
 
 export default function SalesCommissionPage() {
   const router = useRouter();
+  const [role, setRole] = useState<string | null>(null);
   const [mode, setMode] = useState<'my' | 'search'>('my');
   const [sellerType, setSellerType] = useState<'inhouse' | 'broker'>('inhouse');
   const [positionRankFilter, setPositionRankFilter] = useState<string>('');
@@ -37,6 +38,8 @@ export default function SalesCommissionPage() {
   const [searchFocused, setSearchFocused] = useState(false);
   const [selectedSeller, setSelectedSeller] = useState<SalespersonRecord | null>(null);
   const [selectedBroker, setSelectedBroker] = useState<BrokerRecord | null>(null);
+
+  const canSearch = role === 'All Access' || role === 'Sales Director';
 
   // Restore UI state when coming back from schedule/slip page
   useEffect(() => {
@@ -62,18 +65,18 @@ export default function SalesCommissionPage() {
       .finally(() => setLoadingSellers(false));
   }, []);
 
-  // Auto-match My Commission (only when in 'my' mode and no seller restored from state)
+  // Load role + auto-match My Commission
   useEffect(() => {
-    if (mode !== 'my' || salespersons.length === 0) return;
-    if (selectedSeller) return;
     (async () => {
-    const session = await getSession();
-    if (!session) return;
-    const match = salespersons.find(
-      s => s.seller_name.toLowerCase() === session.full_name.toLowerCase()
-    );
-    setSelectedSeller(match ?? null);
-    setSelectedBroker(null);
+      const session = await getSession();
+      if (!session) return;
+      setRole(session.role_name);
+      if (mode !== 'my' || salespersons.length === 0 || selectedSeller) return;
+      const match = salespersons.find(
+        s => s.seller_name.toLowerCase() === session.full_name.toLowerCase()
+      );
+      setSelectedSeller(match ?? null);
+      setSelectedBroker(null);
     })();
   }, [mode, salespersons]);
 
@@ -146,18 +149,20 @@ export default function SalesCommissionPage() {
         >
           <User size={14} /> My Commission
         </button>
-        <button
-          onClick={() => switchMode('search')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-            mode === 'search' ? 'bg-[#C03D25] text-white shadow-sm' : 'text-[#6C6C70]'
-          }`}
-        >
-          <Search size={14} /> Search Sellers
-        </button>
+        {canSearch && (
+          <button
+            onClick={() => switchMode('search')}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+              mode === 'search' ? 'bg-[#C03D25] text-white shadow-sm' : 'text-[#6C6C70]'
+            }`}
+          >
+            <Search size={14} /> Search Sellers
+          </button>
+        )}
       </GlassCard>
 
       {/* Search mode */}
-      {mode === 'search' && (
+      {mode === 'search' && canSearch && (
         <GlassCard className="p-4 space-y-3">
 
           {/* In-house | Broker sub-toggle */}

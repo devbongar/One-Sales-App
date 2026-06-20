@@ -6,7 +6,7 @@ import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import { SalespersonRecord, fetchSellerTaxInfo, SellerTaxInfo } from '@/lib/salesperson';
 import {
-  fetchCommissionRecords, CommissionRecord,
+  fetchSellerCommissionSummaries, SellerCommissionSummary,
   fetchCommissionScheduleLines, CommissionScheduleLine,
   fetchReservationCollected,
 } from '@/lib/commission';
@@ -55,7 +55,7 @@ interface DetailData {
 export default function CommissionSlipPage() {
   const router = useRouter();
   const [seller, setSeller]   = useState<SalespersonRecord | null>(null);
-  const [records, setRecords] = useState<CommissionRecord[]>([]);
+  const [records, setRecords] = useState<SellerCommissionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
 
@@ -70,11 +70,11 @@ export default function CommissionSlipPage() {
     setSeller(s);
 
     Promise.all([
-      fetchCommissionRecords(),
+      fetchSellerCommissionSummaries(s.seller_name),
       fetchSellerTaxInfo(s.seller_name),
     ])
-      .then(([all, tax]) => {
-        setRecords(all.filter(r => r.seller_name === s.seller_name));
+      .then(([summaries, tax]) => {
+        setRecords(summaries);
         setTaxInfo(tax);
       })
       .catch(e => setError(e.message))
@@ -94,7 +94,7 @@ export default function CommissionSlipPage() {
     setDetailCache(prev => ({ ...prev, [reservationId]: { loading: true, error: '', collected: 0, lines: [] } }));
     try {
       const [lines, collected] = await Promise.all([
-        fetchCommissionScheduleLines(reservationId),
+        fetchCommissionScheduleLines(reservationId, seller?.seller_name),
         fetchReservationCollected(reservationId),
       ]);
       setDetailCache(prev => ({ ...prev, [reservationId]: { loading: false, error: '', collected, lines } }));

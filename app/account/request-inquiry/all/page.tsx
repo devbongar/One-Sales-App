@@ -1,44 +1,46 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import { supabase } from '@/lib/supabase';
+import { getSession } from '@/lib/auth';
 import { Search, X, ListChecks } from 'lucide-react';
-import { RequestCard, RequestDetailSheet } from '../page';
+import { RequestCard, RequestDetailSheet, type RequestRecord } from '../page';
 
-interface RequestRecord {
-  id:               string;
-  reservation_id:   string | null;
-  client_id:        string | null;
-  client_name:      string | null;
-  project_name:     string | null;
-  inventory_code:   string | null;
-  type_of_request:  string;
-  sub_type:         string | null;
-  request_category: string;
-  turnaround_days:  number;
-  description:      string | null;
-  status:           string;
-  submitted_at:     string;
-}
+const SELECT_FIELDS = 'id, reservation_id, client_id, client_name, project_name, inventory_code, type_of_request, sub_type, request_category, turnaround_days, description, status, submitted_at, approval_status, resolution_status, approved_by, date_approved, new_inventory_code, new_payterm_code, new_payterm_scheme, new_term_months, remaining_balance, requested_by';
 
 export default function AllRequestsPage() {
+  const router = useRouter();
   const [requests, setRequests] = useState<RequestRecord[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [query,    setQuery]    = useState('');
   const [selected, setSelected] = useState<RequestRecord | null>(null);
+  const [isAM,     setIsAM]     = useState(false);
 
   useEffect(() => {
+    async function load() {
+      const session = await getSession();
+      setIsAM(session?.role_name === 'Account Management');
+
+      const { data } = await supabase
+        .from('requests_and_inquiries')
+        .select(SELECT_FIELDS)
+        .order('submitted_at', { ascending: false });
+      setRequests((data as RequestRecord[]) ?? []);
+      setLoading(false);
+    }
+    load();
+  }, []);
+
+  function reload() {
     supabase
       .from('requests_and_inquiries')
-      .select('id, reservation_id, client_id, client_name, project_name, inventory_code, type_of_request, sub_type, request_category, turnaround_days, description, status, submitted_at')
+      .select(SELECT_FIELDS)
       .order('submitted_at', { ascending: false })
-      .then(({ data }) => {
-        setRequests((data as RequestRecord[]) ?? []);
-        setLoading(false);
-      });
-  }, []);
+      .then(({ data }) => setRequests((data as RequestRecord[]) ?? []));
+  }
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -103,7 +105,25 @@ export default function AllRequestsPage() {
 
       </div>
 
-      {selected && <RequestDetailSheet r={selected} onClose={() => setSelected(null)} />}
+      {selected && (
+        <RequestDetailSheet
+          r={selected}
+          onClose={() => setSelected(null)}
+          isAM={isAM}
+          onApprove={r => {
+            setSelected(null);
+            router.push(`/account/request-inquiry/approve?id=${r.id}`);
+          }}
+          onReject={async r => {
+            await supabase
+              .from('requests_and_inquiries')
+              .update({ approval_status: 'Disapproved', resolution_status: 'Rejected', status: 'closed' })
+              .eq('id', r.id);
+            setSelected(null);
+            reload();
+          }}
+        />
+      )}
     </PageShell>
   );
 }

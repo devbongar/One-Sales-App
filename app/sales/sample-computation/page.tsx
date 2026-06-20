@@ -388,6 +388,9 @@ export default function SampleComputationPage() {
     setClientMobile('');
     setClientCountryCode('+63');
     setClientEmail('');
+    setSellerRecord(null);
+    setSellerSearch('');
+    setSellerDropdownOpen(false);
   }
 
   const compHeaderRefs  = useRef<(HTMLDivElement | null)[]>([]);
@@ -1124,11 +1127,12 @@ export default function SampleComputationPage() {
           </GlassCard>
 
           {/* Seller Selection */}
-          <GlassCard className="px-4 py-1">
+          <GlassCard className={`px-4 py-1 ${selectedClientRecord ? 'opacity-75' : ''}`}>
             <div className="border-b border-black/[0.06] last:border-0">
               <button
                 type="button"
-                onClick={() => { setSellerDropdownOpen(p => !p); setSellerSearch(''); }}
+                disabled={!!selectedClientRecord}
+                onClick={() => { if (!selectedClientRecord) { setSellerDropdownOpen(p => !p); setSellerSearch(''); } }}
                 className="w-full flex items-center gap-3 py-3 px-1"
               >
                 <span className="text-[#C03D25] shrink-0"><UserPlus size={16} /></span>
@@ -1136,9 +1140,11 @@ export default function SampleComputationPage() {
                 <span className={`text-sm text-right truncate max-w-[160px] ${sellerRecord ? 'text-[#1C1C1E]' : 'text-[#8E8E93]'}`}>
                   {sellerRecord ? sellerRecord.seller_name : 'Search name'}
                 </span>
-                {sellerRecord
+                {sellerRecord && !selectedClientRecord
                   ? <X size={14} className="text-[#C7C7CC] shrink-0" onClickCapture={e => { e.stopPropagation(); setSellerRecord(null); setSellerDropdownOpen(false); }} />
-                  : <ChevronDown size={14} className={`text-[#C7C7CC] shrink-0 transition-transform duration-200 ${sellerDropdownOpen ? 'rotate-180' : ''}`} />
+                  : !selectedClientRecord
+                    ? <ChevronDown size={14} className={`text-[#C7C7CC] shrink-0 transition-transform duration-200 ${sellerDropdownOpen ? 'rotate-180' : ''}`} />
+                    : null
                 }
               </button>
               {sellerDropdownOpen && (
@@ -1185,6 +1191,12 @@ export default function SampleComputationPage() {
 
             {sellerRecord && (
               <>
+                {selectedClientRecord && (
+                  <div className="flex items-center gap-2 py-2 px-1 border-b border-black/[0.06] bg-blue-50/50">
+                    <UserCheck size={14} className="text-blue-600 shrink-0" />
+                    <span className="text-xs font-semibold text-blue-700 flex-1">From client record</span>
+                  </div>
+                )}
                 <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
                   <span className="text-[#C03D25] shrink-0"><UserCog size={16} /></span>
                   <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Position</span>

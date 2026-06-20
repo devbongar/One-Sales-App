@@ -5,11 +5,13 @@ import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import { supabase } from '@/lib/supabase';
+import { getSession } from '@/lib/auth';
+import { isBrfType } from '@/lib/brf';
 import {
   Hash, User, Building2, Tag, Search,
   FileText, Layers, GitBranch, AlignLeft, Clock,
   CheckCircle2, Loader2, AlertTriangle, X, CheckCheck,
-  ChevronDown, Check,
+  ChevronDown, Check, ArrowRightLeft,
 } from 'lucide-react';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -126,6 +128,15 @@ export default function NewRequestPage() {
   const [requestCategory, setRequestCategory] = useState('');
   const [description,     setDescription]     = useState('');
 
+  // Change of Unit — new unit search
+  const [newUnitQuery,    setNewUnitQuery]    = useState('');
+  const [newUnitResults,  setNewUnitResults]  = useState<{ inventory_code: string; project: string; tower: string | null; floor: string | null; unit_no: string | null }[]>([]);
+  const [newUnit,         setNewUnit]         = useState<{ inventory_code: string; project: string; tower: string | null; floor: string | null; unit_no: string | null } | null>(null);
+  const [newUnitSearching, setNewUnitSearching] = useState(false);
+  const [showNewUnitResults, setShowNewUnitResults] = useState(false);
+  const newUnitDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const newUnitRef = useRef<HTMLDivElement>(null);
+
   // Live timestamp
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -148,10 +159,34 @@ export default function NewRequestPage() {
     function onOutside(e: MouseEvent) {
       if (searchRef.current && !searchRef.current.contains(e.target as Node))
         setShowResults(false);
+      if (newUnitRef.current && !newUnitRef.current.contains(e.target as Node))
+        setShowNewUnitResults(false);
     }
     document.addEventListener('mousedown', onOutside);
     return () => document.removeEventListener('mousedown', onOutside);
   }, []);
+
+  function handleNewUnitInput(value: string) {
+    setNewUnitQuery(value);
+    setNewUnit(null);
+    setShowNewUnitResults(false);
+    if (newUnitDebounce.current) clearTimeout(newUnitDebounce.current);
+    if (!value.trim()) { setNewUnitResults([]); return; }
+    newUnitDebounce.current = setTimeout(() => runNewUnitSearch(value.trim()), 350);
+  }
+
+  async function runNewUnitSearch(q: string) {
+    setNewUnitSearching(true);
+    const { data } = await supabase
+      .from('inventory')
+      .select('inventory_code, project, tower, floor, unit_no')
+      .or(`inventory_code.ilike.%${q}%,project.ilike.%${q}%,unit_no.ilike.%${q}%`)
+      .eq('status', 'Available')
+      .limit(10);
+    setNewUnitResults((data as any[]) ?? []);
+    setShowNewUnitResults(true);
+    setNewUnitSearching(false);
+  }
 
   function handleSearchInput(value: string) {
     setSearchQuery(value);
@@ -200,17 +235,25 @@ export default function NewRequestPage() {
     setSaving(true);
     setSaveErr('');
     try {
+      const session = await getSession();
+      const isBrf = isBrfType(typeOfRequest);
       const { error } = await supabase.from('requests_and_inquiries').insert({
-        reservation_id:   buyer.reservation_id,
-        client_id:        buyer.client_id,
-        client_name:      buyer.client_name,
-        project_name:     buyer.project,
-        inventory_code:   buyer.inventory_code,
-        type_of_request:  typeOfRequest,
-        sub_type:         hasSubTypes ? subType || null : null,
-        request_category: requestCategory,
-        turnaround_days:  turnaroundDays,
-        description:      description.trim() || null,
+        reservation_id:    buyer.reservation_id,
+        client_id:         buyer.client_id,
+        client_name:       buyer.client_name,
+        project_name:      buyer.project,
+        inventory_code:    buyer.inventory_code,
+        type_of_request:   typeOfRequest,
+        sub_type:          hasSubTypes ? subType || null : null,
+        request_category:  requestCategory,
+        turnaround_days:   turnaroundDays,
+        description:       description.trim() || null,
+        requested_by:      session?.email ?? null,
+        // BRF types enter the approval workflow; others go straight to open
+        status:            'open',
+        approval_status:   isBrf ? 'Pending' : null,
+        // Change of Unit: store the new unit at submission time
+        new_inventory_code: typeOfRequest === 'Change of Unit' ? (newUnit?.inventory_code ?? null) : null,
       });
       if (error) throw error;
       setDone(true);
@@ -222,7 +265,12 @@ export default function NewRequestPage() {
     }
   }
 
-  const canSubmit = !!buyer && !!typeOfRequest && (!hasSubTypes || !!subType) && !!requestCategory;
+  const canSubmit =
+    !!buyer &&
+    !!typeOfRequest &&
+    (!hasSubTypes || !!subType) &&
+    !!requestCategory &&
+    (typeOfRequest !== 'Change of Unit' || !!newUnit);
 
   // ── Done screen ──────────────────────────────────────────────────────────────
 
@@ -385,6 +433,57 @@ export default function NewRequestPage() {
               />
             )}
 
+            {/* Change of Unit: new unit picker */}
+            {typeOfRequest === 'Change of Unit' && (
+              <div className="border-b border-black/[0.06]">
+                <div className="flex items-center gap-3 py-2.5 px-1">
+                  <ArrowRightLeft size={15} className="text-[#C03D25] shrink-0" />
+                  <span className="text-sm font-medium text-[#1C1C1E] flex-1">
+                    New Unit <span className="text-[#C03D25] text-xs">*</span>
+                  </span>
+                </div>
+                <div ref={newUnitRef} className="relative px-1 pb-2">
+                  <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border border-black/[0.08] ${newUnit ? 'bg-green-50/60 border-green-200' : 'bg-[#F2F2F7]'}`}>
+                    {newUnitSearching
+                      ? <Loader2 size={13} className="text-[#C03D25] shrink-0 animate-spin" />
+                      : newUnit
+                        ? <CheckCircle2 size={13} className="text-green-500 shrink-0" />
+                        : <Search size={13} className="text-[#8E8E93] shrink-0" />}
+                    <input
+                      type="text"
+                      value={newUnitQuery}
+                      onChange={e => handleNewUnitInput(e.target.value)}
+                      onFocus={() => newUnitResults.length > 0 && !newUnit && setShowNewUnitResults(true)}
+                      placeholder="Search available units…"
+                      readOnly={!!newUnit}
+                      className={`flex-1 text-sm bg-transparent outline-none placeholder-[#C7C7CC] ${newUnit ? 'text-green-700 font-medium' : 'text-[#1C1C1E]'}`}
+                    />
+                    {(newUnitQuery || newUnit) && (
+                      <button type="button" onClick={() => { setNewUnit(null); setNewUnitQuery(''); setNewUnitResults([]); }} className="shrink-0 active:opacity-60">
+                        <X size={13} className="text-[#8E8E93]" />
+                      </button>
+                    )}
+                  </div>
+                  {showNewUnitResults && newUnitResults.length > 0 && !newUnit && (
+                    <div className="absolute left-1 right-1 top-full z-20 bg-white rounded-2xl shadow-xl border border-black/[0.07] max-h-52 overflow-y-auto mt-1">
+                      {newUnitResults.map(u => (
+                        <button key={u.inventory_code} type="button"
+                          onMouseDown={() => { setNewUnit(u); setNewUnitQuery(u.inventory_code); setShowNewUnitResults(false); }}
+                          className="w-full flex flex-col px-4 py-3 text-left border-b border-black/[0.05] last:border-0 active:bg-[#F2F2F7]"
+                        >
+                          <span className="text-sm font-bold text-[#1C1C1E]">{u.inventory_code}</span>
+                          <span className="text-xs text-[#6C6C70] mt-0.5">{u.project}{u.tower ? ` · ${u.tower}` : ''}{u.floor ? ` · Floor ${u.floor}` : ''}{u.unit_no ? ` · Unit ${u.unit_no}` : ''}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {newUnitResults.length === 0 && newUnitQuery && !newUnit && !newUnitSearching && (
+                    <p className="text-xs text-[#FF3B30] mt-1 px-1">No available units found.</p>
+                  )}
+                </div>
+              </div>
+            )}
+
             <InlineSelect
               icon={<Layers size={15} />}
               label="Request Category"
@@ -481,6 +580,12 @@ export default function NewRequestPage() {
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-[#8E8E93]">Sub Type</span>
                   <span className="text-xs font-semibold text-[#1C1C1E] text-right max-w-[60%]">{subType}</span>
+                </div>
+              )}
+              {typeOfRequest === 'Change of Unit' && newUnit && (
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-[#8E8E93]">New Unit</span>
+                  <span className="text-xs font-semibold text-[#C03D25] text-right">{newUnit.inventory_code}</span>
                 </div>
               )}
               <div className="flex items-center justify-between">

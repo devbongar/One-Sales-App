@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
-import { CommissionRecord, CommissionTranche, fetchCommissionTranches } from '@/lib/commission';
+import { SellerCommissionSummary, CommissionTranche } from '@/lib/commission';
+import { supabase } from '@/lib/supabase';
+import { SalespersonRecord } from '@/lib/salesperson';
 import { Building2, FileText, Loader2, User, Tag, Percent, UserCheck } from 'lucide-react';
 
 function fmt(n: number | null | undefined) {
@@ -14,32 +16,51 @@ function fmt(n: number | null | undefined) {
 
 export default function CommissionScheduleDetailPage() {
   const router = useRouter();
-  const [record, setRecord] = useState<CommissionRecord | null>(null);
+  const [record, setRecord]     = useState<SellerCommissionSummary | null>(null);
+  const [sellerName, setSellerName] = useState('');
   const [tranches, setTranches] = useState<CommissionTranche[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState('');
 
   useEffect(() => {
-    const stored = sessionStorage.getItem('selectedCommissionRecord');
+    const stored       = sessionStorage.getItem('selectedCommissionRecord');
+    const storedSeller = sessionStorage.getItem('selectedSeller');
     if (!stored) { router.replace('/sales/sales-commission/schedule'); return; }
-    const rec = JSON.parse(stored) as CommissionRecord;
+    const rec  = JSON.parse(stored) as SellerCommissionSummary;
+    const name = storedSeller ? (JSON.parse(storedSeller) as SalespersonRecord).seller_name : '';
     setRecord(rec);
+    setSellerName(name);
 
-    if (rec.position_rank && rec.product_type && rec.seller_type) {
-      fetchCommissionTranches(rec.project, rec.position_rank, rec.product_type, rec.seller_type)
-        .then(setTranches)
-        .catch(e => setError(e.message))
-        .finally(() => setLoading(false));
-    } else {
-      setLoading(false);
-    }
+    (async () => {
+      try {
+        const { data, error: err } = await supabase
+          .from('commission_schedule')
+          .select('tranche, percentage_collection, commission_release_rate, commission_rate, gross_commission')
+          .eq('reservation_id', rec.reservation_id)
+          .eq('seller_name', name)
+          .neq('status', 'Superseded')
+          .order('tranche', { ascending: true });
+        if (err) throw err;
+        setTranches(((data ?? []) as any[]).map(row => ({
+          tranche:                 row.tranche,
+          percentage_collection:   row.percentage_collection,
+          commission_release_rate: row.commission_release_rate,
+          commission_rate:         row.commission_rate,
+          seller_type:             '',
+          gross_commission:        row.gross_commission,
+        })));
+      } catch (e: any) {
+        setError(e.message);
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, []);
 
   if (!record) return null;
 
-  const nlp = record.net_list_price ?? 0;
+  const totalGross = tranches.reduce((sum, t) => sum + ((t as any).gross_commission ?? 0), 0);
   const rate = record.commission_rate ?? 0;
-  const totalGross = tranches.reduce((sum, t) => sum + nlp * (rate / 100) * (t.commission_release_rate / 100), 0);
 
   return (
     <PageShell title="Commission Schedule" backButton onBack={() => router.back()}>
@@ -67,7 +88,7 @@ export default function CommissionScheduleDetailPage() {
                 <FileText size={11} className="text-white/60 shrink-0" />
                 <p className="text-[9px] text-white/60 font-bold uppercase tracking-wide">Inventory Code</p>
               </div>
-              <p className="text-sm font-semibold text-white leading-tight">{record.inventory_code ?? record.unit_no ?? '—'}</p>
+              <p className="text-sm font-semibold text-white leading-tight">{record.inventory_code ?? '—'}</p>
             </div>
           </div>
 
@@ -107,7 +128,7 @@ export default function CommissionScheduleDetailPage() {
               <UserCheck size={11} className="text-[#8E8E93] shrink-0" />
               <p className="text-[9px] text-[#8E8E93] font-bold uppercase tracking-wide">Seller</p>
             </div>
-            <p className="text-xs font-semibold text-[#1C1C1E] leading-tight">{record.seller_name ?? '—'}</p>
+            <p className="text-xs font-semibold text-[#1C1C1E] leading-tight">{sellerName || '—'}</p>
           </div>
         </div>
       </GlassCard>
@@ -133,7 +154,7 @@ export default function CommissionScheduleDetailPage() {
               <p className="text-[9px] font-bold text-[#8E8E93] uppercase tracking-wide text-right">Gross Comm</p>
             </div>
             {tranches.map((t, i) => {
-              const gross = nlp * (rate / 100) * (t.commission_release_rate / 100);
+              const gross = (t as any).gross_commission ?? 0;
               return (
                 <div
                   key={`${t.tranche}-${i}`}

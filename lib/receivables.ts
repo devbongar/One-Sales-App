@@ -531,7 +531,7 @@ export interface ReceivableLine {
   hic: number | null;
   vat: number | null;
   other_charges: number | null;
-  payment_status: 'Paid' | 'Unpaid' | 'Partial';
+  payment_status: 'Paid' | 'Unpaid' | 'Partial' | 'Superseded';
   mode_of_payment: string | null;
   acknowledgement_receipt_no: string | null;
   posting_date: string | null;
@@ -541,17 +541,19 @@ export interface ReceivableLine {
 }
 
 export interface ReservationReceivableSummary {
-  reservation_id: string;
-  client_name: string;
-  inventory_code: string;
-  payment_scheme: string;
-  project: string;
-  total_lines: number;
-  paid_lines: number;
-  outstanding: number;
-  next_due_date: string | null;
-  next_due_amount: number | null;
-  status: 'Complete' | 'Overdue' | 'Unpaid';
+  reservation_id:      string;
+  client_name:         string;
+  inventory_code:      string;
+  payment_scheme:      string;
+  project:             string;
+  total_lines:         number;
+  paid_lines:          number;
+  total_contract_price: number;
+  total_paid:          number;
+  outstanding:         number;
+  next_due_date:       string | null;
+  next_due_amount:     number | null;
+  status:              'Complete' | 'Overdue' | 'Unpaid';
 }
 
 export async function fetchReceivableSummaries(): Promise<ReservationReceivableSummary[]> {
@@ -568,7 +570,7 @@ export async function fetchReceivableSummaries(): Promise<ReservationReceivableS
   const reservationIds = [...new Set((lines as any[]).map((l) => l.reservation_id as string))];
   const { data: reservations, error: resErr } = await supabase
     .from('reservations')
-    .select('reservation_id, payment_scheme, project')
+    .select('reservation_id, payment_scheme, project, total_contract_price')
     .in('reservation_id', reservationIds);
   if (resErr) throw resErr;
   const schemeMap = new Map<string, string>(
@@ -576,6 +578,9 @@ export async function fetchReceivableSummaries(): Promise<ReservationReceivableS
   );
   const projectMap = new Map<string, string>(
     (reservations ?? []).map((r: any) => [r.reservation_id as string, (r.project as string) ?? ''])
+  );
+  const tcpMap = new Map<string, number>(
+    (reservations ?? []).map((r: any) => [r.reservation_id as string, Number(r.total_contract_price) || 0])
   );
 
   const grouped = new Map<string, any[]>();
@@ -587,9 +592,11 @@ export async function fetchReceivableSummaries(): Promise<ReservationReceivableS
   const summaries: ReservationReceivableSummary[] = [];
   for (const [reservation_id, rLines] of grouped) {
     const first = rLines[0];
-    const unpaid     = rLines.filter((l) => l.payment_status !== 'Paid');
-    const paid_lines = rLines.length - unpaid.length;
-    // Outstanding is the remaining balance on overdue lines (due date earlier than today)
+    // Exclude Superseded lines — they belong to a prior schedule and must not affect
+    // totals, status, or next-due calculations for the current schedule.
+    const active     = rLines.filter((l) => l.payment_status !== 'Superseded');
+    const unpaid     = active.filter((l) => l.payment_status !== 'Paid');
+    const paid_lines = active.length - unpaid.length;
     const outstanding = unpaid
       .filter((l) => l.due_date < today)
       .reduce(
@@ -598,7 +605,6 @@ export async function fetchReceivableSummaries(): Promise<ReservationReceivableS
       );
     const unpaidSorted = [...unpaid].sort((a, b) => (a.due_date < b.due_date ? -1 : 1));
     const nextDue      = unpaidSorted[0] ?? null;
-    // For partial lines, next_due_amount shows the remaining balance, not the full amount
     const nextDueAmount = nextDue
       ? Math.max(0, Number(nextDue.total_amount_due) - Number(nextDue.amount_paid ?? 0))
       : null;
@@ -612,17 +618,28 @@ export async function fetchReceivableSummaries(): Promise<ReservationReceivableS
       status = 'Unpaid';
     }
 
+    // totalPaid must include all lines (including Superseded partials) — money paid
+    // before a BRF restructuring is real money received and must be counted.
+    const totalPaid = rLines.reduce((sum: number, l: any) => {
+      if (l.payment_status === 'Paid' && (l.amount_paid == null || Number(l.amount_paid) === 0)) {
+        return sum + Number(l.total_amount_due || 0);
+      }
+      return sum + Number(l.amount_paid || 0);
+    }, 0);
+
     summaries.push({
       reservation_id,
-      client_name: first.client_name,
-      inventory_code: first.inventory_code,
-      payment_scheme: schemeMap.get(reservation_id) ?? '',
-      project: projectMap.get(reservation_id) ?? '',
-      total_lines: rLines.length,
+      client_name:          first.client_name,
+      inventory_code:       first.inventory_code,
+      payment_scheme:       schemeMap.get(reservation_id) ?? '',
+      project:              projectMap.get(reservation_id) ?? '',
+      total_lines:          active.length,
       paid_lines,
+      total_contract_price: tcpMap.get(reservation_id) ?? 0,
+      total_paid:           totalPaid,
       outstanding,
-      next_due_date:   nextDue?.due_date ?? null,
-      next_due_amount: nextDueAmount,
+      next_due_date:        nextDue?.due_date ?? null,
+      next_due_amount:      nextDueAmount,
       status,
     });
   }

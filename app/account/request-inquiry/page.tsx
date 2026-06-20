@@ -5,29 +5,43 @@ import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import { supabase } from '@/lib/supabase';
+import { getSession } from '@/lib/auth';
+import { isBrfType } from '@/lib/brf';
 import {
   FilePlus, ChevronRight, Building2, Hash, User, Tag,
   Clock, ListChecks, Layers, FileText, GitBranch, AlignLeft, X,
-  CircleDot, CheckCircle2,
+  CircleDot, CheckCircle2, AlertTriangle, ArrowRightLeft,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface RequestRecord {
-  id:               string;
-  reservation_id:   string | null;
-  client_id:        string | null;
-  client_name:      string | null;
-  project_name:     string | null;
-  inventory_code:   string | null;
-  type_of_request:  string;
-  sub_type:         string | null;
-  request_category: string;
-  turnaround_days:  number;
-  description:      string | null;
-  status:           string;
-  submitted_at:     string;
+export interface RequestRecord {
+  id:                 string;
+  reservation_id:     string | null;
+  client_id:          string | null;
+  client_name:        string | null;
+  project_name:       string | null;
+  inventory_code:     string | null;
+  type_of_request:    string;
+  sub_type:           string | null;
+  request_category:   string;
+  turnaround_days:    number;
+  description:        string | null;
+  status:             string;
+  submitted_at:       string;
+  approval_status:    string | null;
+  resolution_status:  string | null;
+  approved_by:        string | null;
+  date_approved:      string | null;
+  new_inventory_code: string | null;
+  new_payterm_code:   string | null;
+  new_payterm_scheme: string | null;
+  new_term_months:    number | null;
+  remaining_balance:  number | null;
+  requested_by:       string | null;
 }
+
+const SELECT_FIELDS = 'id, reservation_id, client_id, client_name, project_name, inventory_code, type_of_request, sub_type, request_category, turnaround_days, description, status, submitted_at, approval_status, resolution_status, approved_by, date_approved, new_inventory_code, new_payterm_code, new_payterm_scheme, new_term_months, remaining_balance, requested_by';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -44,8 +58,11 @@ function categoryStyle(cat: string) {
   return { bg: 'rgba(142,142,147,0.12)', text: '#6C6C70', label: cat };
 }
 
-function statusStyle(status: string) {
-  if (status === 'open')   return { bg: 'rgba(52,199,89,0.12)',  text: '#1A7F37', label: 'Open',   Icon: CircleDot };
+export function statusStyle(status: string, approvalStatus?: string | null) {
+  if (approvalStatus === 'Pending')     return { bg: 'rgba(255,159,10,0.12)', text: '#A05A00',  label: 'Pending Approval', Icon: AlertTriangle };
+  if (approvalStatus === 'Approved')    return { bg: 'rgba(52,199,89,0.12)',   text: '#1A7F37',  label: 'Approved',         Icon: CheckCircle2 };
+  if (approvalStatus === 'Disapproved') return { bg: 'rgba(255,59,48,0.10)',   text: '#C0392B',  label: 'Disapproved',      Icon: X };
+  if (status === 'open')   return { bg: 'rgba(52,199,89,0.12)',   text: '#1A7F37', label: 'Open',   Icon: CircleDot };
   if (status === 'closed') return { bg: 'rgba(142,142,147,0.12)', text: '#6C6C70', label: 'Closed', Icon: CheckCircle2 };
   return { bg: 'rgba(142,142,147,0.12)', text: '#6C6C70', label: status, Icon: CircleDot };
 }
@@ -53,12 +70,12 @@ function statusStyle(status: string) {
 function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
   const m = Math.floor(diff / 60_000);
-  if (m < 1)   return 'Just now';
-  if (m < 60)  return `${m}m ago`;
+  if (m < 1)  return 'Just now';
+  if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);
-  if (h < 24)  return `${h}h ago`;
+  if (h < 24) return `${h}h ago`;
   const d = Math.floor(h / 24);
-  if (d < 7)   return `${d}d ago`;
+  if (d < 7)  return `${d}d ago`;
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
@@ -69,7 +86,7 @@ function formatDate(iso: string) {
 // ─── Request Card ─────────────────────────────────────────────────────────────
 
 export function RequestCard({ r, onClick }: { r: RequestRecord; onClick: () => void }) {
-  const st = statusStyle(r.status);
+  const st = statusStyle(r.status, r.approval_status);
   return (
     <GlassCard
       className="p-3 flex items-center gap-3 cursor-pointer active:scale-[0.98] transition-transform"
@@ -113,9 +130,20 @@ export function RequestCard({ r, onClick }: { r: RequestRecord; onClick: () => v
 
 // ─── Detail Sheet ─────────────────────────────────────────────────────────────
 
-export function RequestDetailSheet({ r, onClose }: { r: RequestRecord; onClose: () => void }) {
+export function RequestDetailSheet({
+  r, onClose, isAM, onApprove, onReject,
+}: {
+  r: RequestRecord;
+  onClose: () => void;
+  isAM: boolean;
+  onApprove: (r: RequestRecord) => void;
+  onReject:  (r: RequestRecord) => void;
+}) {
   const cat = categoryStyle(r.request_category);
-  const st  = statusStyle(r.status);
+  const st  = statusStyle(r.status, r.approval_status);
+  const isPending = r.approval_status === 'Pending';
+  const isBrf = isBrfType(r.type_of_request);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center"
@@ -187,23 +215,24 @@ export function RequestDetailSheet({ r, onClose }: { r: RequestRecord; onClose: 
                   <span className="text-xs text-[#6C6C70] text-right max-w-[55%]">{r.sub_type}</span>
                 </div>
               )}
+              {r.new_inventory_code && (
+                <div className="flex items-center gap-3 py-2.5 border-b border-black/[0.06]">
+                  <ArrowRightLeft size={13} className="text-[#C03D25] shrink-0" />
+                  <span className="flex-1 text-xs font-medium text-[#1C1C1E]">New Unit</span>
+                  <span className="text-xs font-semibold text-[#C03D25] text-right">{r.new_inventory_code}</span>
+                </div>
+              )}
               <div className="flex items-center gap-3 py-2.5 border-b border-black/[0.06]">
                 <Layers size={13} className="text-[#C03D25] shrink-0" />
                 <span className="flex-1 text-xs font-medium text-[#1C1C1E]">Category</span>
-                <span
-                  className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                  style={{ background: cat.bg, color: cat.text }}
-                >
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: cat.bg, color: cat.text }}>
                   {cat.label}
                 </span>
               </div>
               <div className="flex items-center gap-3 py-2.5 border-b border-black/[0.06]">
                 <st.Icon size={13} className="text-[#C03D25] shrink-0" />
                 <span className="flex-1 text-xs font-medium text-[#1C1C1E]">Status</span>
-                <span
-                  className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                  style={{ background: st.bg, color: st.text }}
-                >
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: st.bg, color: st.text }}>
                   {st.label}
                 </span>
               </div>
@@ -212,11 +241,25 @@ export function RequestDetailSheet({ r, onClose }: { r: RequestRecord; onClose: 
                 <span className="flex-1 text-xs font-medium text-[#1C1C1E]">Turnaround</span>
                 <span className="text-xs font-semibold text-[#1C1C1E]">{r.turnaround_days} days</span>
               </div>
-              <div className="flex items-center gap-3 py-2.5">
+              <div className="flex items-center gap-3 py-2.5 border-b border-black/[0.06]">
                 <Clock size={13} className="text-[#C03D25] shrink-0" />
                 <span className="flex-1 text-xs font-medium text-[#1C1C1E]">Submitted</span>
                 <span className="text-xs text-[#6C6C70]">{formatDate(r.submitted_at)}</span>
               </div>
+              {r.requested_by && (
+                <div className="flex items-center gap-3 py-2.5 border-b border-black/[0.06]">
+                  <User size={13} className="text-[#C03D25] shrink-0" />
+                  <span className="flex-1 text-xs font-medium text-[#1C1C1E]">Requested By</span>
+                  <span className="text-xs text-[#6C6C70] text-right max-w-[55%] truncate">{r.requested_by}</span>
+                </div>
+              )}
+              {r.approved_by && (
+                <div className="flex items-center gap-3 py-2.5">
+                  <CheckCircle2 size={13} className="text-[#C03D25] shrink-0" />
+                  <span className="flex-1 text-xs font-medium text-[#1C1C1E]">Approved By</span>
+                  <span className="text-xs text-[#6C6C70] text-right max-w-[55%] truncate">{r.approved_by} · {r.date_approved}</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -232,6 +275,26 @@ export function RequestDetailSheet({ r, onClose }: { r: RequestRecord; onClose: 
           )}
 
         </div>
+
+        {/* Approve / Reject — Account Management only, BRF types pending */}
+        {isAM && isBrf && isPending && (
+          <div className="px-5 pb-6 pt-3 border-t border-black/[0.06] flex gap-3">
+            <button
+              type="button"
+              onClick={() => onReject(r)}
+              className="flex-1 py-3.5 rounded-2xl bg-[#F2F2F7] text-[#C0392B] text-sm font-semibold active:opacity-70"
+            >
+              Reject
+            </button>
+            <button
+              type="button"
+              onClick={() => onApprove(r)}
+              className="flex-2 flex-grow-[2] py-3.5 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80"
+            >
+              Approve & Process
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -245,23 +308,44 @@ export default function RequestInquiryPage() {
   const [requests, setRequests] = useState<RequestRecord[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [selected, setSelected] = useState<RequestRecord | null>(null);
+  const [isAM,     setIsAM]     = useState(false);
+  const [userName, setUserName] = useState('');
 
   useEffect(() => {
+    async function load() {
+      const [session] = await Promise.all([getSession()]);
+      setIsAM(session?.role_name === 'Account Management');
+      setUserName(session?.full_name || session?.email || '');
+
+      const { data } = await supabase
+        .from('requests_and_inquiries')
+        .select(SELECT_FIELDS)
+        .order('submitted_at', { ascending: false })
+        .limit(50);
+      setRequests((data as RequestRecord[]) ?? []);
+      setLoading(false);
+    }
+    load();
+  }, []);
+
+  function reload() {
+    setLoading(true);
     supabase
       .from('requests_and_inquiries')
-      .select('id, reservation_id, client_id, client_name, project_name, inventory_code, type_of_request, sub_type, request_category, turnaround_days, description, status, submitted_at')
+      .select(SELECT_FIELDS)
       .order('submitted_at', { ascending: false })
       .limit(50)
       .then(({ data }) => {
         setRequests((data as RequestRecord[]) ?? []);
         setLoading(false);
       });
-  }, []);
+  }
 
-  const total   = requests.length;
-  const open    = requests.filter(r => r.status === 'open').length;
-  const closed  = requests.filter(r => r.status === 'closed').length;
-  const recent  = requests.slice(0, 5);
+  const total    = requests.length;
+  const open     = requests.filter(r => r.status === 'open' && !r.approval_status).length;
+  const closed   = requests.filter(r => r.status === 'closed').length;
+  const pending  = requests.filter(r => r.approval_status === 'Pending').length;
+  const recent   = requests.slice(0, 5);
 
   return (
     <PageShell title="Request and Inquiry">
@@ -278,10 +362,7 @@ export default function RequestInquiryPage() {
           }}
         >
           <div className="px-5 py-5 flex items-center gap-4">
-            <div
-              className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0"
-              style={{ background: 'rgba(255,255,255,0.18)' }}
-            >
+            <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0" style={{ background: 'rgba(255,255,255,0.18)' }}>
               <FilePlus size={26} className="text-white" />
             </div>
             <div className="flex-1 min-w-0">
@@ -291,6 +372,25 @@ export default function RequestInquiryPage() {
             <ChevronRight size={18} className="text-white/60 shrink-0" />
           </div>
         </button>
+
+        {/* ── Pending Approval alert (AM only) ── */}
+        {isAM && !loading && pending > 0 && (
+          <button
+            type="button"
+            onClick={() => router.push('/account/request-inquiry/all')}
+            className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl active:scale-[0.98] transition-transform"
+            style={{ background: 'rgba(255,159,10,0.10)', border: '1px solid rgba(255,159,10,0.25)' }}
+          >
+            <AlertTriangle size={18} style={{ color: '#A05A00' }} className="shrink-0" />
+            <div className="flex-1 text-left">
+              <p className="text-sm font-semibold" style={{ color: '#A05A00' }}>
+                {pending} request{pending !== 1 ? 's' : ''} pending your approval
+              </p>
+              <p className="text-xs" style={{ color: '#C17A00' }}>Tap to review</p>
+            </div>
+            <ChevronRight size={16} style={{ color: '#A05A00' }} />
+          </button>
+        )}
 
         {/* ── Summary tiles ── */}
         <div className="grid grid-cols-3 gap-2">
@@ -374,7 +474,25 @@ export default function RequestInquiryPage() {
 
       </div>
 
-      {selected && <RequestDetailSheet r={selected} onClose={() => setSelected(null)} />}
+      {selected && (
+        <RequestDetailSheet
+          r={selected}
+          onClose={() => setSelected(null)}
+          isAM={isAM}
+          onApprove={r => {
+            setSelected(null);
+            router.push(`/account/request-inquiry/approve?id=${r.id}`);
+          }}
+          onReject={async r => {
+            await supabase
+              .from('requests_and_inquiries')
+              .update({ approval_status: 'Disapproved', resolution_status: 'Rejected', status: 'closed' })
+              .eq('id', r.id);
+            setSelected(null);
+            reload();
+          }}
+        />
+      )}
     </PageShell>
   );
 }

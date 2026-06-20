@@ -6,7 +6,7 @@ import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import FilterSelect from '@/components/ui/FilterSelect';
 import { SalespersonRecord } from '@/lib/salesperson';
-import { fetchCommissionRecords, fetchCommissionTranches, CommissionRecord, CommissionTranche } from '@/lib/commission';
+import { fetchSellerCommissionSummaries, SellerCommissionSummary, fetchCommissionTranches, CommissionTranche } from '@/lib/commission';
 import { Search, Building2, FileText, Hash, ChevronDown, ChevronUp, Loader2, X } from 'lucide-react';
 
 function fmt(n: number | null | undefined) {
@@ -15,7 +15,7 @@ function fmt(n: number | null | undefined) {
 }
 
 interface ScheduleEntry {
-  record: CommissionRecord;
+  record: SellerCommissionSummary;
   tranches: CommissionTranche[];
   loading: boolean;
   error: string;
@@ -24,7 +24,7 @@ interface ScheduleEntry {
 export default function CommissionSchedulePage() {
   const router = useRouter();
   const [seller, setSeller] = useState<SalespersonRecord | null>(null);
-  const [records, setRecords] = useState<CommissionRecord[]>([]);
+  const [records, setRecords] = useState<SellerCommissionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -49,8 +49,8 @@ export default function CommissionSchedulePage() {
     const s = JSON.parse(stored) as SalespersonRecord;
     setSeller(s);
 
-    fetchCommissionRecords()
-      .then(all => setRecords(all.filter(r => r.seller_name === s.seller_name)))
+    fetchSellerCommissionSummaries(s.seller_name)
+      .then(summaries => setRecords(summaries))
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
@@ -115,9 +115,21 @@ export default function CommissionSchedulePage() {
     await Promise.all(
       selectedRecords.map(async r => {
         try {
-          const tranches = r.position_rank && r.product_type && r.seller_type
-            ? await fetchCommissionTranches(r.project, r.position_rank, r.product_type, r.seller_type)
-            : [];
+          const { data, error } = await (await import('@/lib/supabase')).supabase
+            .from('commission_schedule')
+            .select('tranche, percentage_collection, commission_release_rate, commission_rate, gross_commission')
+            .eq('reservation_id', r.reservation_id)
+            .eq('seller_name', seller!.seller_name)
+            .neq('status', 'Superseded')
+            .order('tranche', { ascending: true });
+          if (error) throw error;
+          const tranches: CommissionTranche[] = ((data ?? []) as any[]).map(row => ({
+            tranche:                 row.tranche,
+            percentage_collection:   row.percentage_collection,
+            commission_release_rate: row.commission_release_rate,
+            commission_rate:         row.commission_rate,
+            seller_type:             '',
+          }));
           setScheduleMap(prev => ({
             ...prev,
             [r.reservation_id]: { record: r, tranches, loading: false, error: '' },
@@ -286,7 +298,7 @@ export default function CommissionSchedulePage() {
                     </div>
                     <div className="flex items-center gap-1.5">
                       <FileText size={12} className="text-[#C7C7CC] shrink-0" />
-                      <span className="text-xs text-[#6C6C70]">{r.inventory_code ?? r.unit_no ?? '—'}</span>
+                      <span className="text-xs text-[#6C6C70]">{r.inventory_code ?? '—'}</span>
                     </div>
                   </div>
 
@@ -356,7 +368,7 @@ export default function CommissionSchedulePage() {
                             <p className="text-xs text-[#6C6C70] text-right">{t.percentage_collection}%</p>
                             <p className="text-xs text-[#6C6C70] text-right">{t.commission_release_rate}%</p>
                             <p className="text-xs font-semibold text-[#1C1C1E] text-right">
-                              {fmt((r.total_commission ?? 0) * (t.commission_release_rate / 100))}
+                              {fmt((t as any).gross_commission ?? (r.total_commission ?? 0) * (t.commission_release_rate / 100))}
                             </p>
                           </div>
                         ))}
