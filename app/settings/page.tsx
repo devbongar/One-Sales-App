@@ -24,8 +24,9 @@ import {
   ChevronDown, ChevronUp, Upload, Camera, Palette,
   Building2, AlertTriangle, Loader2, Tag, Layers,
   CarFront, Hash, MapPin, FileText, Mail, ToggleLeft, ToggleRight, Eye,
-  Send, CheckCircle2, Paperclip,
+  Send, CheckCircle2, Paperclip, Calendar, ChevronRight,
 } from 'lucide-react';
+import Link from 'next/link';
 
 // ── Email test helpers ────────────────────────────────────────
 type DocKey = 'none' | 'client_registration' | 'reservation_package' | 'buyer_info_form' | 'soa';
@@ -398,6 +399,20 @@ export default function SettingsPage() {
   // ─────────────────────────────────────────────────────────────
   return (
     <PageShell title="System Settings">
+
+      {/* ── Commission Settings ────────────────────────────── */}
+      <Link href="/settings/commission-rates">
+        <GlassCard className="px-4 py-3.5 flex items-center gap-3 active:opacity-75">
+          <div className="w-9 h-9 rounded-xl bg-[#C03D25]/10 flex items-center justify-center shrink-0">
+            <Calendar size={16} className="text-[#C03D25]" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-[#1C1C1E]">Special Commission Rates</p>
+            <p className="text-xs text-[#8E8E93] mt-0.5">Time-bound commission overrides per project and position</p>
+          </div>
+          <ChevronRight size={16} className="text-[#C7C7CC] shrink-0" />
+        </GlassCard>
+      </Link>
 
       {/* ── App Branding ───────────────────────────────────── */}
       <GlassCard className="p-5 space-y-5">

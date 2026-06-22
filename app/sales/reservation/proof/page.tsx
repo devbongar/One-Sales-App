@@ -187,6 +187,15 @@ export default function ProofOfPaymentPage() {
             setFirstPaymentAgreed(data.first_payment_agreed ?? false);
           }
         });
+    } else {
+      // New reservation (deferred — not yet in DB): read from pending payload
+      const pending = sessionStorage.getItem('pendingReservationPayload');
+      if (pending) {
+        try {
+          const payload = JSON.parse(pending);
+          setFirstPaymentAgreed(payload.first_payment_agreed ?? false);
+        } catch {}
+      }
     }
   }, []);
 

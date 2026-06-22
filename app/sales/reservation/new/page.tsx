@@ -742,8 +742,8 @@ export default function NewReservationPage() {
     setShowClientConfirm(false);
     setSavingClient(true);
     try {
-      await saveClient({
-        client_type:              'Individual',
+      const newClientId = await saveClient({
+        client_type:              'Leads',
         last_name:                clientLastName.trim(),
         first_name:               clientFirstName.trim(),
         middle_name:              clientMiddleName.trim(),
@@ -762,6 +762,14 @@ export default function NewReservationPage() {
         sales_manager:            sellerRecord?.sales_manager  ?? undefined,
         sales_director:           sellerRecord?.sales_director ?? undefined,
       });
+      // Fetch the newly created record so reservation gets the correct client_id
+      // and the seller field stays locked if the user navigates back to Step 0
+      const { data: newRecord } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('client_id', newClientId)
+        .maybeSingle();
+      if (newRecord) setSelectedClientRecord(newRecord as ClientRecord);
       goToStep(1);
     } catch (err: any) {
       setErrors(p => ({ ...p, fullName: err?.message ?? 'Failed to save client. Please try again.' }));
@@ -1101,6 +1109,7 @@ export default function NewReservationPage() {
                     setClientSuggestionsOpen(true);
                   }}
                   onFocus={() => setClientSuggestionsOpen(true)}
+                  onBlur={() => setTimeout(() => setClientSuggestionsOpen(false), 150)}
                   placeholder="e.g. Dela Cruz"
                   className="flex-1 bg-transparent text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC] text-right"
                 />
@@ -1112,22 +1121,25 @@ export default function NewReservationPage() {
               </div>
               {/* Suggestions dropdown */}
               {clientSuggestionsOpen && clientSuggestions.length > 0 && !selectedClientRecord && (
-                <div className="absolute left-0 right-0 top-full z-20 bg-white rounded-2xl shadow-xl border border-black/[0.08] overflow-hidden">
-                  {clientSuggestions.map(c => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onMouseDown={e => { e.preventDefault(); handleSelectClient(c); }}
-                      className="w-full flex items-center justify-between px-4 py-3 border-b border-black/[0.05] last:border-0 active:bg-[#F2F2F7] text-left"
-                    >
-                      <div>
-                        <p className="text-sm font-semibold text-[#1C1C1E]">{c.last_name}, {c.first_name}{c.suffix ? ` ${c.suffix}` : ''}</p>
-                        <p className="text-xs text-[#8E8E93]">{c.email ?? c.mobile_number ?? '—'}</p>
-                      </div>
-                      <span className="text-[10px] font-mono text-[#8E8E93] shrink-0 ml-2">{c.client_id ?? ''}</span>
-                    </button>
-                  ))}
-                </div>
+                <>
+                  <div className="fixed inset-0 z-[19]" onClick={() => setClientSuggestionsOpen(false)} />
+                  <div className="absolute left-0 right-0 top-full z-20 bg-white rounded-2xl shadow-xl border border-black/[0.08] overflow-hidden">
+                    {clientSuggestions.map(c => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onMouseDown={e => { e.preventDefault(); handleSelectClient(c); }}
+                        className="w-full flex items-center justify-between px-4 py-3 border-b border-black/[0.05] last:border-0 active:bg-[#F2F2F7] text-left"
+                      >
+                        <div>
+                          <p className="text-sm font-semibold text-[#1C1C1E]">{c.last_name}, {c.first_name}{c.suffix ? ` ${c.suffix}` : ''}</p>
+                          <p className="text-xs text-[#8E8E93]">{c.email ?? c.mobile_number ?? '—'}</p>
+                        </div>
+                        <span className="text-[10px] font-mono text-[#8E8E93] shrink-0 ml-2">{c.client_id ?? ''}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
               )}
               {errors.fullName && <p className="text-red-400 text-[11px] px-1 pb-2">{errors.fullName}</p>}
             </div>
@@ -1228,6 +1240,22 @@ export default function NewReservationPage() {
                 </div>
 
               </>
+            )}
+
+            {/* Megawide Employee */}
+            {(userRole === 'All Access' || userRole === 'Sales Director') && (
+              <button
+                type="button"
+                onClick={() => setIsMegawide(p => !p)}
+                className="w-full flex items-center gap-3 py-3 px-1 active:bg-[#F2F2F7]"
+              >
+                <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
+                  isMegawide ? 'border-[#166534] bg-[#166534]' : 'border-[#C7C7CC]'
+                }`}>
+                  {isMegawide && <Check size={12} className="text-white" />}
+                </div>
+                <span className={`text-sm font-medium ${isMegawide ? 'text-[#166534]' : 'text-[#1C1C1E]'}`}>Megawide Employee</span>
+              </button>
             )}
           </GlassCard>
 
@@ -2083,27 +2111,6 @@ export default function NewReservationPage() {
                 </button>
               )}
 
-              {/* Employee Discount Checkbox — Sales Director + All Access only */}
-              {(userRole === 'All Access' || userRole === 'Sales Director') && (
-                <button
-                  type="button"
-                  onClick={() => setIsMegawide(p => !p)}
-                  className={`w-full flex items-center gap-3 p-3 rounded-2xl border-2 transition-all ${
-                    isMegawide ? 'border-[#166534] bg-[#166534]/10' : 'border-[#E5E5EA] bg-white'
-                  }`}
-                >
-                  <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
-                    isMegawide ? 'border-[#166534] bg-[#166534]' : 'border-[#C7C7CC]'
-                  }`}>
-                    {isMegawide && <Check size={12} className="text-white" />}
-                  </div>
-                  <div className="flex-1 text-left">
-                    <p className={`text-sm font-semibold ${isMegawide ? 'text-[#166534]' : 'text-[#1C1C1E]'}`}>Megawide Employee</p>
-                    <p className="text-[10px] text-[#8E8E93]">10% discount on List Price</p>
-                  </div>
-                </button>
-              )}
-
               {/* HIC Checkbox — Sales Director + Residential only */}
               {showHIC && (
                 <button
@@ -2347,7 +2354,18 @@ export default function NewReservationPage() {
               {comparisons.map((c, ci) => (
                 <div
                   key={c.id}
-                  onClick={() => { if (isPickMode) { setReservationTarget(c); setIsPickMode(false); } }}
+                  onClick={() => {
+                    if (!isPickMode) return;
+                    const cr = selectedClientRecord;
+                    const incomplete = cr && (!cr.date_of_birth || !cr.citizenship || !cr.reason_for_buying || !cr.source_of_sale || !cr.monthly_household_income);
+                    if (incomplete && cr?.client_id) {
+                      sessionStorage.setItem('cr_prefill_client_id', cr.client_id);
+                      router.push('/sales/client-registration/existing');
+                      return;
+                    }
+                    setReservationTarget(c);
+                    setIsPickMode(false);
+                  }}
                   className={`relative shrink-0 bg-white rounded-2xl shadow-md flex flex-col overflow-hidden transition-all ${isPickMode ? 'cursor-pointer border-2 border-[#C03D25] shadow-[0_0_0_3px_rgba(192,61,37,0.15)]' : 'border border-black/[0.06]'}`}
                   style={{ width: comparisons.length <= 3 ? `calc((100% - ${(comparisons.length - 1) * 8}px) / ${comparisons.length})` : undefined, height: '72vh' }}
                 >

@@ -244,7 +244,8 @@ export default function BookingDetailPage() {
           setFinanceStatus((data as any)?.finance_status ?? null);
           setReservationStatus((data as any)?.status ?? null);
           setDirectorFilled((data as any)?.director_filled ?? false);
-          if (data?.status === 'Booked') {
+          const fs = (data as any)?.finance_status ?? null;
+          if (['rf-verified', 'dp-verified'].includes(fs) || data?.status === 'Booked') {
             supabase
               .from('commission_schedule')
               .select('id', { count: 'exact', head: true })

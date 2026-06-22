@@ -310,7 +310,15 @@ export default function ExistingClientPage() {
 
   useEffect(() => {
     fetchAllClients()
-      .then(data => setAllClients(data))
+      .then(data => {
+        setAllClients(data);
+        const prefillId = sessionStorage.getItem('cr_prefill_client_id');
+        if (prefillId) {
+          sessionStorage.removeItem('cr_prefill_client_id');
+          const match = data.find(c => c.client_id === prefillId);
+          if (match) { openClient(match); setEditMode(true); }
+        }
+      })
       .finally(() => setLoading(false));
     fetchAllSalespersons().then(setAllSalespersons).catch(console.error);
     fetchAllBrokers().then(setAllBrokers).catch(console.error);

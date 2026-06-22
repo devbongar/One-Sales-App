@@ -6,7 +6,7 @@ import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import { fetchProjects, fetchTowers, fetchFloorsByCategory, fetchUnitTypes, fetchInventoryUnits, InventoryUnit } from '@/lib/inventory';
 import { fetchAllPayterms, PaytermRecord } from '@/lib/paytems';
-import { fetchAllClients, ClientRecord } from '@/lib/clients';
+import { fetchAllClients, ClientRecord, saveClient } from '@/lib/clients';
 import { loadLogo } from '@/lib/pdf-generators';
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
 import { fetchReservationFee, fetchVatThreshold, computeVat, fetchHicTarget } from '@/lib/admin';
@@ -333,6 +333,7 @@ export default function SampleComputationPage() {
   const [allClients,            setAllClients]            = useState<ClientRecord[]>([]);
   const [selectedClientRecord,  setSelectedClientRecord]  = useState<ClientRecord | null>(null);
   const [clientSuggestionsOpen, setClientSuggestionsOpen] = useState(false);
+  const [savingClient,          setSavingClient]          = useState(false);
 
   // Seller
   const [allSalespersons,    setAllSalespersons]    = useState<SalespersonRecord[]>([]);
@@ -1003,6 +1004,7 @@ export default function SampleComputationPage() {
                   readOnly={!!selectedClientRecord}
                   onChange={e => { setClientLastName(e.target.value); setClientSuggestionsOpen(true); setErrors(p => ({ ...p, clientLastName: '' })); }}
                   onFocus={() => setClientSuggestionsOpen(true)}
+                  onBlur={() => setTimeout(() => setClientSuggestionsOpen(false), 150)}
                   placeholder="e.g. Dela Cruz"
                   className="flex-1 bg-transparent text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC] text-right"
                 />
@@ -1014,22 +1016,25 @@ export default function SampleComputationPage() {
               </div>
               {/* Suggestions dropdown */}
               {clientSuggestionsOpen && clientSuggestions.length > 0 && !selectedClientRecord && (
-                <div className="absolute left-0 right-0 top-full z-20 bg-white rounded-2xl shadow-xl border border-black/[0.08] overflow-hidden">
-                  {clientSuggestions.map(c => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onMouseDown={e => { e.preventDefault(); handleSelectClient(c); }}
-                      className="w-full flex items-center justify-between px-4 py-3 border-b border-black/[0.05] last:border-0 active:bg-[#F2F2F7] text-left"
-                    >
-                      <div>
-                        <p className="text-sm font-semibold text-[#1C1C1E]">{c.last_name}, {c.first_name}{c.suffix ? ` ${c.suffix}` : ''}</p>
-                        <p className="text-xs text-[#8E8E93]">{c.email ?? c.mobile_number ?? '—'}</p>
-                      </div>
-                      <span className="text-[10px] font-mono text-[#8E8E93] shrink-0 ml-2">{c.client_id ?? ''}</span>
-                    </button>
-                  ))}
-                </div>
+                <>
+                  <div className="fixed inset-0 z-[19]" onClick={() => setClientSuggestionsOpen(false)} />
+                  <div className="absolute left-0 right-0 top-full z-20 bg-white rounded-2xl shadow-xl border border-black/[0.08] overflow-hidden">
+                    {clientSuggestions.map(c => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onMouseDown={e => { e.preventDefault(); handleSelectClient(c); }}
+                        className="w-full flex items-center justify-between px-4 py-3 border-b border-black/[0.05] last:border-0 active:bg-[#F2F2F7] text-left"
+                      >
+                        <div>
+                          <p className="text-sm font-semibold text-[#1C1C1E]">{c.last_name}, {c.first_name}{c.suffix ? ` ${c.suffix}` : ''}</p>
+                          <p className="text-xs text-[#8E8E93]">{c.email ?? c.mobile_number ?? '—'}</p>
+                        </div>
+                        <span className="text-[10px] font-mono text-[#8E8E93] shrink-0 ml-2">{c.client_id ?? ''}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
               )}
               {errors.clientLastName && <p className="text-red-400 text-[11px] px-1 pb-2">{errors.clientLastName}</p>}
             </div>
@@ -1123,6 +1128,22 @@ export default function SampleComputationPage() {
                     className="flex-1 bg-transparent text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC] text-right" />
                 </div>
               </>
+            )}
+
+            {/* Megawide Employee */}
+            {(userRole === 'All Access' || userRole === 'Sales Director') && (
+              <button
+                type="button"
+                onClick={() => setIsMegawide(p => !p)}
+                className="w-full flex items-center gap-3 py-3 px-1 active:bg-[#F2F2F7]"
+              >
+                <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
+                  isMegawide ? 'border-[#166534] bg-[#166534]' : 'border-[#C7C7CC]'
+                }`}>
+                  {isMegawide && <Check size={12} className="text-white" />}
+                </div>
+                <span className={`text-sm font-medium ${isMegawide ? 'text-[#166534]' : 'text-[#1C1C1E]'}`}>Megawide Employee</span>
+              </button>
             )}
           </GlassCard>
 
@@ -1229,17 +1250,53 @@ export default function SampleComputationPage() {
 
           <button
             type="button"
-            onClick={() => {
+            disabled={savingClient}
+            onClick={async () => {
               const errs: Record<string, string> = {};
               if (!clientLastName.trim())  errs.clientLastName  = 'Last name is required';
               if (!clientFirstName.trim()) errs.clientFirstName = 'First name is required';
               if (!clientMobile.trim())    errs.clientMobile    = 'Mobile number is required';
               if (Object.keys(errs).length > 0) { setErrors(p => ({ ...p, ...errs })); return; }
+              if (selectedClientRecord) { goToStep(1); return; }
+              setSavingClient(true);
+              try {
+                const newClientId = await saveClient({
+                  client_type:         'Leads',
+                  last_name:           clientLastName.trim(),
+                  first_name:          clientFirstName.trim(),
+                  middle_name:         clientMiddleName.trim(),
+                  suffix:              clientSuffix.trim(),
+                  country_code:        clientCountryCode,
+                  mobile_number:       clientMobile,
+                  email:               clientEmail.trim(),
+                  date_of_birth:       '',
+                  citizenship:         '',
+                  landline_no:         '',
+                  reason_for_buying:   '',
+                  source_of_sale:      '',
+                  monthly_household_income: '',
+                  seller_type:         sellerRecord ? 'In House' : undefined,
+                  property_specialist: sellerRecord?.seller_name   ?? undefined,
+                  sales_manager:       sellerRecord?.sales_manager ?? undefined,
+                  sales_director:      sellerRecord?.sales_director ?? undefined,
+                });
+                const { data: newRecord } = await supabase
+                  .from('clients')
+                  .select('*')
+                  .eq('client_id', newClientId)
+                  .maybeSingle();
+                if (newRecord) setSelectedClientRecord(newRecord as ClientRecord);
+              } catch (err: any) {
+                setErrors(p => ({ ...p, clientLastName: err?.message ?? 'Failed to save client.' }));
+                return;
+              } finally {
+                setSavingClient(false);
+              }
               goToStep(1);
             }}
-            className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity"
+            className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity disabled:opacity-60"
           >
-            Continue
+            {savingClient ? 'Saving…' : 'Continue'}
           </button>
         </>
       )}
@@ -1932,27 +1989,6 @@ export default function SampleComputationPage() {
                     options={stretchedDpTermOptions}
                     onChange={setStretchedDpTerm} placeholder="Select DP term" icon={<Clock size={16} />} />
                 </div>
-              )}
-
-              {/* Employee Discount Checkbox — Sales Director + All Access only */}
-              {(userRole === 'All Access' || userRole === 'Sales Director') && (
-                <button
-                  type="button"
-                  onClick={() => setIsMegawide(p => !p)}
-                  className={`w-full flex items-center gap-3 p-3 rounded-2xl border-2 transition-all ${
-                    isMegawide ? 'border-[#166534] bg-[#166534]/10' : 'border-[#E5E5EA] bg-white'
-                  }`}
-                >
-                  <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
-                    isMegawide ? 'border-[#166534] bg-[#166534]' : 'border-[#C7C7CC]'
-                  }`}>
-                    {isMegawide && <Check size={12} className="text-white" />}
-                  </div>
-                  <div className="flex-1 text-left">
-                    <p className={`text-sm font-semibold ${isMegawide ? 'text-[#166534]' : 'text-[#1C1C1E]'}`}>Megawide Employee</p>
-                    <p className="text-[10px] text-[#8E8E93]">10% discount on List Price</p>
-                  </div>
-                </button>
               )}
 
               {/* HIC Checkbox — Sales Director + Residential only */}

@@ -203,6 +203,9 @@ export default function FinanceVerifyPage() {
         date_of_reservation_fee:    dateOfResFee,
       };
       triggerEmails('on_finance_verified', booking.reservation_id).catch(e => console.error('[email-trigger]', e));
+      generateCommissionSchedule(booking.reservation_id).then(result => {
+        if (!result.ok && result.reason !== 'already-exists') setCommissionWarn(result);
+      }).catch(e => console.error('[commission] Failed to generate schedule:', e));
       sessionStorage.setItem('financeBooking', JSON.stringify(updated));
       setBooking(updated);
       setDone('approved');
@@ -244,9 +247,6 @@ export default function FinanceVerifyPage() {
       await addActivityLog(booking.reservation_id, 'dp-verified', displayName).catch(e => console.error('[activity-log]', e));
       if (amdDone) {
         triggerEmails('on_booked', booking.reservation_id).catch(e => console.error('[email-trigger]', e));
-        generateCommissionSchedule(booking.reservation_id).then(result => {
-          if (!result.ok && result.reason !== 'already-exists') setCommissionWarn(result);
-        }).catch(e => console.error('[commission] Failed to generate schedule:', e));
       }
 
       // 2. Update inventory unit status to Booked
@@ -345,10 +345,10 @@ export default function FinanceVerifyPage() {
       await addActivityLog(booking.reservation_id, 'dp-verified', displayName).catch(e => console.error('[activity-log]', e));
       if (amdDone) {
         triggerEmails('on_booked', booking.reservation_id).catch(e => console.error('[email-trigger]', e));
-        generateCommissionSchedule(booking.reservation_id).then(result => {
-          if (!result.ok && result.reason !== 'already-exists') setCommissionWarn(result);
-        }).catch(e => console.error('[commission] Failed to generate schedule:', e));
       }
+      generateCommissionSchedule(booking.reservation_id).then(result => {
+        if (!result.ok && result.reason !== 'already-exists') setCommissionWarn(result);
+      }).catch(e => console.error('[commission] Failed to generate schedule:', e));
 
       if (booking.inventory_code) {
         await updateInventoryUnitStatus(booking.inventory_code, 'Booked');
