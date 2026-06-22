@@ -312,8 +312,8 @@ export async function generateClientRegistration(client: ClientRecord | null): P
 
 // ── Terms of Payment ──────────────────────────────────────────────────────────
 
-export async function generateTermsOfPayment(reservationId: string | null): Promise<void> {
-  const win  = window.open('', '_blank');
+export async function generateTermsOfPayment(reservationId: string | null, openInNewTab = true): Promise<string | void> {
+  const win  = openInNewTab ? window.open('', '_blank') : null;
   const doc  = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
   const L = 14, W = pageW - 28;
@@ -501,7 +501,9 @@ export async function generateTermsOfPayment(reservationId: string | null): Prom
   }
 
   footerBlock(doc);
-  if (win) win.location.href = doc.output('bloburl') as unknown as string;
+  const blobUrl0 = doc.output('bloburl') as unknown as string;
+  if (!openInNewTab) return blobUrl0;
+  if (win) win.location.href = blobUrl0;
   else doc.output('dataurlnewwindow');
 }
 
@@ -542,8 +544,8 @@ const RESERVATION_TERMS = [
   },
 ];
 
-export async function generateReservationAgreement(reservationId: string | null): Promise<void> {
-  const win   = window.open('', '_blank');
+export async function generateReservationAgreement(reservationId: string | null, openInNewTab = true): Promise<string | void> {
+  const win   = openInNewTab ? window.open('', '_blank') : null;
   const doc   = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
@@ -710,7 +712,9 @@ export async function generateReservationAgreement(reservationId: string | null)
   doc.text('Seller Signature over Printed Name', rightSigX, y + 4);
 
   footerBlock(doc);
-  if (win) win.location.href = doc.output('bloburl') as unknown as string;
+  const blobUrl1 = doc.output('bloburl') as unknown as string;
+  if (!openInNewTab) return blobUrl1;
+  if (win) win.location.href = blobUrl1;
   else doc.output('dataurlnewwindow');
 }
 
@@ -750,8 +754,8 @@ const PRIVACY_BLOCKS: PrivBlock[] = [
   { type: 'para', text: `As the owner of the Personal Data, you have the right to be informed of: (i) the Personal Data being, or that was, Processed by the Company; (ii) the right to gain reasonable access to your Personal Data; (iii) the right to object to the Processing of your Personal Data; (iv) the right to suspend, withdraw, or order the removal or destruction of your Personal Data; (v) the right to dispute any error in your Personal Data and have the Company correct it immediately; and (vi) the right to obtain a copy of the Personal Data in electronic format, if available.` },
 ];
 
-export async function generateBuyerInformationForm(reservationId: string | null): Promise<void> {
-  const win = window.open('', '_blank');
+export async function generateBuyerInformationForm(reservationId: string | null, openInNewTab = true): Promise<string | void> {
+  const win = openInNewTab ? window.open('', '_blank') : null;
   if (!reservationId) { win?.close(); return; }
 
   const doc   = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -1208,7 +1212,9 @@ export async function generateBuyerInformationForm(reservationId: string | null)
   }
 
   footerBlock(doc);
-  if (win) win.location.href = doc.output('bloburl') as unknown as string;
+  const blobUrl2 = doc.output('bloburl') as unknown as string;
+  if (!openInNewTab) return blobUrl2;
+  if (win) win.location.href = blobUrl2;
   else doc.output('dataurlnewwindow');
 }
 

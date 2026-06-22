@@ -7,8 +7,9 @@ import GlassCard from '@/components/ui/GlassCard';
 import { supabase } from '@/lib/supabase';
 import {
   Building2, ChevronRight, Loader2, Search,
-  SlidersHorizontal, User, X, Check,
+  SlidersHorizontal, User, X,
 } from 'lucide-react';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 import { getAllBookingProgress, BookingProgress, BookingStatus, computeBookingStatus } from '@/lib/booking-progress';
 import { getSession } from '@/lib/auth';
 
@@ -44,6 +45,9 @@ const BOOKING_STATUS_MAP: { value: BookingStatus; label: string }[] = [
   { value: 'amd-approved',      label: 'AMD Approved' },
   { value: 'Booked',            label: 'Booked' },
 ];
+
+const BOOKING_STATUS_LABELS = BOOKING_STATUS_MAP.map(s => s.label);
+const STATUS_BY_LABEL = Object.fromEntries(BOOKING_STATUS_MAP.map(({ value, label }) => [label, value])) as Record<string, BookingStatus>;
 
 function bookingStatusStyle(status: BookingStatus): React.CSSProperties & { label: string } {
   switch (status) {
@@ -100,7 +104,7 @@ export default function BookingPage() {
   // Active filters
   const [sellerFilter,  setSellerFilter]  = useState('');
   const [projectFilter, setProjectFilter] = useState('');
-  const [statusFilter,  setStatusFilter]  = useState<BookingStatus | ''>('');
+  const [statusFilter,  setStatusFilter]  = useState('');
 
   const activeFilterCount = [sellerFilter, projectFilter, statusFilter].filter(Boolean).length;
   const [userRoleName,   setUserRoleName]   = useState<string | null>(null);
@@ -244,7 +248,7 @@ export default function BookingPage() {
     }
     if (statusFilter) {
       const bs = computeBookingStatus(progressMap[r.reservation_id]);
-      if (bs !== statusFilter) return false;
+      if (bs !== STATUS_BY_LABEL[statusFilter]) return false;
     }
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -535,73 +539,40 @@ export default function BookingPage() {
             </button>
           </div>
 
-          <div className="px-5 space-y-5 pb-4 max-h-[60vh] overflow-y-auto">
+          <div className="px-5 space-y-4 pb-4 max-h-[60vh] overflow-y-auto">
 
             {/* Booking Status */}
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Booking Status</p>
-              <div className="flex gap-2 flex-wrap">
-                <button
-                  key="all"
-                  type="button"
-                  onClick={() => setStatusFilter('')}
-                  className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all ${
-                    statusFilter === ''
-                      ? 'bg-[#C03D25] border-[#C03D25] text-white'
-                      : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
-                  }`}
-                >
-                  All
-                </button>
-                {BOOKING_STATUS_MAP.map(({ value, label }) => {
-                  const s = bookingStatusStyle(value) as any;
-                  return (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setStatusFilter(value)}
-                      className="px-3 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5"
-                      style={
-                        statusFilter === value
-                          ? { background: s.background, color: s.color, borderColor: s.color + '40' }
-                          : { background: '#F2F2F7', color: '#6C6C70', borderColor: 'transparent' }
-                      }
-                    >
-                      {statusFilter === value && <Check size={11} />}
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
+              <SearchableSelect
+                value={statusFilter}
+                onChange={setStatusFilter}
+                options={BOOKING_STATUS_LABELS}
+                placeholder="All Statuses"
+              />
             </div>
 
             {/* Project */}
-            {projectOptions.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Project</p>
-                <select
-                  value={projectFilter}
-                  onChange={e => setProjectFilter(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/40 appearance-none"
-                >
-                  <option value="">All Projects</option>
-                  {projectOptions.map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
-              </div>
-            )}
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Project</p>
+              <SearchableSelect
+                value={projectFilter}
+                onChange={setProjectFilter}
+                options={projectOptions}
+                placeholder="All Projects"
+              />
+            </div>
 
             {/* Seller */}
-            {!isSeller && sellerOptions.length > 0 && (
-              <div className="space-y-2">
+            {!isSeller && (
+              <div className="space-y-1.5">
                 <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Seller</p>
-                <select
+                <SearchableSelect
                   value={sellerFilter}
-                  onChange={e => setSellerFilter(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/40 appearance-none"
-                >
-                  <option value="">All Sellers</option>
-                  {sellerOptions.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
+                  onChange={setSellerFilter}
+                  options={sellerOptions}
+                  placeholder="All Sellers"
+                />
               </div>
             )}
 

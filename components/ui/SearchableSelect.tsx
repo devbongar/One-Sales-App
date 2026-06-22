@@ -41,14 +41,6 @@ export default function SearchableSelect({
           {value || placeholder}
         </span>
         <div className="flex items-center gap-1.5 shrink-0">
-          {value && (
-            <span
-              onClick={e => { e.stopPropagation(); onChange(''); }}
-              className="p-0.5"
-            >
-              <X size={12} className="text-[#8E8E93]" />
-            </span>
-          )}
           <ChevronDown
             size={14}
             className="text-[#8E8E93]"

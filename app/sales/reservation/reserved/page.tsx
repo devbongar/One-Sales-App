@@ -10,6 +10,7 @@ import {
   Building2, ChevronRight, Clock, Loader2, Search,
   SlidersHorizontal, User, X,
 } from 'lucide-react';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 
 interface Reservation {
   reservation_id: string;
@@ -295,52 +296,40 @@ export default function ReservedUnitsPage() {
             </button>
           </div>
 
-          <div className="px-5 space-y-5 pb-4 max-h-[60vh] overflow-y-auto">
+          <div className="px-5 space-y-4 pb-4 max-h-[60vh] overflow-y-auto">
 
             {/* Status */}
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Status</p>
-              <div className="flex gap-2 flex-wrap">
-                {(['', ...statusOptions] as string[]).map(s => (
-                  <button key={s} type="button" onClick={() => setStatusFilter(s)}
-                    className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all ${
-                      statusFilter === s
-                        ? 'bg-[#C03D25] border-[#C03D25] text-white'
-                        : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
-                    }`}>
-                    {s ? statusLabel(s, null) : 'All'}
-                  </button>
-                ))}
-              </div>
+              <SearchableSelect
+                value={statusFilter}
+                onChange={setStatusFilter}
+                options={statusOptions}
+                placeholder="All Statuses"
+              />
             </div>
 
             {/* Project */}
-            {projectOptions.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Project</p>
-                <select
-                  value={projectFilter}
-                  onChange={e => setProjectFilter(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/40 appearance-none"
-                >
-                  <option value="">All Projects</option>
-                  {projectOptions.map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
-              </div>
-            )}
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Project</p>
+              <SearchableSelect
+                value={projectFilter}
+                onChange={setProjectFilter}
+                options={projectOptions}
+                placeholder="All Projects"
+              />
+            </div>
 
             {/* Seller */}
-            {!isSeller && sellerOptions.length > 0 && (
-              <div className="space-y-2">
+            {!isSeller && (
+              <div className="space-y-1.5">
                 <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Seller</p>
-                <select
+                <SearchableSelect
                   value={sellerFilter}
-                  onChange={e => setSellerFilter(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/40 appearance-none"
-                >
-                  <option value="">All Sellers</option>
-                  {sellerOptions.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
+                  onChange={setSellerFilter}
+                  options={sellerOptions}
+                  placeholder="All Sellers"
+                />
               </div>
             )}
 

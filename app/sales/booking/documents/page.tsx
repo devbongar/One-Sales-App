@@ -20,24 +20,55 @@ function isImage(url: string) {
   return /\.(jpg|jpeg|png|gif|webp|heic)(\?|$)/i.test(url);
 }
 
+// ─── File overlay ─────────────────────────────────────────────────────────────
+
+function FileOverlay({ url, title, onClose }: { url: string; title: string; onClose: () => void }) {
+  const img = isImage(url);
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-[#1C1C1E]">
+      <div className="flex items-center justify-between px-4 py-3 bg-[#1C1C1E] border-b border-white/10 shrink-0">
+        <p className="text-white text-[13px] font-semibold truncate">{title}</p>
+        <button onClick={onClose} className="ml-3 p-2 rounded-xl bg-white/10 border border-white/15 text-white active:bg-white/20 transition-colors">
+          <X size={18} />
+        </button>
+      </div>
+      {img ? (
+        <div className="flex-1 overflow-auto flex items-center justify-center p-4 bg-black">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={url} alt={title} className="max-w-full max-h-full object-contain" />
+        </div>
+      ) : (
+        <iframe src={url} className="flex-1 w-full border-0" title={title} />
+      )}
+      <div className="shrink-0 px-4 py-4 bg-[#1C1C1E] border-t border-white/10">
+        <button onClick={onClose} className="w-full py-3.5 rounded-2xl bg-white/10 text-white text-sm font-semibold active:bg-white/20 transition-colors">
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── File card ────────────────────────────────────────────────────────────────
 
-function FileCard({ file, onRemove, disabled }: {
-  file: DocFile; onRemove: () => void; disabled?: boolean;
+function FileCard({ file, onRemove, onPreview, disabled }: {
+  file: DocFile; onRemove: () => void; onPreview: () => void; disabled?: boolean;
 }) {
   const img = isImage(file.url);
   return (
     <div className="relative rounded-xl overflow-hidden border border-black/[0.08] bg-[#F2F2F7] aspect-square">
-      {img ? (
-        <img src={file.url} alt={file.name} className="w-full h-full object-cover" />
-      ) : (
-        <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 p-2">
-          <FileText size={28} className="text-[#C03D25]" />
-          <span className="text-[10px] text-[#6C6C70] text-center leading-tight line-clamp-2 break-all">
-            {file.name}
-          </span>
-        </div>
-      )}
+      <button type="button" onClick={onPreview} className="w-full h-full active:opacity-70">
+        {img ? (
+          <img src={file.url} alt={file.name} className="w-full h-full object-cover" /> // eslint-disable-line @next/next/no-img-element
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 p-2">
+            <FileText size={28} className="text-[#C03D25]" />
+            <span className="text-[10px] text-[#6C6C70] text-center leading-tight line-clamp-2 break-all">
+              {file.name}
+            </span>
+          </div>
+        )}
+      </button>
       {!disabled && (
         <button type="button" onClick={onRemove}
           className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/50 flex items-center justify-center active:opacity-70">
@@ -50,9 +81,9 @@ function FileCard({ file, onRemove, disabled }: {
 
 // ─── Document section card ────────────────────────────────────────────────────
 
-function DocSection({ label, files, onAdd, onRemove, uploading, disabled }: {
+function DocSection({ label, files, onAdd, onRemove, onPreview, uploading, disabled }: {
   label: string; files: DocFile[];
-  onAdd: () => void; onRemove: (idx: number) => void;
+  onAdd: () => void; onRemove: (idx: number) => void; onPreview: (idx: number) => void;
   uploading: boolean; disabled?: boolean;
 }) {
   return (
@@ -87,7 +118,7 @@ function DocSection({ label, files, onAdd, onRemove, uploading, disabled }: {
       ) : (
         <div className="grid grid-cols-3 gap-2">
           {files.map((f, i) => (
-            <FileCard key={f.url} file={f} onRemove={() => onRemove(i)} disabled={disabled} />
+            <FileCard key={f.url} file={f} onRemove={() => onRemove(i)} onPreview={() => onPreview(i)} disabled={disabled} />
           ))}
         </div>
       )}
@@ -135,6 +166,11 @@ export default function BookingDocumentsPage() {
 
   const [isSaving,         setIsSaving]         = useState(false);
   const [showDoneModal,    setShowDoneModal]     = useState(false);
+  const [fileUrl,          setFileUrl]           = useState<string | null>(null);
+  const [fileTitle,        setFileTitle]         = useState('');
+
+  function openPreview(files: DocFile[], idx: number) { setFileUrl(files[idx].url); setFileTitle(files[idx].name); }
+  function closePreview() { setFileUrl(null); setFileTitle(''); }
 
   const billingInputRef       = useRef<HTMLInputElement>(null);
   const incomeInputRef        = useRef<HTMLInputElement>(null);
@@ -264,6 +300,7 @@ export default function BookingDocumentsPage() {
     && (!needsSpouseId  || spouseFiles.length > 0);
 
   return (
+    <>
     <PageShell title="Required Documents" backButton onBack={() => router.push('/sales/booking/detail')}>
       <div className="space-y-4 pb-6">
 
@@ -286,6 +323,7 @@ export default function BookingDocumentsPage() {
               files={billingFiles}
               onAdd={() => billingInputRef.current?.click()}
               onRemove={idx => handleRemove(idx, billingFiles, setBillingFiles)}
+              onPreview={idx => openPreview(billingFiles, idx)}
               uploading={uploadingBilling}
               disabled={isSaved}
             />
@@ -302,6 +340,7 @@ export default function BookingDocumentsPage() {
               files={incomeFiles}
               onAdd={() => incomeInputRef.current?.click()}
               onRemove={idx => handleRemove(idx, incomeFiles, setIncomeFiles)}
+              onPreview={idx => openPreview(incomeFiles, idx)}
               uploading={uploadingIncome}
               disabled={isSaved}
             />
@@ -320,6 +359,7 @@ export default function BookingDocumentsPage() {
                   files={coOwnerFiles}
                   onAdd={() => coInputRef.current?.click()}
                   onRemove={idx => handleRemove(idx, coOwnerFiles, setCoOwnerFiles)}
+                  onPreview={idx => openPreview(coOwnerFiles, idx)}
                   uploading={uploadingCo}
                   disabled={isSaved}
                 />
@@ -339,6 +379,7 @@ export default function BookingDocumentsPage() {
                   files={attyFiles}
                   onAdd={() => attyInputRef.current?.click()}
                   onRemove={idx => handleRemove(idx, attyFiles, setAttyFiles)}
+                  onPreview={idx => openPreview(attyFiles, idx)}
                   uploading={uploadingAtty}
                   disabled={isSaved}
                 />
@@ -358,6 +399,7 @@ export default function BookingDocumentsPage() {
                   files={spouseFiles}
                   onAdd={() => spouseInputRef.current?.click()}
                   onRemove={idx => handleRemove(idx, spouseFiles, setSpouseFiles)}
+                  onPreview={idx => openPreview(spouseFiles, idx)}
                   uploading={uploadingSpouse}
                   disabled={isSaved}
                 />
@@ -380,6 +422,7 @@ export default function BookingDocumentsPage() {
                   files={loanDisclosureFiles}
                   onAdd={() => loanDisclosureInputRef.current?.click()}
                   onRemove={idx => handleRemove(idx, loanDisclosureFiles, setLoanDisclosureFiles)}
+                  onPreview={idx => openPreview(loanDisclosureFiles, idx)}
                   uploading={uploadingLoanDisclosure}
                   disabled={isSaved}
                 />
@@ -395,6 +438,7 @@ export default function BookingDocumentsPage() {
                   files={addlIncomeFiles}
                   onAdd={() => addlIncomeInputRef.current?.click()}
                   onRemove={idx => handleRemove(idx, addlIncomeFiles, setAddlIncomeFiles)}
+                  onPreview={idx => openPreview(addlIncomeFiles, idx)}
                   uploading={uploadingAddlIncome}
                   disabled={isSaved}
                 />
@@ -410,6 +454,7 @@ export default function BookingDocumentsPage() {
                   files={floorLayoutFiles}
                   onAdd={() => floorLayoutInputRef.current?.click()}
                   onRemove={idx => handleRemove(idx, floorLayoutFiles, setFloorLayoutFiles)}
+                  onPreview={idx => openPreview(floorLayoutFiles, idx)}
                   uploading={uploadingFloorLayout}
                   disabled={isSaved}
                 />
@@ -467,5 +512,8 @@ export default function BookingDocumentsPage() {
       )}
 
     </PageShell>
+
+    {fileUrl && <FileOverlay url={fileUrl} title={fileTitle} onClose={closePreview} />}
+    </>
   );
 }

@@ -6,9 +6,10 @@ import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import { supabase } from '@/lib/supabase';
 import {
-  Building2, Check, ChevronRight, Loader2,
+  Building2, ChevronRight, Loader2,
   Search, ShieldCheck, X, SlidersHorizontal,
 } from 'lucide-react';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -29,9 +30,13 @@ interface PendingBooking {
   scheme_name:           string | null;
   payment_term:          string | null;
   payment_proof_url:          string | null;
-  proof_of_billing_urls:      string | null;
-  proof_of_income_urls:       string | null;
-  proof_of_valid_id_urls:     string | null;
+  proof_of_1st_dp_urls:       string | null;
+  proof_of_billing_urls:             string | null;
+  proof_of_income_urls:              string | null;
+  existing_loan_disclosure_urls:     string | null;
+  additional_proof_of_income_urls:   string | null;
+  signed_floor_layout_urls:          string | null;
+  proof_of_valid_id_urls:            string | null;
   co_owner_id_urls:           string[] | null;
   atty_in_fact_id_urls:       string[] | null;
   spouse_id_urls:             string[] | null;
@@ -57,13 +62,13 @@ function getInitials(name: string) {
 }
 
 function reviewBadgeStyle(status: string | null): { style: React.CSSProperties; label: string } {
-  if (!status || status === 'submitted')
-    return { style: { background: 'rgba(0,122,255,0.12)', color: '#0040A0' }, label: 'Pending Review' };
   if (status === 'director-approved')
-    return { style: { background: 'rgba(52,199,89,0.12)', color: '#1A7F37' }, label: 'Approved' };
-  if (status === 'director-rejected')
-    return { style: { background: 'rgba(255,59,48,0.12)', color: '#C0001E' }, label: 'Rejected' };
-  return { style: { background: 'rgba(142,142,147,0.12)', color: '#6C6C70' }, label: status };
+    return { style: { background: 'rgba(255,149,0,0.12)', color: '#B25000' }, label: 'Pending AMD' };
+  if (status === 'amd-approved')
+    return { style: { background: 'rgba(52,199,89,0.12)', color: '#1A7F37' }, label: 'AMD Approved' };
+  if (status === 'amd-rejected')
+    return { style: { background: 'rgba(255,59,48,0.12)', color: '#C0001E' }, label: 'AMD Rejected' };
+  return { style: { background: 'rgba(142,142,147,0.12)', color: '#6C6C70' }, label: status ?? '—' };
 }
 
 function fmtDate(iso: string | null) {
@@ -87,7 +92,7 @@ export default function BuyersVerificationPage() {
   const [statusFilter,    setStatusFilter]    = useState('');
   const [sellerFilter,    setSellerFilter]    = useState('');
 
-  const activeFilterCount = [projectFilter, statusFilter, sellerFilter].filter(Boolean).length;
+  const activeFilterCount = [projectFilter, sellerFilter].filter(Boolean).length;
 
   useEffect(() => {
     supabase.from('reservations').select('project, seller_name').eq('documents_saved', true).limit(5000)
@@ -115,7 +120,8 @@ export default function BuyersVerificationPage() {
         dp_rate, term_months, dp_amount, net_spot_dp,
         monthly_stretched_dp, monthly_deferred, bank_monthly, hdmf_monthly,
         balance_for_financing, reservation_fee,
-        payment_proof_url, proof_of_billing_urls, proof_of_income_urls,
+        payment_proof_url, proof_of_1st_dp_urls, proof_of_billing_urls, proof_of_income_urls,
+        existing_loan_disclosure_urls, additional_proof_of_income_urls, signed_floor_layout_urls,
         proof_of_valid_id_urls, co_owner_id_urls, atty_in_fact_id_urls,
         spouse_id_urls, has_co_ownership, has_atty_in_fact, has_spouse
       `)
@@ -124,13 +130,13 @@ export default function BuyersVerificationPage() {
       .limit(5000);
 
     if (!statusFilter) {
-      q = q.or('booking_review_status.is.null,booking_review_status.eq.submitted,booking_review_status.eq.director-approved,booking_review_status.eq.director-rejected');
-    } else if (statusFilter === 'Pending Review') {
-      q = q.or('booking_review_status.is.null,booking_review_status.eq.submitted');
-    } else if (statusFilter === 'Approved') {
+      q = q.or('booking_review_status.eq.director-approved,booking_review_status.eq.amd-approved,booking_review_status.eq.amd-rejected');
+    } else if (statusFilter === 'For Review') {
       q = q.eq('booking_review_status', 'director-approved');
+    } else if (statusFilter === 'Approved') {
+      q = q.eq('booking_review_status', 'amd-approved');
     } else if (statusFilter === 'Rejected') {
-      q = q.eq('booking_review_status', 'director-rejected');
+      q = q.eq('booking_review_status', 'amd-rejected');
     }
 
     if (projectFilter) q = q.eq('project',     projectFilter);
@@ -189,6 +195,24 @@ export default function BuyersVerificationPage() {
               </span>
             )}
           </button>
+        </div>
+
+        {/* ── Status pills ─────────────────────────────────────── */}
+        <div className="flex gap-2 overflow-x-auto pb-0.5 no-scrollbar">
+          {(['For Review', 'Approved', 'Rejected', ''] as const).map(s => (
+            <button
+              key={s || 'all'}
+              type="button"
+              onClick={() => setStatusFilter(s)}
+              className={`shrink-0 px-4 py-2 rounded-full text-sm font-semibold border transition-all ${
+                statusFilter === s
+                  ? 'bg-[#C03D25] border-[#C03D25] text-white'
+                  : 'bg-white border-[#E5E5EA] text-[#1C1C1E]'
+              }`}
+            >
+              {s || 'All'}
+            </button>
+          ))}
         </div>
 
         {/* ── List ─────────────────────────────────────────────── */}
@@ -280,82 +304,34 @@ export default function BuyersVerificationPage() {
             </button>
           </div>
 
-          <div className="px-5 space-y-5 pb-4">
-            {/* Review Status */}
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Review Status</p>
-              <div className="flex gap-2 flex-wrap">
-                {(['', 'Pending Review', 'Approved', 'Rejected']).map(s => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => setStatusFilter(s)}
-                    className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 ${
-                      statusFilter === s
-                        ? 'bg-[#C03D25] border-[#C03D25] text-white'
-                        : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
-                    }`}
-                  >
-                    {statusFilter === s && s && <Check size={11} />}
-                    {s || 'All'}
-                  </button>
-                ))}
-              </div>
+          <div className="px-5 space-y-4 pb-4">
+            {/* Project */}
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Project</p>
+              <SearchableSelect
+                value={projectFilter}
+                onChange={setProjectFilter}
+                options={projectOptions}
+                placeholder="All Projects"
+              />
             </div>
 
-            {/* Project */}
-            {projectOptions.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Project</p>
-                <div className="flex gap-2 flex-wrap">
-                  {(['', ...projectOptions]).map(p => (
-                    <button
-                      key={p}
-                      type="button"
-                      onClick={() => setProjectFilter(p)}
-                      className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 ${
-                        projectFilter === p
-                          ? 'bg-[#C03D25] border-[#C03D25] text-white'
-                          : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
-                      }`}
-                    >
-                      {projectFilter === p && p && <Check size={11} />}
-                      {p || 'All'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {/* Seller */}
-            {sellerOptions.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Seller</p>
-                <div className="flex gap-2 flex-wrap">
-                  {(['', ...sellerOptions]).map(s => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => setSellerFilter(s)}
-                      className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 ${
-                        sellerFilter === s
-                          ? 'bg-[#C03D25] border-[#C03D25] text-white'
-                          : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
-                      }`}
-                    >
-                      {sellerFilter === s && s && <Check size={11} />}
-                      {s || 'All'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Seller</p>
+              <SearchableSelect
+                value={sellerFilter}
+                onChange={setSellerFilter}
+                options={sellerOptions}
+                placeholder="All Sellers"
+              />
+            </div>
           </div>
 
           <div className="px-5 pb-10 pt-2 flex gap-3">
             <button
               type="button"
-              onClick={() => { setProjectFilter(''); setStatusFilter(''); setSellerFilter(''); }}
+              onClick={() => { setProjectFilter(''); setSellerFilter(''); }}
               className="flex-1 py-3.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-70"
             >
               Clear All
