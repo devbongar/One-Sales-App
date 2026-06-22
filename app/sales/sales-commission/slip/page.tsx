@@ -70,7 +70,7 @@ export default function CommissionSlipPage() {
     setSeller(s);
 
     Promise.all([
-      fetchSellerCommissionSummaries(s.seller_name),
+      fetchSellerCommissionSummaries(s.seller_id ?? ''),
       fetchSellerTaxInfo(s.seller_name),
     ])
       .then(([summaries, tax]) => {
@@ -94,7 +94,7 @@ export default function CommissionSlipPage() {
     setDetailCache(prev => ({ ...prev, [reservationId]: { loading: true, error: '', collected: 0, lines: [] } }));
     try {
       const [lines, collected] = await Promise.all([
-        fetchCommissionScheduleLines(reservationId, seller?.seller_name),
+        fetchCommissionScheduleLines(reservationId, seller?.seller_id ?? undefined),
         fetchReservationCollected(reservationId),
       ]);
       setDetailCache(prev => ({ ...prev, [reservationId]: { loading: false, error: '', collected, lines } }));

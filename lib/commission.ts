@@ -12,6 +12,7 @@ export interface CommissionRecord {
   unit_type:            string;
   product_type:         string;
   seller_name:          string | null;
+  seller_id:            string | null;
   seller_type:          string | null;
   position_rank:        string | null;
   total_contract_price: number | null;
@@ -76,35 +77,62 @@ export async function generateCommissionSchedule(reservationId: string): Promise
   const client_id    = (ids as any)?.client_id    ?? null;
   const hic_discount = Number((ids as any)?.hic_discount) || 0;
 
-  // Look up seller's Salesperson row to get the full hierarchy chain
-  const { data: sellerRow } = await supabase
-    .from('Salesperson')
-    .select('"Seller Id", "Sales Manager", "Sales Director", "Sales Division Head", "Sales Head"')
-    .eq('"Seller Name"', rec.seller_name)
-    .maybeSingle();
-
-  const sm  = (sellerRow as any)?.['Sales Manager']       as string | null ?? null;
-  const sd  = (sellerRow as any)?.['Sales Director']      as string | null ?? null;
-  const sdh = (sellerRow as any)?.['Sales Division Head'] as string | null ?? null;
-  const sh  = (sellerRow as any)?.['Sales Head']          as string | null ?? null;
-
-  // Build targets: { name, positionRank }
-  // positionRank controls which tranche row is fetched from Commission_Tranching
-  type Target = { name: string; positionRank: string };
+  // Build hierarchy chain using IDs from the DB — no name-based secondary lookups needed.
+  type Target = { name: string; sellerId: string | null; positionRank: string };
   const targets: Target[] = [];
 
-  if (rec.position_rank === 'PS') {
-    targets.push({ name: rec.seller_name!, positionRank: 'PS' });
-    if (sm)  targets.push({ name: sm,  positionRank: 'SM'  });
-    if (sd)  targets.push({ name: sd,  positionRank: 'SD'  });
-    if (sdh) targets.push({ name: sdh, positionRank: 'SDH' });
-    if (sh)  targets.push({ name: sh,  positionRank: 'SH'  });
-  } else if (rec.position_rank === 'SM') {
-    // SM acts as direct seller — gets PS rates
-    targets.push({ name: rec.seller_name!, positionRank: 'PS' });
-    if (sd)  targets.push({ name: sd,  positionRank: 'SD'  });
-    if (sdh) targets.push({ name: sdh, positionRank: 'SDH' });
-    if (sh)  targets.push({ name: sh,  positionRank: 'SH'  });
+  if (rec.seller_type === 'In-house') {
+    // Look up chain by seller_id (stable, name-independent)
+    const { data: sellerRow } = await supabase
+      .from('Salesperson')
+      .select('"Sales Manager", "Sales Manager ID", "Sales Director", "Sales Director ID", "Sales Division Head", "Sales Division Head ID", "Sales Head", "Sales Head ID"')
+      .eq('"Seller Id"', rec.seller_id)
+      .maybeSingle();
+
+    const smName  = (sellerRow as any)?.['Sales Manager']         as string | null ?? null;
+    const smId    = (sellerRow as any)?.['Sales Manager ID']      as string | null ?? null;
+    const sdName  = (sellerRow as any)?.['Sales Director']        as string | null ?? null;
+    const sdId    = (sellerRow as any)?.['Sales Director ID']     as string | null ?? null;
+    const sdhName = (sellerRow as any)?.['Sales Division Head']   as string | null ?? null;
+    const sdhId   = (sellerRow as any)?.['Sales Division Head ID'] as string | null ?? null;
+    const shName  = (sellerRow as any)?.['Sales Head']            as string | null ?? null;
+    const shId    = (sellerRow as any)?.['Sales Head ID']         as string | null ?? null;
+
+    if (rec.position_rank === 'PS') {
+      targets.push({ name: rec.seller_name!, sellerId: rec.seller_id, positionRank: 'PS' });
+      if (smName)  targets.push({ name: smName,  sellerId: smId,  positionRank: 'SM'  });
+      if (sdName)  targets.push({ name: sdName,  sellerId: sdId,  positionRank: 'SD'  });
+      if (sdhName) targets.push({ name: sdhName, sellerId: sdhId, positionRank: 'SDH' });
+      if (shName)  targets.push({ name: shName,  sellerId: shId,  positionRank: 'SH'  });
+    } else if (rec.position_rank === 'SM') {
+      targets.push({ name: rec.seller_name!, sellerId: rec.seller_id, positionRank: 'PS' });
+      if (sdName)  targets.push({ name: sdName,  sellerId: sdId,  positionRank: 'SD'  });
+      if (sdhName) targets.push({ name: sdhName, sellerId: sdhId, positionRank: 'SDH' });
+      if (shName)  targets.push({ name: shName,  sellerId: shId,  positionRank: 'SH'  });
+    }
+  } else {
+    // Broker: look up chain from Brokers table by name
+    const { data: brokerRow } = await supabase
+      .from('Brokers')
+      .select('"Broker ID", "Broker Network Associate", "Broker Network Associate ID", "Broker Network Officer", "Broker Network Officer ID", "Sales Director Head", "Sales Director Head ID", "Sales Head", "Sales Head ID"')
+      .eq('"Broker ID"', rec.seller_id)
+      .maybeSingle();
+
+    const smName  = (brokerRow as any)?.['Broker Network Associate']    as string | null ?? null;
+    const smId    = (brokerRow as any)?.['Broker Network Associate ID'] as string | null ?? null;
+    const sdName  = (brokerRow as any)?.['Broker Network Officer']      as string | null ?? null;
+    const sdId    = (brokerRow as any)?.['Broker Network Officer ID']   as string | null ?? null;
+    const sdhName = (brokerRow as any)?.['Sales Director Head']         as string | null ?? null;
+    const sdhId   = (brokerRow as any)?.['Sales Director Head ID']      as string | null ?? null;
+    const shName  = (brokerRow as any)?.['Sales Head']                  as string | null ?? null;
+    const shId    = (brokerRow as any)?.['Sales Head ID']               as string | null ?? null;
+
+    // Brokers are treated as PS in tranching
+    targets.push({ name: rec.seller_name!, sellerId: rec.seller_id, positionRank: 'PS' });
+    if (smName)  targets.push({ name: smName,  sellerId: smId,  positionRank: 'SM'  });
+    if (sdName)  targets.push({ name: sdName,  sellerId: sdId,  positionRank: 'SD'  });
+    if (sdhName) targets.push({ name: sdhName, sellerId: sdhId, positionRank: 'SDH' });
+    if (shName)  targets.push({ name: shName,  sellerId: shId,  positionRank: 'SH'  });
   }
 
   if (targets.length === 0) return { ok: false, reason: 'missing-fields' };
@@ -114,16 +142,11 @@ export async function generateCommissionSchedule(reservationId: string): Promise
   const allLines: object[] = [];
 
   for (const target of targets) {
-    // Look up seller_id for this person (chain members are always In-house)
-    const { data: targetRow } = await supabase
-      .from('Salesperson')
-      .select('"Seller Id"')
-      .eq('"Seller Name"', target.name)
-      .maybeSingle();
-    const targetSellerId = (targetRow as any)?.['Seller Id'] ?? null;
+    const targetSellerId = target.sellerId;
 
-    // Direct seller uses their own seller_type (could be Broker); chain members are always In-house
-    const sellerType = target.name === rec.seller_name ? rec.seller_type : 'In-house';
+    // Whole chain uses the direct seller's type — chain members have two tranching rows
+    // (one for in-house sales, one for broker sales) and must use the correct one
+    const sellerType = rec.seller_type!;
 
     const tranches = await fetchCommissionTranches(
       rec.project, target.positionRank, rec.product_type, sellerType,
@@ -187,11 +210,11 @@ export interface SellerCommissionSummary {
   created_at:           string | null;
 }
 
-export async function fetchSellerCommissionSummaries(sellerName: string): Promise<SellerCommissionSummary[]> {
+export async function fetchSellerCommissionSummaries(sellerId: string): Promise<SellerCommissionSummary[]> {
   const { data: lines, error } = await supabase
     .from('commission_schedule')
     .select('reservation_id, client_name, project, inventory_code, commission_rate, gross_commission, created_at')
-    .eq('seller_name', sellerName)
+    .eq('seller_id', sellerId)
     .neq('status', 'Superseded');
   if (error) throw error;
 
@@ -233,13 +256,13 @@ export async function fetchSellerCommissionSummaries(sellerName: string): Promis
   return summaries.sort((a, b) => a.reservation_id.localeCompare(b.reservation_id));
 }
 
-export async function fetchCommissionScheduleLines(reservationId: string, sellerName?: string): Promise<CommissionScheduleLine[]> {
+export async function fetchCommissionScheduleLines(reservationId: string, sellerId?: string): Promise<CommissionScheduleLine[]> {
   let query = supabase
     .from('commission_schedule')
     .select('id, tranche, percentage_collection, commission_release_rate, commission_rate, gross_commission, status, vat_amount, ewt_amount, net_commission')
     .eq('reservation_id', reservationId)
     .neq('status', 'Superseded');
-  if (sellerName) query = query.eq('seller_name', sellerName);
+  if (sellerId) query = query.eq('seller_id', sellerId);
   const { data, error } = await query.order('tranche', { ascending: true });
   if (error) throw error;
   return (data ?? []) as CommissionScheduleLine[];
@@ -264,6 +287,7 @@ export async function fetchReservationCollected(reservationId: string): Promise<
 export interface CommissionScheduleFullLine {
   id:                      number;
   reservation_id:          string;
+  seller_id:               string | null;
   seller_name:             string | null;
   client_name:             string;
   project:                 string;
@@ -279,7 +303,7 @@ export interface CommissionScheduleFullLine {
   net_commission:          number | null;
 }
 
-const SCHEDULE_FULL_SELECT = 'id, reservation_id, seller_name, client_name, project, inventory_code, tranche, percentage_collection, commission_release_rate, commission_rate, gross_commission, status, vat_amount, ewt_amount, net_commission';
+const SCHEDULE_FULL_SELECT = 'id, reservation_id, seller_id, seller_name, client_name, project, inventory_code, tranche, percentage_collection, commission_release_rate, commission_rate, gross_commission, status, vat_amount, ewt_amount, net_commission';
 
 export async function fetchAllCommissionScheduleLines(): Promise<CommissionScheduleFullLine[]> {
   const { data, error } = await supabase
@@ -294,11 +318,11 @@ export async function fetchAllCommissionScheduleLines(): Promise<CommissionSched
   return (data ?? []) as CommissionScheduleFullLine[];
 }
 
-export async function fetchSellerCommissionLines(sellerName: string): Promise<CommissionScheduleFullLine[]> {
+export async function fetchSellerCommissionLines(sellerId: string): Promise<CommissionScheduleFullLine[]> {
   const { data, error } = await supabase
     .from('commission_schedule')
     .select(SCHEDULE_FULL_SELECT)
-    .eq('seller_name', sellerName)
+    .eq('seller_id', sellerId)
     .neq('status', 'Superseded')
     .order('reservation_id', { ascending: true })
     .order('tranche',        { ascending: true });
@@ -390,44 +414,68 @@ export async function regenerateCommissionSchedule(reservationId: string): Promi
   const client_id    = (ids as any)?.client_id    ?? null;
   const hic_discount = Number((ids as any)?.hic_discount) || 0;
 
-  const { data: sellerRow } = await supabase
-    .from('Salesperson')
-    .select('"Seller Id", "Sales Manager", "Sales Director", "Sales Division Head", "Sales Head"')
-    .eq('"Seller Name"', rec.seller_name)
-    .maybeSingle();
-
-  const sm  = (sellerRow as any)?.['Sales Manager']       as string | null ?? null;
-  const sd  = (sellerRow as any)?.['Sales Director']      as string | null ?? null;
-  const sdh = (sellerRow as any)?.['Sales Division Head'] as string | null ?? null;
-  const sh  = (sellerRow as any)?.['Sales Head']          as string | null ?? null;
-
-  type Target = { name: string; positionRank: string };
+  type Target = { name: string; sellerId: string | null; positionRank: string };
   const targets: Target[] = [];
-  if (rec.position_rank === 'PS') {
-    targets.push({ name: rec.seller_name!, positionRank: 'PS' });
-    if (sm)  targets.push({ name: sm,  positionRank: 'SM'  });
-    if (sd)  targets.push({ name: sd,  positionRank: 'SD'  });
-    if (sdh) targets.push({ name: sdh, positionRank: 'SDH' });
-    if (sh)  targets.push({ name: sh,  positionRank: 'SH'  });
-  } else if (rec.position_rank === 'SM') {
-    targets.push({ name: rec.seller_name!, positionRank: 'PS' });
-    if (sd)  targets.push({ name: sd,  positionRank: 'SD'  });
-    if (sdh) targets.push({ name: sdh, positionRank: 'SDH' });
-    if (sh)  targets.push({ name: sh,  positionRank: 'SH'  });
+
+  if (rec.seller_type === 'In-house') {
+    const { data: sellerRow } = await supabase
+      .from('Salesperson')
+      .select('"Sales Manager", "Sales Manager ID", "Sales Director", "Sales Director ID", "Sales Division Head", "Sales Division Head ID", "Sales Head", "Sales Head ID"')
+      .eq('"Seller Id"', rec.seller_id)
+      .maybeSingle();
+
+    const smName  = (sellerRow as any)?.['Sales Manager']          as string | null ?? null;
+    const smId    = (sellerRow as any)?.['Sales Manager ID']       as string | null ?? null;
+    const sdName  = (sellerRow as any)?.['Sales Director']         as string | null ?? null;
+    const sdId    = (sellerRow as any)?.['Sales Director ID']      as string | null ?? null;
+    const sdhName = (sellerRow as any)?.['Sales Division Head']    as string | null ?? null;
+    const sdhId   = (sellerRow as any)?.['Sales Division Head ID'] as string | null ?? null;
+    const shName  = (sellerRow as any)?.['Sales Head']             as string | null ?? null;
+    const shId    = (sellerRow as any)?.['Sales Head ID']          as string | null ?? null;
+
+    if (rec.position_rank === 'PS') {
+      targets.push({ name: rec.seller_name!, sellerId: rec.seller_id, positionRank: 'PS' });
+      if (smName)  targets.push({ name: smName,  sellerId: smId,  positionRank: 'SM'  });
+      if (sdName)  targets.push({ name: sdName,  sellerId: sdId,  positionRank: 'SD'  });
+      if (sdhName) targets.push({ name: sdhName, sellerId: sdhId, positionRank: 'SDH' });
+      if (shName)  targets.push({ name: shName,  sellerId: shId,  positionRank: 'SH'  });
+    } else if (rec.position_rank === 'SM') {
+      targets.push({ name: rec.seller_name!, sellerId: rec.seller_id, positionRank: 'PS' });
+      if (sdName)  targets.push({ name: sdName,  sellerId: sdId,  positionRank: 'SD'  });
+      if (sdhName) targets.push({ name: sdhName, sellerId: sdhId, positionRank: 'SDH' });
+      if (shName)  targets.push({ name: shName,  sellerId: shId,  positionRank: 'SH'  });
+    }
+  } else {
+    const { data: brokerRow } = await supabase
+      .from('Brokers')
+      .select('"Broker Network Associate", "Broker Network Associate ID", "Broker Network Officer", "Broker Network Officer ID", "Sales Director Head", "Sales Director Head ID", "Sales Head", "Sales Head ID"')
+      .eq('"Broker ID"', rec.seller_id)
+      .maybeSingle();
+
+    const smName  = (brokerRow as any)?.['Broker Network Associate']    as string | null ?? null;
+    const smId    = (brokerRow as any)?.['Broker Network Associate ID'] as string | null ?? null;
+    const sdName  = (brokerRow as any)?.['Broker Network Officer']      as string | null ?? null;
+    const sdId    = (brokerRow as any)?.['Broker Network Officer ID']   as string | null ?? null;
+    const sdhName = (brokerRow as any)?.['Sales Director Head']         as string | null ?? null;
+    const sdhId   = (brokerRow as any)?.['Sales Director Head ID']      as string | null ?? null;
+    const shName  = (brokerRow as any)?.['Sales Head']                  as string | null ?? null;
+    const shId    = (brokerRow as any)?.['Sales Head ID']               as string | null ?? null;
+
+    targets.push({ name: rec.seller_name!, sellerId: rec.seller_id, positionRank: 'PS' });
+    if (smName)  targets.push({ name: smName,  sellerId: smId,  positionRank: 'SM'  });
+    if (sdName)  targets.push({ name: sdName,  sellerId: sdId,  positionRank: 'SD'  });
+    if (sdhName) targets.push({ name: sdhName, sellerId: sdhId, positionRank: 'SDH' });
+    if (shName)  targets.push({ name: shName,  sellerId: shId,  positionRank: 'SH'  });
   }
+
   if (targets.length === 0) return { ok: false, reason: 'missing-fields' };
 
   const nlp = (Number(rec.net_list_price) || 0) + hic_discount;
   const allLines: object[] = [];
 
   for (const target of targets) {
-    const { data: targetRow } = await supabase
-      .from('Salesperson')
-      .select('"Seller Id"')
-      .eq('"Seller Name"', target.name)
-      .maybeSingle();
-    const targetSellerId = (targetRow as any)?.['Seller Id'] ?? null;
-    const sellerType = target.name === rec.seller_name ? rec.seller_type : 'In-house';
+    const targetSellerId = target.sellerId;
+    const sellerType = rec.seller_type!;
     const tranches = await fetchCommissionTranches(rec.project, target.positionRank, rec.product_type, sellerType);
     if (!tranches || tranches.length === 0) continue;
     for (const t of tranches) {

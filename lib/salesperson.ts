@@ -9,16 +9,20 @@ export async function fetchAccessRoles(): Promise<AccessRole[]> {
 }
 
 export interface SalespersonRecord {
-  seller_name: string;
-  seller_id: string | null;
-  position_code: string;
-  position_rank: string | null;
-  seller_group: string | null;
-  sales_manager: string | null;
-  sales_director: string | null;
-  sales_division_head: string | null;
-  sales_head: string | null;
-  sales_team: string | null;
+  seller_name:            string;
+  seller_id:              string | null;
+  position_code:          string;
+  position_rank:          string | null;
+  seller_group:           string | null;
+  sales_manager:          string | null;
+  sales_manager_id:       string | null;
+  sales_director:         string | null;
+  sales_director_id:      string | null;
+  sales_division_head:    string | null;
+  sales_division_head_id: string | null;
+  sales_head:             string | null;
+  sales_head_id:          string | null;
+  sales_team:             string | null;
 }
 
 export interface SellerTaxInfo {

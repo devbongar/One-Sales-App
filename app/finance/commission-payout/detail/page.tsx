@@ -73,14 +73,14 @@ export default function CommissionPayoutDetailPage() {
     async function load() {
       try {
         const [lines, collectionsMap, commRecords] = await Promise.all([
-          fetchSellerCommissionLines(s.sellerName),
+          fetchSellerCommissionLines(s.sellerId ?? ''),
           fetchAllCollectedByReservation(),
           fetchCommissionRecords(),
         ]);
 
         const nlpMap: Record<string, number> = {};
         commRecords
-          .filter(r => r.seller_name === s.sellerName)
+          .filter(r => r.seller_id === s.sellerId)
           .forEach(r => { nlpMap[r.reservation_id] = r.net_list_price ?? 0; });
 
         // Group and annotate

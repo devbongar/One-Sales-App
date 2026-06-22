@@ -28,26 +28,30 @@ export async function fetchAllBrokers(): Promise<BrokerRecord[]> {
 // ─── Broker Recruit Record ─────────────────────────────────────────────────────
 
 export interface BrokerRecruitRecord {
-  full_name:                string;
-  broker_id:                string | null;
-  business_unit:            string | null;
-  broker_status:            string | null;
-  broker_category:          string | null;
-  broker_type:              string | null;
-  last_name:                string | null;
-  first_name:               string | null;
-  middle_name:              string | null;
-  suffix:                   string | null;
-  email_address:            string | null;
-  sales_head:               string | null;
-  sales_director_head:      string | null;
-  broker_network_officer:   string | null;
-  broker_network_associate: string | null;
-  bir_registered_name:      string | null;
-  vat_registration_type:    string | null;
-  tin:                      string | null;
-  ewt_cwt_rate:             string | null;
-  bir_cor_address:          string | null;
+  full_name:                    string;
+  broker_id:                    string | null;
+  business_unit:                string | null;
+  broker_status:                string | null;
+  broker_category:              string | null;
+  broker_type:                  string | null;
+  last_name:                    string | null;
+  first_name:                   string | null;
+  middle_name:                  string | null;
+  suffix:                       string | null;
+  email_address:                string | null;
+  sales_head:                   string | null;
+  sales_head_id:                string | null;
+  sales_director_head:          string | null;
+  sales_director_head_id:       string | null;
+  broker_network_officer:       string | null;
+  broker_network_officer_id:    string | null;
+  broker_network_associate:     string | null;
+  broker_network_associate_id:  string | null;
+  bir_registered_name:          string | null;
+  vat_registration_type:        string | null;
+  tin:                          string | null;
+  ewt_cwt_rate:                 string | null;
+  bir_cor_address:              string | null;
 }
 
 export async function fetchAllBrokerRecruits(): Promise<BrokerRecruitRecord[]> {
@@ -64,62 +68,81 @@ export async function fetchAllBrokerRecruits(): Promise<BrokerRecruitRecord[]> {
   return rows;
 }
 
+export async function generateNextBrokerId(): Promise<string> {
+  const { data } = await supabase
+    .from('Brokers')
+    .select('"Broker ID"')
+    .not('"Broker ID"', 'is', null);
+  const ids = (data ?? []) as { 'Broker ID': string | null }[];
+  let max = 0;
+  for (const row of ids) {
+    const m = row['Broker ID']?.match(/^BN-(\d{4})$/);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return `BN-${String(max + 1).padStart(4, '0')}`;
+}
+
 export async function addBrokerRecruit(rec: BrokerRecruitRecord): Promise<void> {
   const { error } = await supabase
     .from('Brokers')
     .insert({
-      'Full Name':                rec.full_name,
-      'Broker ID':                rec.broker_id,
-      'Business Unit':            rec.business_unit,
-      'Broker Status':            rec.broker_status,
-      'Broker Category':          rec.broker_category,
-      'Broker Type':              rec.broker_type,
-      'Last Name':                rec.last_name,
-      'First Name':               rec.first_name,
-      'Middle Name':              rec.middle_name,
-      'Suffix':                   rec.suffix,
-      'Broker Email Address':     rec.email_address,
-      'Sales Head':               rec.sales_head,
-      'Sales Director Head':      rec.sales_director_head,
-      'Broker Network Officer':   rec.broker_network_officer,
-      'Broker Network Associate': rec.broker_network_associate,
-      'BIR Registered Name':      rec.bir_registered_name,
-      'VAT Registration Type':    rec.vat_registration_type,
-      'TIN':                      rec.tin,
-      'EWT / CWT':                rec.ewt_cwt_rate,
-      'BIR COR Address':          rec.bir_cor_address,
+      'Full Name':                    rec.full_name,
+      'Broker ID':                    rec.broker_id,
+      'Business Unit':                rec.business_unit,
+      'Broker Status':                rec.broker_status,
+      'Broker Category':              rec.broker_category,
+      'Broker Type':                  rec.broker_type,
+      'Last Name':                    rec.last_name,
+      'First Name':                   rec.first_name,
+      'Middle Name':                  rec.middle_name,
+      'Suffix':                       rec.suffix,
+      'Broker Email Address':         rec.email_address,
+      'Sales Head':                   rec.sales_head,
+      'Sales Head ID':                rec.sales_head_id,
+      'Sales Director Head':          rec.sales_director_head,
+      'Sales Director Head ID':       rec.sales_director_head_id,
+      'Broker Network Officer':       rec.broker_network_officer,
+      'Broker Network Officer ID':    rec.broker_network_officer_id,
+      'Broker Network Associate':     rec.broker_network_associate,
+      'Broker Network Associate ID':  rec.broker_network_associate_id,
+      'BIR Registered Name':          rec.bir_registered_name,
+      'VAT Registration Type':        rec.vat_registration_type,
+      'TIN':                          rec.tin,
+      'EWT / CWT':                    rec.ewt_cwt_rate,
+      'BIR COR Address':              rec.bir_cor_address,
     });
   if (error) throw error;
 }
 
-export async function updateBrokerRecruit(
-  originalFullName: string,
-  rec: BrokerRecruitRecord,
-): Promise<void> {
+export async function updateBrokerRecruit(rec: BrokerRecruitRecord): Promise<void> {
   const { error } = await supabase
     .from('Brokers')
     .update({
-      'Full Name':                rec.full_name,
-      'Broker ID':                rec.broker_id,
-      'Business Unit':            rec.business_unit,
-      'Broker Status':            rec.broker_status,
-      'Broker Category':          rec.broker_category,
-      'Broker Type':              rec.broker_type,
-      'Last Name':                rec.last_name,
-      'First Name':               rec.first_name,
-      'Middle Name':              rec.middle_name,
-      'Suffix':                   rec.suffix,
-      'Broker Email Address':     rec.email_address,
-      'Sales Head':               rec.sales_head,
-      'Sales Director Head':      rec.sales_director_head,
-      'Broker Network Officer':   rec.broker_network_officer,
-      'Broker Network Associate': rec.broker_network_associate,
-      'BIR Registered Name':      rec.bir_registered_name,
-      'VAT Registration Type':    rec.vat_registration_type,
-      'TIN':                      rec.tin,
-      'EWT / CWT':                rec.ewt_cwt_rate,
-      'BIR COR Address':          rec.bir_cor_address,
+      'Full Name':                    rec.full_name,
+      'Broker ID':                    rec.broker_id,
+      'Business Unit':                rec.business_unit,
+      'Broker Status':                rec.broker_status,
+      'Broker Category':              rec.broker_category,
+      'Broker Type':                  rec.broker_type,
+      'Last Name':                    rec.last_name,
+      'First Name':                   rec.first_name,
+      'Middle Name':                  rec.middle_name,
+      'Suffix':                       rec.suffix,
+      'Broker Email Address':         rec.email_address,
+      'Sales Head':                   rec.sales_head,
+      'Sales Head ID':                rec.sales_head_id,
+      'Sales Director Head':          rec.sales_director_head,
+      'Sales Director Head ID':       rec.sales_director_head_id,
+      'Broker Network Officer':       rec.broker_network_officer,
+      'Broker Network Officer ID':    rec.broker_network_officer_id,
+      'Broker Network Associate':     rec.broker_network_associate,
+      'Broker Network Associate ID':  rec.broker_network_associate_id,
+      'BIR Registered Name':          rec.bir_registered_name,
+      'VAT Registration Type':        rec.vat_registration_type,
+      'TIN':                          rec.tin,
+      'EWT / CWT':                    rec.ewt_cwt_rate,
+      'BIR COR Address':              rec.bir_cor_address,
     })
-    .eq('Full Name', originalFullName);
+    .eq('Broker ID', rec.broker_id);
   if (error) throw error;
 }

@@ -16,6 +16,7 @@ import { Building2, Check, FileText, Loader2, Search, X } from 'lucide-react';
 
 export interface SellerPayoutSummary {
   sellerName:      string;
+  sellerId:        string | null;
   positionRank:    string | null;
   forRelease:      number;
   released:        number;

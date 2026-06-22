@@ -49,7 +49,7 @@ export default function CommissionSchedulePage() {
     const s = JSON.parse(stored) as SalespersonRecord;
     setSeller(s);
 
-    fetchSellerCommissionSummaries(s.seller_name)
+    fetchSellerCommissionSummaries(s.seller_id ?? '')
       .then(summaries => setRecords(summaries))
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
@@ -119,7 +119,7 @@ export default function CommissionSchedulePage() {
             .from('commission_schedule')
             .select('tranche, percentage_collection, commission_release_rate, commission_rate, gross_commission')
             .eq('reservation_id', r.reservation_id)
-            .eq('seller_name', seller!.seller_name)
+            .eq('seller_id', seller!.seller_id)
             .neq('status', 'Superseded')
             .order('tranche', { ascending: true });
           if (error) throw error;

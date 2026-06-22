@@ -6,11 +6,13 @@ import GlassCard from '@/components/ui/GlassCard';
 import SearchInput from '@/components/ui/SearchInput';
 import {
   Loader2, Users, Plus, ChevronLeft, Check, X,
-  Mail, Building2, Tag, User, ChevronDown, SlidersHorizontal, ShieldCheck,
+  Mail, Building2, Tag, User, ChevronDown, SlidersHorizontal, ShieldCheck, Search,
 } from 'lucide-react';
 import {
   fetchAllBrokerRecruits, addBrokerRecruit, updateBrokerRecruit, BrokerRecruitRecord,
+  generateNextBrokerId,
 } from '@/lib/brokers';
+import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -64,28 +66,54 @@ function ERow({ label, icon, children }: { label: string; icon?: React.ReactNode
 function ESelect({ value, options, onChange, disabled }: {
   value: string; options: string[]; onChange: (v: string) => void; disabled?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open,  setOpen]  = useState(false);
+  const [query, setQuery] = useState('');
+
+  function close() { setOpen(false); setQuery(''); }
+
   if (disabled) return <div className={readCls}>{value || '—'}</div>;
+
+  const filtered = options.filter(o => !query.trim() || o.toLowerCase().includes(query.toLowerCase()));
+
   return (
-    <div className="relative">
-      <button type="button" onClick={() => setOpen(p => !p)}
-        className={`${inputCls} flex items-center justify-between`}>
+    <div>
+      <button type="button" onClick={() => { if (open) close(); else setOpen(true); }}
+        className={`${inputCls} flex items-center justify-between ${open ? '!rounded-b-none' : ''}`}>
         <span className={value ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}>{value || 'Select…'}</span>
-        <ChevronDown size={12} className={`text-[#8E8E93] transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown size={12} className={`text-[#8E8E93] transition-transform duration-200 shrink-0 ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div
-          className="absolute left-0 right-0 mt-1 rounded-xl border border-black/[0.08] overflow-hidden z-20 backdrop-blur-2xl"
-          style={{ background: 'rgba(255, 255, 255, 0.98)' }}
-        >
-          {options.map(o => (
-            <button key={o} type="button"
-              onClick={() => { onChange(o); setOpen(false); }}
-              className={`w-full flex items-center justify-between px-3 py-2.5 text-sm border-b border-black/[0.05] last:border-0 active:bg-black/[0.04] ${o === value ? 'bg-black/[0.04] text-[#1C1C1E] font-semibold' : 'text-[#3C3C43]'}`}>
-              {o}
-              {o === value && <Check size={12} className="shrink-0 text-[#8E8E93]" />}
-            </button>
-          ))}
+        <div className="border border-t-0 border-black/[0.10] rounded-b-xl overflow-hidden bg-white/80">
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-black/[0.06] bg-white/60">
+            <Search size={12} className="text-[#8E8E93] shrink-0" />
+            <input
+              autoFocus
+              type="text"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Search…"
+              className="flex-1 text-sm text-[#1C1C1E] bg-transparent outline-none placeholder:text-[#C7C7CC]"
+            />
+            {query && <button type="button" onClick={() => setQuery('')}><X size={11} className="text-[#8E8E93]" /></button>}
+          </div>
+          <div className="overflow-y-auto max-h-40">
+            {filtered.length === 0
+              ? <p className="text-xs text-[#8E8E93] text-center py-3">No matches</p>
+              : filtered.map(o => (
+                <button key={o} type="button"
+                  onClick={() => { onChange(o === value ? '' : o); close(); }}
+                  className="w-full flex items-center justify-between px-3 py-2.5 text-sm border-b border-black/[0.05] last:border-0 active:bg-black/[0.04]"
+                  style={{
+                    background: o === value ? 'rgba(192,61,37,0.06)' : undefined,
+                    color:      o === value ? '#C03D25' : '#1C1C1E',
+                    fontWeight: o === value ? 600 : 400,
+                  }}>
+                  {o}
+                  {o === value && <Check size={12} className="shrink-0" style={{ color: '#C03D25' }} />}
+                </button>
+              ))
+            }
+          </div>
         </div>
       )}
     </div>
@@ -104,6 +132,82 @@ function DetailSheet({ broker, onClose, onSaved }: {
   const [saving,   setSaving]   = useState(false);
   const [error,    setError]    = useState('');
 
+  const [allPeople,  setAllPeople]  = useState<SalespersonRecord[]>([]);
+  const [smOptions,  setSmOptions]  = useState<string[]>([]);
+  const [sdOptions,  setSdOptions]  = useState<string[]>([]);
+  const [sdhOptions, setSdhOptions] = useState<string[]>([]);
+  const [shOptions,  setShOptions]  = useState<string[]>([]);
+  const [cascadeSource, setCascadeSource] = useState<'associate' | 'officer' | 'sdh' | null>(() =>
+    broker.broker_network_associate ? 'associate' :
+    broker.broker_network_officer   ? 'officer'   :
+    broker.sales_director_head      ? 'sdh'        : null
+  );
+
+  useEffect(() => {
+    fetchAllSalespersons().then(people => {
+      setAllPeople(people);
+      setSmOptions( people.filter(p => p.position_rank === 'SM' ).map(p => p.seller_name));
+      setSdOptions( people.filter(p => p.position_rank === 'SD' ).map(p => p.seller_name));
+      setSdhOptions(people.filter(p => p.position_rank === 'SDH').map(p => p.seller_name));
+      setShOptions( people.filter(p => p.position_rank === 'SH' ).map(p => p.seller_name));
+    }).catch(() => {});
+  }, []);
+
+  function onAssociateChange(name: string) {
+    const rec = name ? allPeople.find(p => p.seller_name === name) : null;
+    setForm(f => ({
+      ...f,
+      broker_network_associate:    name || null,
+      broker_network_associate_id: rec?.seller_id              ?? null,
+      broker_network_officer:      rec?.sales_director         ?? null,
+      broker_network_officer_id:   rec?.sales_director_id      ?? null,
+      sales_director_head:         rec?.sales_division_head    ?? null,
+      sales_director_head_id:      rec?.sales_division_head_id ?? null,
+      sales_head:                  rec?.sales_head             ?? null,
+      sales_head_id:               rec?.sales_head_id          ?? null,
+    }));
+    setCascadeSource(name ? 'associate' : null);
+  }
+
+  function onOfficerChange(name: string) {
+    const rec = name ? allPeople.find(p => p.seller_name === name) : null;
+    setForm(f => ({
+      ...f,
+      broker_network_officer:    name || null,
+      broker_network_officer_id: rec?.seller_id              ?? null,
+      sales_director_head:       rec?.sales_division_head    ?? null,
+      sales_director_head_id:    rec?.sales_division_head_id ?? null,
+      sales_head:                rec?.sales_head             ?? null,
+      sales_head_id:             rec?.sales_head_id          ?? null,
+    }));
+    setCascadeSource(name ? 'officer' : null);
+  }
+
+  function onSdhChange(name: string) {
+    const rec = name ? allPeople.find(p => p.seller_name === name) : null;
+    setForm(f => ({
+      ...f,
+      sales_director_head:    name || null,
+      sales_director_head_id: rec?.seller_id    ?? null,
+      sales_head:             rec?.sales_head   ?? null,
+      sales_head_id:          rec?.sales_head_id ?? null,
+    }));
+    setCascadeSource(name ? 'sdh' : null);
+  }
+
+  // Upstream filtering: narrow options based on manually-selected (not auto-filled) values.
+  // Never filter a field's options using a value that was auto-filled by cascade from it —
+  // that would prevent the user from clicking the current value to deselect it.
+  const filteredSdhOptions = (cascadeSource === null && form.sales_head)
+    ? allPeople.filter(p => p.position_rank === 'SDH' && p.sales_head === form.sales_head).map(p => p.seller_name)
+    : sdhOptions;
+  const filteredSdOptions = (cascadeSource !== 'associate' && cascadeSource !== 'officer' && form.sales_director_head)
+    ? allPeople.filter(p => p.position_rank === 'SD' && p.sales_division_head === form.sales_director_head).map(p => p.seller_name)
+    : sdOptions;
+  const filteredSmOptions = (cascadeSource !== 'associate' && form.broker_network_officer)
+    ? allPeople.filter(p => p.position_rank === 'SM' && p.sales_director === form.broker_network_officer).map(p => p.seller_name)
+    : smOptions;
+
   const initials = (form.full_name ?? '').split(' ').filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase();
   const set = (key: keyof BrokerRecruitRecord) => (val: string) =>
     setForm(f => ({ ...f, [key]: val || null }));
@@ -112,15 +216,28 @@ function DetailSheet({ broker, onClose, onSaved }: {
     setForm(broker);
     setEditMode(false);
     setError('');
+    setCascadeSource(
+      broker.broker_network_associate ? 'associate' :
+      broker.broker_network_officer   ? 'officer'   :
+      broker.sales_director_head      ? 'sdh'        : null
+    );
   }
 
   async function handleSave() {
+    const brokerId = form.broker_id ?? await generateNextBrokerId();
+    const finalForm = { ...form, broker_id: brokerId };
     setSaving(true);
     setError('');
     try {
-      await updateBrokerRecruit(broker.full_name, form);
-      onSaved(form);
+      await updateBrokerRecruit(finalForm);
+      setForm(finalForm);
+      onSaved(finalForm);
       setEditMode(false);
+      setCascadeSource(
+        finalForm.broker_network_associate ? 'associate' :
+        finalForm.broker_network_officer   ? 'officer'   :
+        finalForm.sales_director_head      ? 'sdh'        : null
+      );
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to save. Please try again.');
     } finally {
@@ -161,9 +278,7 @@ function DetailSheet({ broker, onClose, onSaved }: {
             <div className="w-24 h-24 rounded-full bg-[#3A3A3C] border-[3px] border-white/30 shadow-2xl flex items-center justify-center mb-1">
               <span className="text-[32px] font-bold text-white tracking-tight">{initials}</span>
             </div>
-            {form.broker_id && (
-              <p className="text-[#6C6C70] text-[10px] font-semibold uppercase tracking-[0.16em]">{form.broker_id}</p>
-            )}
+            <p className="text-[#6C6C70] text-[10px] font-semibold uppercase tracking-[0.16em]">{form.broker_id || '—'}</p>
             <p className="text-[#1C1C1E] text-[26px] font-bold text-center leading-tight">{form.full_name}</p>
             {form.broker_category && (
               <p className="text-[13px] text-[#3C3C43] font-medium">{form.broker_category}</p>
@@ -229,25 +344,20 @@ function DetailSheet({ broker, onClose, onSaved }: {
 
             {/* Broker Hierarchy */}
             <SectionCard title="Broker Hierarchy">
-              <ERow label="Sales Head" icon={<User size={10} />}>
-                {editMode
-                  ? <input className={inputCls} value={form.sales_head ?? ''} onChange={e => set('sales_head')(e.target.value)} />
-                  : <div className={readCls}>{fmt(form.sales_head)}</div>}
-              </ERow>
-              <ERow label="Sales Director Head" icon={<User size={10} />}>
-                {editMode
-                  ? <input className={inputCls} value={form.sales_director_head ?? ''} onChange={e => set('sales_director_head')(e.target.value)} />
-                  : <div className={readCls}>{fmt(form.sales_director_head)}</div>}
+              <ERow label="Broker Network Associate" icon={<Users size={10} />}>
+                <ESelect value={form.broker_network_associate ?? ''} options={filteredSmOptions} onChange={onAssociateChange} disabled={!editMode} />
               </ERow>
               <ERow label="Broker Network Officer" icon={<Users size={10} />}>
-                {editMode
-                  ? <input className={inputCls} value={form.broker_network_officer ?? ''} onChange={e => set('broker_network_officer')(e.target.value)} />
-                  : <div className={readCls}>{fmt(form.broker_network_officer)}</div>}
+                <ESelect value={form.broker_network_officer ?? ''} options={filteredSdOptions} onChange={onOfficerChange} disabled={!editMode || cascadeSource === 'associate'} />
               </ERow>
-              <ERow label="Broker Network Associate" icon={<Users size={10} />}>
-                {editMode
-                  ? <input className={inputCls} value={form.broker_network_associate ?? ''} onChange={e => set('broker_network_associate')(e.target.value)} />
-                  : <div className={readCls}>{fmt(form.broker_network_associate)}</div>}
+              <ERow label="Sales Division Head" icon={<User size={10} />}>
+                <ESelect value={form.sales_director_head ?? ''} options={filteredSdhOptions} onChange={onSdhChange} disabled={!editMode || cascadeSource === 'associate' || cascadeSource === 'officer'} />
+              </ERow>
+              <ERow label="Sales Head" icon={<User size={10} />}>
+                <ESelect value={form.sales_head ?? ''} options={shOptions} onChange={v => {
+                  const p = v ? allPeople.find(x => x.seller_name === v) : null;
+                  setForm(f => ({ ...f, sales_head: v || null, sales_head_id: p?.seller_id ?? null }));
+                }} disabled={!editMode || cascadeSource !== null} />
               </ERow>
             </SectionCard>
 
@@ -288,8 +398,11 @@ function DetailSheet({ broker, onClose, onSaved }: {
 const EMPTY_BROKER: BrokerRecruitRecord = {
   full_name: '', broker_id: null, business_unit: null, broker_status: null,
   broker_category: null, broker_type: null, last_name: null, first_name: null,
-  middle_name: null, suffix: null, email_address: null, sales_head: null,
-  sales_director_head: null, broker_network_officer: null, broker_network_associate: null,
+  middle_name: null, suffix: null, email_address: null,
+  sales_head: null, sales_head_id: null,
+  sales_director_head: null, sales_director_head_id: null,
+  broker_network_officer: null, broker_network_officer_id: null,
+  broker_network_associate: null, broker_network_associate_id: null,
   bir_registered_name: null, vat_registration_type: null, tin: null,
   ewt_cwt_rate: null, bir_cor_address: null,
 };
@@ -302,8 +415,78 @@ function AddSheet({ onClose, onAdded }: {
   const [saving, setSaving] = useState(false);
   const [error,  setError]  = useState('');
 
+  const [allPeople,  setAllPeople]  = useState<SalespersonRecord[]>([]);
+  const [smOptions,  setSmOptions]  = useState<string[]>([]);
+  const [sdOptions,  setSdOptions]  = useState<string[]>([]);
+  const [sdhOptions, setSdhOptions] = useState<string[]>([]);
+  const [shOptions,  setShOptions]  = useState<string[]>([]);
+  const [cascadeSource, setCascadeSource] = useState<'associate' | 'officer' | 'sdh' | null>(null);
+
+  useEffect(() => {
+    fetchAllSalespersons().then(people => {
+      setAllPeople(people);
+      setSmOptions( people.filter(p => p.position_rank === 'SM' ).map(p => p.seller_name));
+      setSdOptions( people.filter(p => p.position_rank === 'SD' ).map(p => p.seller_name));
+      setSdhOptions(people.filter(p => p.position_rank === 'SDH').map(p => p.seller_name));
+      setShOptions( people.filter(p => p.position_rank === 'SH' ).map(p => p.seller_name));
+    }).catch(() => {});
+    generateNextBrokerId().then(id => setForm(f => ({ ...f, broker_id: id }))).catch(() => {});
+  }, []);
+
+  function onAssociateChange(name: string) {
+    const rec = name ? allPeople.find(p => p.seller_name === name) : null;
+    setForm(f => ({
+      ...f,
+      broker_network_associate:    name || null,
+      broker_network_associate_id: rec?.seller_id              ?? null,
+      broker_network_officer:      rec?.sales_director         ?? null,
+      broker_network_officer_id:   rec?.sales_director_id      ?? null,
+      sales_director_head:         rec?.sales_division_head    ?? null,
+      sales_director_head_id:      rec?.sales_division_head_id ?? null,
+      sales_head:                  rec?.sales_head             ?? null,
+      sales_head_id:               rec?.sales_head_id          ?? null,
+    }));
+    setCascadeSource(name ? 'associate' : null);
+  }
+
+  function onOfficerChange(name: string) {
+    const rec = name ? allPeople.find(p => p.seller_name === name) : null;
+    setForm(f => ({
+      ...f,
+      broker_network_officer:    name || null,
+      broker_network_officer_id: rec?.seller_id              ?? null,
+      sales_director_head:       rec?.sales_division_head    ?? null,
+      sales_director_head_id:    rec?.sales_division_head_id ?? null,
+      sales_head:                rec?.sales_head             ?? null,
+      sales_head_id:             rec?.sales_head_id          ?? null,
+    }));
+    setCascadeSource(name ? 'officer' : null);
+  }
+
+  function onSdhChange(name: string) {
+    const rec = name ? allPeople.find(p => p.seller_name === name) : null;
+    setForm(f => ({
+      ...f,
+      sales_director_head:    name || null,
+      sales_director_head_id: rec?.seller_id     ?? null,
+      sales_head:             rec?.sales_head    ?? null,
+      sales_head_id:          rec?.sales_head_id ?? null,
+    }));
+    setCascadeSource(name ? 'sdh' : null);
+  }
+
   const set = (key: keyof BrokerRecruitRecord) => (val: string) =>
     setForm(f => ({ ...f, [key]: val || null }));
+
+  const filteredSdhOptions = (cascadeSource === null && form.sales_head)
+    ? allPeople.filter(p => p.position_rank === 'SDH' && p.sales_head === form.sales_head).map(p => p.seller_name)
+    : sdhOptions;
+  const filteredSdOptions = (cascadeSource !== 'associate' && cascadeSource !== 'officer' && form.sales_director_head)
+    ? allPeople.filter(p => p.position_rank === 'SD' && p.sales_division_head === form.sales_director_head).map(p => p.seller_name)
+    : sdOptions;
+  const filteredSmOptions = (cascadeSource !== 'associate' && form.broker_network_officer)
+    ? allPeople.filter(p => p.position_rank === 'SM' && p.sales_director === form.broker_network_officer).map(p => p.seller_name)
+    : smOptions;
 
   const displayName = [form.first_name, form.middle_name, form.last_name].filter(Boolean).join(' ');
   const initials = displayName.split(' ').filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase();
@@ -315,7 +498,8 @@ function AddSheet({ onClose, onAdded }: {
     }
     const composed = [form.first_name, form.middle_name, form.last_name, form.suffix]
       .filter(Boolean).join(' ');
-    const finalForm = { ...form, full_name: composed };
+    const brokerId = form.broker_id ?? await generateNextBrokerId();
+    const finalForm = { ...form, full_name: composed, broker_id: brokerId };
     setSaving(true);
     setError('');
     try {
@@ -356,7 +540,9 @@ function AddSheet({ onClose, onAdded }: {
                 ? <span className="text-[32px] font-bold text-white tracking-tight">{initials}</span>
                 : <ShieldCheck size={32} className="text-white/60" />}
             </div>
-            <p className="text-[#6C6C70] text-[10px] font-semibold uppercase tracking-[0.16em]">New Broker</p>
+            <p className="text-[#6C6C70] text-[10px] font-semibold uppercase tracking-[0.16em]">
+              {form.broker_id ?? 'Generating ID…'}
+            </p>
             <p className="text-[#1C1C1E] text-[22px] font-bold text-center leading-tight min-h-[28px]">
               {displayName || <span className="text-[#C7C7CC] italic font-normal text-base">Fill in name fields below</span>}
             </p>
@@ -401,17 +587,20 @@ function AddSheet({ onClose, onAdded }: {
 
             {/* Broker Hierarchy */}
             <SectionCard title="Broker Hierarchy">
-              <ERow label="Sales Head" icon={<User size={10} />}>
-                <input className={inputCls} value={form.sales_head ?? ''} onChange={e => set('sales_head')(e.target.value)} />
-              </ERow>
-              <ERow label="Sales Director Head" icon={<User size={10} />}>
-                <input className={inputCls} value={form.sales_director_head ?? ''} onChange={e => set('sales_director_head')(e.target.value)} />
+              <ERow label="Broker Network Associate" icon={<Users size={10} />}>
+                <ESelect value={form.broker_network_associate ?? ''} options={filteredSmOptions} onChange={onAssociateChange} />
               </ERow>
               <ERow label="Broker Network Officer" icon={<Users size={10} />}>
-                <input className={inputCls} value={form.broker_network_officer ?? ''} onChange={e => set('broker_network_officer')(e.target.value)} />
+                <ESelect value={form.broker_network_officer ?? ''} options={filteredSdOptions} onChange={onOfficerChange} disabled={cascadeSource === 'associate'} />
               </ERow>
-              <ERow label="Broker Network Associate" icon={<Users size={10} />}>
-                <input className={inputCls} value={form.broker_network_associate ?? ''} onChange={e => set('broker_network_associate')(e.target.value)} />
+              <ERow label="Sales Division Head" icon={<User size={10} />}>
+                <ESelect value={form.sales_director_head ?? ''} options={filteredSdhOptions} onChange={onSdhChange} disabled={cascadeSource === 'associate' || cascadeSource === 'officer'} />
+              </ERow>
+              <ERow label="Sales Head" icon={<User size={10} />}>
+                <ESelect value={form.sales_head ?? ''} options={shOptions} onChange={v => {
+                  const p = v ? allPeople.find(x => x.seller_name === v) : null;
+                  setForm(f => ({ ...f, sales_head: v || null, sales_head_id: p?.seller_id ?? null }));
+                }} disabled={cascadeSource !== null} />
               </ERow>
             </SectionCard>
 
