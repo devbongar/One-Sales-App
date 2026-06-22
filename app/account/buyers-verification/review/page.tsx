@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
@@ -148,7 +148,7 @@ function DocPreviewCard({
   label, icon, date, onOpen, generating,
 }: {
   label: string;
-  icon: JSX.Element;
+  icon: React.ReactElement;
   date: string | null;
   onOpen: () => void;
   generating: boolean;
