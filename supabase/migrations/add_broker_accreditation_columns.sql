@@ -39,7 +39,7 @@ language sql security definer as $$
     "Full Name"                     as full_name,
     "Broker ID"                     as broker_id,
     "Business Unit"                 as business_unit,
-    "Broker Status"                 as broker_status,
+    "Status"                        as broker_status,
     "Broker Category"               as broker_category,
     "Broker Type"                   as broker_type,
     "Last Name"                     as last_name,

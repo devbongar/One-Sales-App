@@ -17,7 +17,6 @@ import {
   REASON_OPTIONS, SOURCE_OPTIONS, INCOME_OPTIONS,
 } from '@/lib/client-form-options';
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
-import { fetchAllBrokers, BrokerRecord } from '@/lib/brokers';
 
 // ── iOS 26 design tokens ──────────────────────────────────────
 const PAGE_GRADIENT = 'linear-gradient(to bottom, #FFFFFF 0%, #FFB8A8 18%, #C03D25 52%, #2A0800 100%)';
@@ -299,14 +298,15 @@ export default function ExistingClientPage() {
 
   // Seller state
   const [allSalespersons, setAllSalespersons]               = useState<SalespersonRecord[]>([]);
-  const [allBrokers, setAllBrokers]                         = useState<BrokerRecord[]>([]);
   const [sellerDirector, setSellerDirector]                 = useState('');
   const [sellerManager, setSellerManager]                   = useState('');
   const [sellerSpecialist, setSellerSpecialist]             = useState('');
-  const [brokerDirectorHead, setBrokerDirectorHead]         = useState('');
-  const [brokerNetworkOfficer, setBrokerNetworkOfficer]     = useState('');
-  const [brokerBirName, setBrokerBirName]                   = useState('');
   const [brokerNetworkAssociate, setBrokerNetworkAssociate] = useState('');
+  const [brokerNetworkOfficer, setBrokerNetworkOfficer]     = useState('');
+  const [brokerDirectorHead, setBrokerDirectorHead]         = useState('');
+  const [brokerSalesHead, setBrokerSalesHead]               = useState('');
+  const [brokerBirName, setBrokerBirName]                   = useState('');
+  const [brokerCascadeSource, setBrokerCascadeSource]       = useState<'associate' | 'officer' | 'sdh' | null>(null);
 
   useEffect(() => {
     fetchAllClients()
@@ -321,7 +321,6 @@ export default function ExistingClientPage() {
       })
       .finally(() => setLoading(false));
     fetchAllSalespersons().then(setAllSalespersons).catch(console.error);
-    fetchAllBrokers().then(setAllBrokers).catch(console.error);
   }, []);
 
   // In House — specialist-first: pick PS, manager+director auto-fill from PS record
@@ -334,43 +333,68 @@ export default function ExistingClientPage() {
     setSellerDirector(ps?.sales_director ?? '');
   }
 
-  // Broker cascading
-  function uniqueNonNull(arr: (string | null)[]): string[] {
-    return [...new Set(arr.filter(Boolean) as string[])].sort();
+  // Broker cascade — uses in-house Salesperson table by rank (SM→SD→SDH→SH)
+  const smPeople  = allSalespersons.filter(p => p.position_rank === 'SM');
+  const sdPeople  = allSalespersons.filter(p => p.position_rank === 'SD');
+  const sdhPeople = allSalespersons.filter(p => p.position_rank === 'SDH');
+  const shPeople  = allSalespersons.filter(p => p.position_rank === 'SH');
+
+  function handleBrokerAssociateChange(name: string) {
+    const rec = name ? smPeople.find(p => p.seller_name === name) : null;
+    setBrokerNetworkAssociate(name);
+    setBrokerNetworkOfficer(rec?.sales_director   ?? '');
+    setBrokerDirectorHead(rec?.sales_division_head ?? '');
+    setBrokerSalesHead(rec?.sales_head             ?? '');
+    setBrokerCascadeSource(name ? 'associate' : null);
   }
-  const brokerDirectorHeads     = uniqueNonNull(allBrokers.map(b => b.sales_director_head));
-  const brokerNetworkOfficers   = uniqueNonNull(
-    allBrokers.filter(b => !brokerDirectorHead || b.sales_director_head === brokerDirectorHead)
-      .map(b => b.broker_network_officer)
-  );
-  const brokerBirNames          = uniqueNonNull(
-    allBrokers.filter(b =>
-      (!brokerDirectorHead  || b.sales_director_head    === brokerDirectorHead) &&
-      (!brokerNetworkOfficer || b.broker_network_officer === brokerNetworkOfficer)
-    ).map(b => b.bir_registered_name)
-  );
-  const brokerNetworkAssociates = uniqueNonNull(
-    allBrokers.filter(b =>
-      (!brokerDirectorHead  || b.sales_director_head    === brokerDirectorHead) &&
-      (!brokerNetworkOfficer || b.broker_network_officer === brokerNetworkOfficer) &&
-      (!brokerBirName        || b.bir_registered_name    === brokerBirName)
-    ).map(b => b.broker_network_associate)
-  );
+
+  function handleBrokerOfficerChange(name: string) {
+    const rec = name ? sdPeople.find(p => p.seller_name === name) : null;
+    setBrokerNetworkOfficer(name);
+    setBrokerDirectorHead(rec?.sales_division_head ?? '');
+    setBrokerSalesHead(rec?.sales_head             ?? '');
+    setBrokerCascadeSource(name ? 'officer' : null);
+  }
+
+  function handleBrokerSdhChange(name: string) {
+    const rec = name ? sdhPeople.find(p => p.seller_name === name) : null;
+    setBrokerDirectorHead(name);
+    setBrokerSalesHead(rec?.sales_head ?? '');
+    setBrokerCascadeSource(name ? 'sdh' : null);
+  }
+
+  const brokerAssociateOptions = smPeople.map(p => p.seller_name);
+  const brokerOfficerOptions = (brokerCascadeSource !== 'associate' && brokerNetworkAssociate)
+    ? sdPeople.filter(p => smPeople.some(s => s.seller_name === brokerNetworkAssociate && s.sales_director === p.seller_name)).map(p => p.seller_name)
+    : sdPeople.map(p => p.seller_name);
+  const brokerSdhOptions = (brokerCascadeSource !== 'associate' && brokerCascadeSource !== 'officer' && brokerNetworkOfficer)
+    ? sdhPeople.filter(p => sdPeople.some(s => s.seller_name === brokerNetworkOfficer && s.sales_division_head === p.seller_name)).map(p => p.seller_name)
+    : sdhPeople.map(p => p.seller_name);
+  const brokerShOptions = (brokerCascadeSource === null && brokerDirectorHead)
+    ? shPeople.filter(p => sdhPeople.some(s => s.seller_name === brokerDirectorHead && s.sales_head === p.seller_name)).map(p => p.seller_name)
+    : shPeople.map(p => p.seller_name);
 
   function resetSellerSelections() {
     setSellerDirector(''); setSellerManager(''); setSellerSpecialist('');
-    setBrokerDirectorHead(''); setBrokerNetworkOfficer('');
-    setBrokerBirName(''); setBrokerNetworkAssociate('');
+    setBrokerNetworkAssociate(''); setBrokerNetworkOfficer('');
+    setBrokerDirectorHead(''); setBrokerSalesHead(''); setBrokerBirName('');
+    setBrokerCascadeSource(null);
   }
 
   function loadSellerFromClient(c: ClientRecord) {
     setSellerDirector(c.sales_director ?? '');
     setSellerManager(c.sales_manager ?? '');
     setSellerSpecialist(c.property_specialist ?? '');
-    setBrokerDirectorHead(c.broker_director_head ?? '');
-    setBrokerNetworkOfficer(c.broker_network_officer ?? '');
-    setBrokerBirName(c.broker_bir_name ?? '');
     setBrokerNetworkAssociate(c.broker_network_associate ?? '');
+    setBrokerNetworkOfficer(c.broker_network_officer ?? '');
+    setBrokerDirectorHead(c.broker_director_head ?? '');
+    setBrokerSalesHead(c.broker_sales_head ?? '');
+    setBrokerBirName(c.broker_bir_name ?? '');
+    setBrokerCascadeSource(
+      c.broker_network_associate ? 'associate' :
+      c.broker_network_officer   ? 'officer'   :
+      c.broker_director_head     ? 'sdh'       : null
+    );
   }
 
   function openClient(client: ClientRecord) {
@@ -434,10 +458,11 @@ export default function ExistingClientPage() {
         sales_director:           form.sellerType === 'In House' ? sellerDirector         : undefined,
         sales_manager:            form.sellerType === 'In House' ? sellerManager          : undefined,
         property_specialist:      form.sellerType === 'In House' ? sellerSpecialist       : undefined,
-        broker_director_head:     form.sellerType === 'Broker'   ? brokerDirectorHead     : undefined,
-        broker_network_officer:   form.sellerType === 'Broker'   ? brokerNetworkOfficer   : undefined,
-        broker_bir_name:          form.sellerType === 'Broker'   ? brokerBirName          : undefined,
         broker_network_associate: form.sellerType === 'Broker'   ? brokerNetworkAssociate : undefined,
+        broker_network_officer:   form.sellerType === 'Broker'   ? brokerNetworkOfficer   : undefined,
+        broker_director_head:     form.sellerType === 'Broker'   ? brokerDirectorHead     : undefined,
+        broker_sales_head:        form.sellerType === 'Broker'   ? brokerSalesHead        : undefined,
+        broker_bir_name:          form.sellerType === 'Broker'   ? brokerBirName          : undefined,
       });
       const updated: ClientRecord = {
         ...selectedClient!,
@@ -461,10 +486,11 @@ export default function ExistingClientPage() {
         sales_director:           form.sellerType === 'In House' ? sellerDirector         || null : null,
         sales_manager:            form.sellerType === 'In House' ? sellerManager          || null : null,
         property_specialist:      form.sellerType === 'In House' ? sellerSpecialist       || null : null,
-        broker_director_head:     form.sellerType === 'Broker'   ? brokerDirectorHead     || null : null,
-        broker_network_officer:   form.sellerType === 'Broker'   ? brokerNetworkOfficer   || null : null,
-        broker_bir_name:          form.sellerType === 'Broker'   ? brokerBirName          || null : null,
         broker_network_associate: form.sellerType === 'Broker'   ? brokerNetworkAssociate || null : null,
+        broker_network_officer:   form.sellerType === 'Broker'   ? brokerNetworkOfficer   || null : null,
+        broker_director_head:     form.sellerType === 'Broker'   ? brokerDirectorHead     || null : null,
+        broker_sales_head:        form.sellerType === 'Broker'   ? brokerSalesHead        || null : null,
+        broker_bir_name:          form.sellerType === 'Broker'   ? brokerBirName          || null : null,
       };
       setSelectedClient(updated);
       setAllClients(prev => prev.map(c => c.id === updated.id ? updated : c));
@@ -886,40 +912,44 @@ export default function ExistingClientPage() {
 
                   {form.sellerType === 'Broker' && (
                     <>
-                      <DarkInputRow label="Sales Director Head" icon={<UserCog size={11} />}>
+                      <DarkInputRow label="Broker Network Associate" icon={<User size={11} />}>
                         <DarkSelectInput
-                          value={brokerDirectorHead}
-                          options={brokerDirectorHeads}
-                          onChange={v => { if (editMode) { setBrokerDirectorHead(v); setBrokerNetworkOfficer(''); setBrokerBirName(''); setBrokerNetworkAssociate(''); } }}
-                          placeholder="Select Sales Director Head"
+                          value={brokerNetworkAssociate}
+                          options={brokerAssociateOptions}
+                          onChange={v => { if (editMode) handleBrokerAssociateChange(v); }}
+                          placeholder={allSalespersons.length === 0 ? 'Loading…' : 'Select Associate'}
                           disabled={!editMode}
+                          searchable
                         />
                       </DarkInputRow>
                       <DarkInputRow label="Broker Network Officer" icon={<Users size={11} />}>
                         <DarkSelectInput
                           value={brokerNetworkOfficer}
-                          options={brokerNetworkOfficers}
-                          onChange={v => { if (editMode) { setBrokerNetworkOfficer(v); setBrokerBirName(''); setBrokerNetworkAssociate(''); } }}
+                          options={brokerOfficerOptions}
+                          onChange={v => { if (editMode) handleBrokerOfficerChange(v); }}
                           placeholder="Select Network Officer"
-                          disabled={!editMode}
+                          disabled={!editMode || brokerCascadeSource === 'associate'}
+                          searchable
                         />
                       </DarkInputRow>
-                      <DarkInputRow label="BIR Registered Name" icon={<Briefcase size={11} />}>
+                      <DarkInputRow label="Sales Division Head" icon={<UserCog size={11} />}>
                         <DarkSelectInput
-                          value={brokerBirName}
-                          options={brokerBirNames}
-                          onChange={v => { if (editMode) { setBrokerBirName(v); setBrokerNetworkAssociate(''); } }}
-                          placeholder="Select BIR Registered Name"
-                          disabled={!editMode}
+                          value={brokerDirectorHead}
+                          options={brokerSdhOptions}
+                          onChange={v => { if (editMode) handleBrokerSdhChange(v); }}
+                          placeholder="Select Division Head"
+                          disabled={!editMode || brokerCascadeSource === 'associate' || brokerCascadeSource === 'officer'}
+                          searchable
                         />
                       </DarkInputRow>
-                      <DarkInputRow label="Broker Network Associate" icon={<User size={11} />}>
+                      <DarkInputRow label="Sales Head" icon={<UserCog size={11} />}>
                         <DarkSelectInput
-                          value={brokerNetworkAssociate}
-                          options={brokerNetworkAssociates}
-                          onChange={v => { if (editMode) setBrokerNetworkAssociate(v); }}
-                          placeholder="Select Network Associate"
-                          disabled={!editMode}
+                          value={brokerSalesHead}
+                          options={brokerShOptions}
+                          onChange={v => { if (editMode) { setBrokerSalesHead(v); setBrokerCascadeSource(null); } }}
+                          placeholder="Select Sales Head"
+                          disabled={!editMode || brokerCascadeSource !== null}
+                          searchable
                         />
                       </DarkInputRow>
                     </>

@@ -1,14 +1,15 @@
 import { supabase } from '@/lib/supabase';
 
 export interface BrokerRecord {
-  broker_id:                string | null;
+  seller_name:              string | null;
   full_name:                string | null;
-  broker_status:            string | null;
-  broker_category:          string | null;
-  sales_director_head:      string | null;
-  broker_network_officer:   string | null;
+  broker_id:                string | null;
   bir_registered_name:      string | null;
   broker_network_associate: string | null;
+  broker_network_officer:   string | null;
+  sales_director_head:      string | null;
+  sales_head:               string | null;
+  position_rank:            string | null;
 }
 
 export async function fetchAllBrokers(): Promise<BrokerRecord[]> {
@@ -89,7 +90,7 @@ export async function addBrokerRecruit(rec: BrokerRecruitRecord): Promise<void> 
       'Full Name':                    rec.full_name,
       'Broker ID':                    rec.broker_id,
       'Business Unit':                rec.business_unit,
-      'Broker Status':                rec.broker_status,
+      'Status':                       rec.broker_status,
       'Broker Category':              rec.broker_category,
       'Broker Type':                  rec.broker_type,
       'Last Name':                    rec.last_name,
@@ -121,7 +122,7 @@ export async function updateBrokerRecruit(rec: BrokerRecruitRecord): Promise<voi
       'Full Name':                    rec.full_name,
       'Broker ID':                    rec.broker_id,
       'Business Unit':                rec.business_unit,
-      'Broker Status':                rec.broker_status,
+      'Status':                       rec.broker_status,
       'Broker Category':              rec.broker_category,
       'Broker Type':                  rec.broker_type,
       'Last Name':                    rec.last_name,

@@ -4,10 +4,11 @@ import { useState } from 'react';
 import { Check, ChevronDown, Search, X } from 'lucide-react';
 
 interface SearchableSelectProps {
-  value:       string;
-  onChange:    (v: string) => void;
-  options:     string[];
+  value:        string;
+  onChange:     (v: string) => void;
+  options:      string[];
   placeholder?: string;
+  disabled?:    boolean;
 }
 
 export default function SearchableSelect({
@@ -15,6 +16,7 @@ export default function SearchableSelect({
   onChange,
   options,
   placeholder = 'All',
+  disabled = false,
 }: SearchableSelectProps) {
   const [open,  setOpen]  = useState(false);
   const [query, setQuery] = useState('');
@@ -33,17 +35,21 @@ export default function SearchableSelect({
       {/* Trigger */}
       <button
         type="button"
-        onClick={() => { if (open) close(); else setOpen(true); }}
-        className="w-full flex items-center justify-between gap-2 px-3 py-2.5 bg-[#F2F2F7]"
-        style={{ transition: 'background-color 150ms ease' }}
+        onClick={() => { if (disabled) return; if (open) close(); else setOpen(true); }}
+        className="w-full flex items-center justify-between gap-2 px-3 py-2.5"
+        style={{
+          background: disabled ? '#E5E5EA' : '#F2F2F7',
+          cursor: disabled ? 'default' : 'pointer',
+          transition: 'background-color 150ms ease',
+        }}
       >
-        <span className={`text-sm truncate ${value ? 'text-[#1C1C1E] font-medium' : 'text-[#C7C7CC]'}`}>
+        <span className={`text-sm truncate ${value ? (disabled ? 'text-[#6C6C70]' : 'text-[#1C1C1E] font-medium') : 'text-[#C7C7CC]'}`}>
           {value || placeholder}
         </span>
         <div className="flex items-center gap-1.5 shrink-0">
           <ChevronDown
             size={14}
-            className="text-[#8E8E93]"
+            className={disabled ? 'text-[#C7C7CC]' : 'text-[#8E8E93]'}
             style={{
               transform:  open ? 'rotate(180deg)' : 'rotate(0deg)',
               transition: 'transform 200ms cubic-bezier(0.23,1,0.32,1)',

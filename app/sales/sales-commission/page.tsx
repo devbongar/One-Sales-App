@@ -99,13 +99,14 @@ export default function SalesCommissionPage() {
     if (!query) return brokers;
     const q = query.toLowerCase();
     return brokers.filter(b =>
+      (b.seller_name ?? '').toLowerCase().includes(q) ||
       (b.bir_registered_name ?? '').toLowerCase().includes(q)
     );
   }, [brokers, query]);
 
   function navigate(path: 'slip' | 'schedule') {
     const seller = selectedSeller ?? (selectedBroker
-      ? { seller_name: selectedBroker.seller_name, position_rank: selectedBroker.position_rank } as SalespersonRecord
+      ? { seller_name: selectedBroker.seller_name, seller_id: selectedBroker.broker_id, position_rank: selectedBroker.position_rank } as SalespersonRecord
       : null);
     if (!seller) return;
     // Save UI state so it's restored when coming back
@@ -273,10 +274,10 @@ export default function SalesCommissionPage() {
                   <p className={`text-sm font-semibold truncate ${
                     selectedBroker?.seller_name === b.seller_name ? 'text-[#C03D25]' : 'text-[#1C1C1E]'
                   }`}>
-                    {b.bir_registered_name ?? b.seller_name}
+                    {b.seller_name}
                   </p>
-                  {b.seller_name && (
-                    <p className="text-xs text-[#8E8E93] truncate">{b.seller_name}</p>
+                  {b.bir_registered_name && b.bir_registered_name !== b.seller_name && (
+                    <p className="text-xs text-[#8E8E93] truncate">{b.bir_registered_name}</p>
                   )}
                 </div>
               </button>
@@ -353,7 +354,7 @@ export default function SalesCommissionPage() {
           <div className="bg-[#C03D25] px-5 pt-5 pb-6">
             <p className="text-white/70 text-[10px] font-bold tracking-widest uppercase mb-1">Broker</p>
             <p className="text-white font-bold text-2xl leading-tight mb-5">
-              {selectedBroker.bir_registered_name ?? selectedBroker.seller_name}
+              {selectedBroker.seller_name}
             </p>
             <div className="flex flex-wrap gap-2">
               {selectedBroker.broker_network_officer && (

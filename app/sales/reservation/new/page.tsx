@@ -7,6 +7,7 @@ import GlassCard from '@/components/ui/GlassCard';
 import GlassButton from '@/components/ui/GlassButton';
 import { fetchProjects, fetchTowers, fetchFloors, fetchFloorsByCategory, fetchUnitTypes, fetchInventoryUnits, InventoryUnit } from '@/lib/inventory';
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
+import { fetchAllBrokers, BrokerRecord as BrokersTableRecord } from '@/lib/brokers';
 import { fetchAllClients, ClientRecord, saveClient } from '@/lib/clients';
 import { fetchAllPayterms, PaytermRecord } from '@/lib/paytems';
 import { fetchReservationFee, fetchVatThreshold, computeVat, fetchHicTarget } from '@/lib/admin';
@@ -408,6 +409,10 @@ export default function NewReservationPage() {
   const [sellerSearch,       setSellerSearch]       = useState('');
   const [sellerRecord,       setSellerRecord]       = useState<SalespersonRecord | null>(null);
   const [sellerDropdownOpen, setSellerDropdownOpen] = useState(false);
+  const [brokerClientInfo,   setBrokerClientInfo]   = useState<{
+    associate: string; officer: string; directorHead: string; salesHead: string;
+    birName: string; brokerId: string | null;
+  } | null>(null);
 
   // Inventory preferences
   const [project,      setProject]      = useState('');
@@ -468,13 +473,15 @@ export default function NewReservationPage() {
 
   // Salesperson data from DB
   const [allSalespersons, setAllSalespersons] = useState<SalespersonRecord[]>([]);
+  const [allBrokers,      setAllBrokers]      = useState<BrokersTableRecord[]>([]);
 
   // Payterm data from DB
   const [allPayterms, setAllPayterms] = useState<PaytermRecord[]>([]);
 
-  // Fetch all salespersons on mount
+  // Fetch all salespersons and brokers on mount
   useEffect(() => {
     fetchAllSalespersons().then(setAllSalespersons).catch(console.error);
+    fetchAllBrokers().then(setAllBrokers).catch(console.error);
   }, []);
 
   // Fetch paytems once project + tower are selected (avoids transient DNS failure on mount)
@@ -687,9 +694,25 @@ export default function NewReservationPage() {
     setErrors(prev => ({ ...prev, fullName: '', contact: '', email: '' }));
 
     // Auto-populate seller from client record
-    if (c.seller_type === 'In House' && c.property_specialist) {
-      const match = allSalespersons.find(s => s.seller_name === c.property_specialist);
-      if (match) { setSellerRecord(match); setSellerSearch(''); setSellerDropdownOpen(false); }
+    if (c.seller_type === 'Broker') {
+      const brokerRec = c.broker_bir_name
+        ? allBrokers.find(b => b.full_name === c.broker_bir_name) ?? null
+        : null;
+      setBrokerClientInfo({
+        associate:    c.broker_network_associate ?? '',
+        officer:      c.broker_network_officer   ?? '',
+        directorHead: c.broker_director_head     ?? '',
+        salesHead:    c.broker_sales_head        ?? '',
+        birName:      c.broker_bir_name          ?? '',
+        brokerId:     brokerRec?.broker_id       ?? null,
+      });
+      setSellerRecord(null);
+    } else {
+      setBrokerClientInfo(null);
+      if (c.seller_type === 'In House' && c.property_specialist) {
+        const match = allSalespersons.find(s => s.seller_name === c.property_specialist);
+        if (match) { setSellerRecord(match); setSellerSearch(''); setSellerDropdownOpen(false); }
+      }
     }
   }
 
@@ -697,7 +720,7 @@ export default function NewReservationPage() {
     setIsMegawide(false);
     resetClientFields();
     setFullName(''); setContact(''); setEmail('');
-    setSellerRecord(null); setSellerSearch('');
+    setSellerRecord(null); setSellerSearch(''); setBrokerClientInfo(null);
   }
 
   const emailAlreadyUsed = !selectedClientRecord
@@ -712,7 +735,7 @@ export default function NewReservationPage() {
     if (!email.trim())                            e.email    = 'Email address is required.';
     else if (!email.includes('@'))                e.email    = 'Email must contain @.';
     else if (emailAlreadyUsed)                    e.email    = 'This email is already registered.';
-    if (!sellerRecord)                            e.seller   = 'Please select a seller.';
+    if (!sellerRecord && !brokerClientInfo)        e.seller   = 'Please select a seller.';
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -1262,102 +1285,150 @@ export default function NewReservationPage() {
           {/* Seller Information */}
           <SectionHeader icon={<Users size={13} />}>Seller Information</SectionHeader>
           <GlassCard className={`px-4 py-1 ${selectedClientRecord ? 'opacity-75' : ''}`}>
-            {/* Searchable seller dropdown */}
-            <div className="border-b border-black/[0.06] last:border-0">
-              <button
-                type="button"
-                disabled={!!selectedClientRecord}
-                onClick={() => { if (!selectedClientRecord) { setSellerDropdownOpen(p => !p); setSellerSearch(''); } }}
-                className="w-full flex items-center gap-3 py-3 px-1"
-              >
-                <span className="text-[#C03D25] shrink-0"><UserPlus size={16} /></span>
-                <span className="text-sm font-medium text-[#1C1C1E] flex-1 text-left">Seller</span>
-                <span className={`text-sm text-right truncate max-w-[160px] ${sellerRecord ? 'text-[#1C1C1E]' : 'text-[#8E8E93]'}`}>
-                  {sellerRecord ? sellerRecord.seller_name : 'Search name'}
-                </span>
-                {sellerRecord && !selectedClientRecord
-                  ? <X size={14} className="text-[#C7C7CC] shrink-0" onClickCapture={e => { e.stopPropagation(); setSellerRecord(null); setSellerDropdownOpen(false); }} />
-                  : !selectedClientRecord
-                    ? <ChevronDown size={14} className={`text-[#C7C7CC] shrink-0 transition-transform duration-200 ${sellerDropdownOpen ? 'rotate-180' : ''}`} />
-                    : null
-                }
-              </button>
-              {sellerDropdownOpen && (
-                <div className="pb-2">
-                  <div className="flex items-center gap-2 mx-1 mb-2 px-3 py-2 bg-[#F2F2F7] rounded-xl">
-                    <input
-                      autoFocus
-                      type="text"
-                      value={sellerSearch}
-                      onChange={e => setSellerSearch(e.target.value)}
-                      placeholder="Type to search..."
-                      className="flex-1 text-sm bg-transparent outline-none text-[#1C1C1E] placeholder:text-[#C7C7CC]"
-                    />
-                    {sellerSearch && (
-                      <button type="button" onClick={() => setSellerSearch('')}>
-                        <X size={12} className="text-[#C7C7CC]" />
-                      </button>
-                    )}
-                  </div>
-                  <div className="max-h-48 overflow-y-auto space-y-0.5">
-                    {(() => {
-                      const q = sellerSearch.trim().toLowerCase();
-                      const filtered = q.length === 0
-                        ? allSalespersons
-                        : allSalespersons.filter(s => s.seller_name.toLowerCase().includes(q));
-                      return filtered.length > 0
-                        ? filtered.map(s => (
-                            <button
-                              key={s.seller_name}
-                              type="button"
-                              onClick={() => { setSellerRecord(s); setSellerSearch(''); setSellerDropdownOpen(false); }}
-                              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm active:bg-gray-100"
-                            >
-                              <span className="font-medium text-[#1C1C1E] text-left">{s.seller_name}</span>
-                              <span className="text-[#8E8E93] text-xs shrink-0 ml-2">{s.position_code}</span>
-                            </button>
-                          ))
-                        : <p className="text-center text-xs text-[#8E8E93] py-3">No results found</p>;
-                    })()}
-                  </div>
-                </div>
-              )}
-            </div>
 
-            {/* Selected seller details */}
-            {sellerRecord && (
+            {/* Broker client — show read-only hierarchy, no picker */}
+            {brokerClientInfo ? (
               <>
-                {selectedClientRecord && (
-                  <div className="flex items-center gap-2 py-2 px-1 border-b border-black/[0.06] bg-blue-50/50">
-                    <UserCheck size={14} className="text-blue-600 shrink-0" />
-                    <span className="text-xs font-semibold text-blue-700 flex-1">From client record</span>
+                <div className="flex items-center gap-2 py-2 px-1 border-b border-black/[0.06] bg-blue-50/50">
+                  <UserCheck size={14} className="text-blue-600 shrink-0" />
+                  <span className="text-xs font-semibold text-blue-700 flex-1">Broker — from client record</span>
+                </div>
+                {brokerClientInfo.associate && (
+                  <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
+                    <span className="text-[#C03D25] shrink-0"><UserPlus size={16} /></span>
+                    <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Broker Associate</span>
+                    <span className="text-sm text-right max-w-[160px] text-[#8E8E93]">{brokerClientInfo.associate}</span>
                   </div>
                 )}
-                <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
-                  <span className="text-[#C03D25] shrink-0"><UserCog size={16} /></span>
-                  <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Position</span>
-                  <span className="text-sm text-right max-w-[160px] text-[#8E8E93]">{sellerRecord.position_code}</span>
-                </div>
-                {sellerRecord.position_code === 'Property Specialist' && sellerRecord.sales_manager && (
+                {brokerClientInfo.officer && (
                   <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
                     <span className="text-[#C03D25] shrink-0"><UserCheck size={16} /></span>
-                    <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Sales Manager</span>
-                    <span className="text-sm text-right max-w-[160px] text-[#8E8E93]">{sellerRecord.sales_manager}</span>
+                    <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Broker Officer</span>
+                    <span className="text-sm text-right max-w-[160px] text-[#8E8E93]">{brokerClientInfo.officer}</span>
                   </div>
                 )}
-                {['Property Specialist', 'Sales Manager'].includes(sellerRecord.position_code) && sellerRecord.sales_director && (
+                {brokerClientInfo.directorHead && (
                   <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
                     <span className="text-[#C03D25] shrink-0"><UserCog size={16} /></span>
-                    <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Sales Director</span>
-                    <span className="text-sm text-right max-w-[160px] text-[#8E8E93]">{sellerRecord.sales_director}</span>
+                    <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Sales Division Head</span>
+                    <span className="text-sm text-right max-w-[160px] text-[#8E8E93]">{brokerClientInfo.directorHead}</span>
                   </div>
                 )}
-                {['Property Specialist', 'Sales Manager', 'Sales Director'].includes(sellerRecord.position_code) && sellerRecord.sales_division_head && (
+                {brokerClientInfo.salesHead && (
                   <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
                     <span className="text-[#C03D25] shrink-0"><Users size={16} /></span>
-                    <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Division Head</span>
-                    <span className="text-sm text-right max-w-[160px] text-[#8E8E93]">{sellerRecord.sales_division_head}</span>
+                    <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Sales Head</span>
+                    <span className="text-sm text-right max-w-[160px] text-[#8E8E93]">{brokerClientInfo.salesHead}</span>
                   </div>
+                )}
+                {brokerClientInfo.birName && (
+                  <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
+                    <span className="text-[#C03D25] shrink-0"><UserCog size={16} /></span>
+                    <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Broker Name</span>
+                    <span className="text-sm text-right max-w-[160px] text-[#8E8E93]">{brokerClientInfo.birName}</span>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                {/* Searchable seller dropdown */}
+                <div className="border-b border-black/[0.06] last:border-0">
+                  <button
+                    type="button"
+                    disabled={!!selectedClientRecord}
+                    onClick={() => { if (!selectedClientRecord) { setSellerDropdownOpen(p => !p); setSellerSearch(''); } }}
+                    className="w-full flex items-center gap-3 py-3 px-1"
+                  >
+                    <span className="text-[#C03D25] shrink-0"><UserPlus size={16} /></span>
+                    <span className="text-sm font-medium text-[#1C1C1E] flex-1 text-left">Seller</span>
+                    <span className={`text-sm text-right truncate max-w-[160px] ${sellerRecord ? 'text-[#1C1C1E]' : 'text-[#8E8E93]'}`}>
+                      {sellerRecord ? sellerRecord.seller_name : 'Search name'}
+                    </span>
+                    {sellerRecord && !selectedClientRecord
+                      ? <X size={14} className="text-[#C7C7CC] shrink-0" onClickCapture={e => { e.stopPropagation(); setSellerRecord(null); setSellerDropdownOpen(false); }} />
+                      : !selectedClientRecord
+                        ? <ChevronDown size={14} className={`text-[#C7C7CC] shrink-0 transition-transform duration-200 ${sellerDropdownOpen ? 'rotate-180' : ''}`} />
+                        : null
+                    }
+                  </button>
+                  {sellerDropdownOpen && (
+                    <div className="pb-2">
+                      <div className="flex items-center gap-2 mx-1 mb-2 px-3 py-2 bg-[#F2F2F7] rounded-xl">
+                        <input
+                          autoFocus
+                          type="text"
+                          value={sellerSearch}
+                          onChange={e => setSellerSearch(e.target.value)}
+                          placeholder="Type to search..."
+                          className="flex-1 text-sm bg-transparent outline-none text-[#1C1C1E] placeholder:text-[#C7C7CC]"
+                        />
+                        {sellerSearch && (
+                          <button type="button" onClick={() => setSellerSearch('')}>
+                            <X size={12} className="text-[#C7C7CC]" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="max-h-48 overflow-y-auto space-y-0.5">
+                        {(() => {
+                          const q = sellerSearch.trim().toLowerCase();
+                          const filtered = q.length === 0
+                            ? allSalespersons
+                            : allSalespersons.filter(s => s.seller_name.toLowerCase().includes(q));
+                          return filtered.length > 0
+                            ? filtered.map(s => (
+                                <button
+                                  key={s.seller_name}
+                                  type="button"
+                                  onClick={() => { setSellerRecord(s); setSellerSearch(''); setSellerDropdownOpen(false); }}
+                                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm active:bg-gray-100"
+                                >
+                                  <span className="font-medium text-[#1C1C1E] text-left">{s.seller_name}</span>
+                                  <span className="text-[#8E8E93] text-xs shrink-0 ml-2">{s.position_code}</span>
+                                </button>
+                              ))
+                            : <p className="text-center text-xs text-[#8E8E93] py-3">No results found</p>;
+                        })()}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Selected seller details */}
+                {sellerRecord && (
+                  <>
+                    {selectedClientRecord && (
+                      <div className="flex items-center gap-2 py-2 px-1 border-b border-black/[0.06] bg-blue-50/50">
+                        <UserCheck size={14} className="text-blue-600 shrink-0" />
+                        <span className="text-xs font-semibold text-blue-700 flex-1">From client record</span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
+                      <span className="text-[#C03D25] shrink-0"><UserCog size={16} /></span>
+                      <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Position</span>
+                      <span className="text-sm text-right max-w-[160px] text-[#8E8E93]">{sellerRecord.position_code}</span>
+                    </div>
+                    {sellerRecord.position_code === 'Property Specialist' && sellerRecord.sales_manager && (
+                      <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
+                        <span className="text-[#C03D25] shrink-0"><UserCheck size={16} /></span>
+                        <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Sales Manager</span>
+                        <span className="text-sm text-right max-w-[160px] text-[#8E8E93]">{sellerRecord.sales_manager}</span>
+                      </div>
+                    )}
+                    {['Property Specialist', 'Sales Manager'].includes(sellerRecord.position_code) && sellerRecord.sales_director && (
+                      <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
+                        <span className="text-[#C03D25] shrink-0"><UserCog size={16} /></span>
+                        <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Sales Director</span>
+                        <span className="text-sm text-right max-w-[160px] text-[#8E8E93]">{sellerRecord.sales_director}</span>
+                      </div>
+                    )}
+                    {['Property Specialist', 'Sales Manager', 'Sales Director'].includes(sellerRecord.position_code) && sellerRecord.sales_division_head && (
+                      <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
+                        <span className="text-[#C03D25] shrink-0"><Users size={16} /></span>
+                        <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Division Head</span>
+                        <span className="text-sm text-right max-w-[160px] text-[#8E8E93]">{sellerRecord.sales_division_head}</span>
+                      </div>
+                    )}
+                  </>
                 )}
               </>
             )}
@@ -2690,7 +2761,7 @@ export default function NewReservationPage() {
                 { label: 'Name',   value: [clientFirstName, clientMiddleName, clientLastName, clientSuffix].filter(Boolean).join(' ') },
                 { label: 'Mobile', value: clientMobileRaw ? `${clientCountryCode} ${clientMobileRaw}` : '—' },
                 { label: 'Email',  value: clientEmailField.trim() || '—' },
-                { label: 'Seller', value: sellerRecord?.seller_name ?? '—' },
+                { label: 'Seller', value: sellerRecord?.seller_name ?? brokerClientInfo?.associate ?? '—' },
               ].map(({ label, value }) => (
                 <div key={label} className="flex items-center justify-between">
                   <span className="text-sm text-[#8E8E93]">{label}</span>
@@ -2753,11 +2824,13 @@ export default function NewReservationPage() {
                     ...reservationTarget,
                     clientName: fullName,
                     clientId: selectedClientRecord?.client_id ?? null,
-                    sellerName: sellerRecord?.seller_name ?? '',
-                    sellerId: sellerRecord?.seller_id ?? null,
-                    salesManager: sellerRecord?.sales_manager ?? '',
+                    sellerName: sellerRecord?.seller_name ?? brokerClientInfo?.birName ?? '',
+                    sellerId: sellerRecord?.seller_id ?? brokerClientInfo?.brokerId ?? null,
+                    salesManager: sellerRecord?.sales_manager ?? brokerClientInfo?.officer ?? '',
                     salesDirector: sellerRecord?.sales_director ?? '',
-                    salesDivisionHead: sellerRecord?.sales_division_head ?? '',
+                    salesDivisionHead: sellerRecord?.sales_division_head ?? brokerClientInfo?.directorHead ?? '',
+                    brokerSalesHead: brokerClientInfo?.salesHead ?? '',
+                    isBrokerSale: !!brokerClientInfo,
                     firstPaymentAgreed,
                     quotationId: quotationPrefillRef.current?.quotationId ?? null,
                   }));

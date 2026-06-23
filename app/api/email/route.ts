@@ -133,6 +133,16 @@ async function resolveRoleEmails(roles: string[], reservationId: string): Promis
       .eq('Seller Name', sellerName)
       .maybeSingle();
     sellerEmail = (sp as any)?.['Email Address'] ?? '';
+
+    // Fallback: broker reservations — seller_name matches Brokers "Full Name"
+    if (!sellerEmail) {
+      const { data: br } = await adminClient
+        .from('Brokers')
+        .select('"Broker Email Address"')
+        .eq('"Full Name"', sellerName)
+        .maybeSingle();
+      sellerEmail = (br as any)?.['Broker Email Address'] ?? '';
+    }
   }
 
   const emails: string[] = [];

@@ -22,10 +22,11 @@ export interface ClientPayload {
   sales_director?: string;
   sales_manager?: string;
   property_specialist?: string;
-  broker_director_head?: string;
-  broker_network_officer?: string;
-  broker_bir_name?: string;
   broker_network_associate?: string;
+  broker_network_officer?: string;
+  broker_director_head?: string;
+  broker_sales_head?: string;
+  broker_bir_name?: string;
 }
 
 export interface ClientRecord {
@@ -50,10 +51,11 @@ export interface ClientRecord {
   sales_director: string | null;
   sales_manager: string | null;
   property_specialist: string | null;
-  broker_director_head: string | null;
-  broker_network_officer: string | null;
-  broker_bir_name: string | null;
   broker_network_associate: string | null;
+  broker_network_officer: string | null;
+  broker_director_head: string | null;
+  broker_sales_head: string | null;
+  broker_bir_name: string | null;
   gender: string | null;
   civil_status: string | null;
   signature_base64: string | null;
@@ -119,10 +121,11 @@ export async function saveClient(payload: ClientPayload): Promise<string> {
     p_sales_director:           payload.sales_director           || null,
     p_sales_manager:            payload.sales_manager            || null,
     p_property_specialist:      payload.property_specialist      || null,
-    p_broker_director_head:     payload.broker_director_head     || null,
-    p_broker_network_officer:   payload.broker_network_officer   || null,
-    p_broker_bir_name:          payload.broker_bir_name          || null,
     p_broker_network_associate: payload.broker_network_associate || null,
+    p_broker_network_officer:   payload.broker_network_officer   || null,
+    p_broker_director_head:     payload.broker_director_head     || null,
+    p_broker_sales_head:        payload.broker_sales_head        || null,
+    p_broker_bir_name:          payload.broker_bir_name          || null,
   });
   if (error) throw error;
   return data as string;
@@ -151,10 +154,11 @@ export async function updateClient(id: string, payload: ClientPayload): Promise<
     p_sales_director:           payload.sales_director           || null,
     p_sales_manager:            payload.sales_manager            || null,
     p_property_specialist:      payload.property_specialist      || null,
-    p_broker_director_head:     payload.broker_director_head     || null,
-    p_broker_network_officer:   payload.broker_network_officer   || null,
-    p_broker_bir_name:          payload.broker_bir_name          || null,
     p_broker_network_associate: payload.broker_network_associate || null,
+    p_broker_network_officer:   payload.broker_network_officer   || null,
+    p_broker_director_head:     payload.broker_director_head     || null,
+    p_broker_sales_head:        payload.broker_sales_head        || null,
+    p_broker_bir_name:          payload.broker_bir_name          || null,
   });
   if (error) throw error;
 }
@@ -269,9 +273,14 @@ export async function fetchAllClients(): Promise<ClientRecord[]> {
   const rows: ClientRecord[] = [];
   let from = 0;
   while (true) {
-    const { data, error } = await supabase.rpc('get_all_clients').range(from, from + PAGE - 1);
+    const { data, error } = await supabase
+      .from('clients')
+      .select('*')
+      .order('last_name', { ascending: true })
+      .order('first_name', { ascending: true })
+      .range(from, from + PAGE - 1);
     if (error) throw error;
-    rows.push(...((data ?? []) as ClientRecord[]));
+    rows.push(...((data ?? []) as unknown as ClientRecord[]));
     if ((data ?? []).length < PAGE) break;
     from += PAGE;
   }

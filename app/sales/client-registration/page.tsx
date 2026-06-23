@@ -18,7 +18,7 @@ import {
   REASON_OPTIONS, SOURCE_OPTIONS, INCOME_OPTIONS,
 } from '@/lib/client-form-options';
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
-import { fetchAllBrokers, BrokerRecord } from '@/lib/brokers';
+import { fetchAllBrokers, BrokerRecord as BrokersTableRecord } from '@/lib/brokers';
 
 // ── iOS 26 design tokens ──────────────────────────────────────
 const PAGE_GRADIENT = 'linear-gradient(to bottom, #FFFFFF 0%, #8E8E93 50%, #3A3A3C 100%)';
@@ -41,20 +41,29 @@ function DarkInputRow({ label, icon, error, required, children }: {
   );
 }
 
-function DarkSelectInput({ value, options, onChange, placeholder, disabled }: {
+function DarkSelectInput({ value, options, onChange, placeholder, disabled, searchable }: {
   value: string; options: string[]; onChange: (v: string) => void;
-  placeholder: string; disabled?: boolean;
+  placeholder: string; disabled?: boolean; searchable?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const optionsRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (open && optionsRef.current) {
+    if (open) {
       setTimeout(() => {
         optionsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        if (searchable) searchRef.current?.focus();
       }, 30);
+    } else {
+      setQuery('');
     }
-  }, [open]);
+  }, [open, searchable]);
+
+  const filtered = searchable && query.trim()
+    ? options.filter(o => o.toLowerCase().includes(query.toLowerCase()))
+    : options;
 
   return (
     <div>
@@ -85,16 +94,34 @@ function DarkSelectInput({ value, options, onChange, placeholder, disabled }: {
           backdropFilter: 'blur(24px)',
           border: '1px solid rgba(0,0,0,0.08)',
         }}>
-          {options.map(o => (
-            <button key={o} type="button"
-              onClick={() => { onChange(o); setOpen(false); }}
-              className={`w-full flex items-center justify-between px-3 py-2.5 text-sm border-b border-black/[0.05] last:border-0 active:bg-black/[0.04] ${
-                o === value ? 'text-[#C03D25] font-semibold bg-black/[0.03]' : 'text-[#3C3C43]'
-              }`}>
-              {o}
-              {o === value && <Check size={13} className="shrink-0 text-[#C03D25]" />}
-            </button>
-          ))}
+          {searchable && (
+            <div className="px-2 py-2 border-b border-black/[0.06]">
+              <input
+                ref={searchRef}
+                type="text"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                onClick={e => e.stopPropagation()}
+                placeholder="Search…"
+                className="w-full px-2 py-1.5 text-sm rounded-lg bg-[#F2F2F7] border border-black/[0.08] text-[#1C1C1E] placeholder:text-[#C7C7CC] outline-none"
+              />
+            </div>
+          )}
+          <div className="max-h-48 overflow-y-auto">
+            {filtered.length === 0
+              ? <p className="px-3 py-2.5 text-sm text-[#C7C7CC]">No results</p>
+              : filtered.map(o => (
+                <button key={o} type="button"
+                  onClick={() => { onChange(o); setOpen(false); }}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 text-sm border-b border-black/[0.05] last:border-0 active:bg-black/[0.04] ${
+                    o === value ? 'text-[#C03D25] font-semibold bg-black/[0.03]' : 'text-[#3C3C43]'
+                  }`}>
+                  {o}
+                  {o === value && <Check size={13} className="shrink-0 text-[#C03D25]" />}
+                </button>
+              ))
+            }
+          </div>
         </div>
       )}
     </div>
@@ -254,14 +281,16 @@ export default function ClientRegistrationPage() {
 
   // Seller state
   const [allSalespersons, setAllSalespersons]               = useState<SalespersonRecord[]>([]);
-  const [allBrokers, setAllBrokers]                         = useState<BrokerRecord[]>([]);
+  const [allBrokers,      setAllBrokers]                    = useState<BrokersTableRecord[]>([]);
   const [sellerDirector, setSellerDirector]                 = useState('');
   const [sellerManager, setSellerManager]                   = useState('');
   const [sellerSpecialist, setSellerSpecialist]             = useState('');
-  const [brokerDirectorHead, setBrokerDirectorHead]         = useState('');
-  const [brokerNetworkOfficer, setBrokerNetworkOfficer]     = useState('');
-  const [brokerBirName, setBrokerBirName]                   = useState('');
   const [brokerNetworkAssociate, setBrokerNetworkAssociate] = useState('');
+  const [brokerNetworkOfficer, setBrokerNetworkOfficer]     = useState('');
+  const [brokerDirectorHead, setBrokerDirectorHead]         = useState('');
+  const [brokerSalesHead, setBrokerSalesHead]               = useState('');
+  const [brokerBirName, setBrokerBirName]                   = useState('');
+  const [brokerCascadeSource, setBrokerCascadeSource]       = useState<'bir' | 'associate' | 'officer' | 'sdh' | null>(null);
 
   // Signature state
   const [sigMode, setSigMode]         = useState<'idle' | 'draw' | 'upload'>('idle');
@@ -289,43 +318,90 @@ export default function ClientRegistrationPage() {
     setSellerDirector(ps?.sales_director ?? '');
   }
 
-  // Broker cascading
-  function uniqueNonNull(arr: (string | null)[]): string[] {
-    return [...new Set(arr.filter(Boolean) as string[])].sort();
+  // Broker cascade — uses Brokers table (BIR → Associate → Officer → SDH → SH)
+  function handleBrokerBirChange(name: string) {
+    const rec = name ? allBrokers.find(b => b.full_name === name) : null;
+    setBrokerBirName(name);
+    setBrokerNetworkAssociate(rec?.broker_network_associate ?? '');
+    setBrokerNetworkOfficer(rec?.broker_network_officer    ?? '');
+    setBrokerDirectorHead(rec?.sales_director_head         ?? '');
+    setBrokerSalesHead(rec?.sales_head                     ?? '');
+    setBrokerCascadeSource(name ? 'bir' : null);
   }
-  const brokerDirectorHeads     = uniqueNonNull(allBrokers.map(b => b.sales_director_head));
-  const brokerNetworkOfficers   = uniqueNonNull(
-    allBrokers.filter(b => !brokerDirectorHead || b.sales_director_head === brokerDirectorHead)
-      .map(b => b.broker_network_officer)
-  );
-  const brokerBirNames          = uniqueNonNull(
-    allBrokers.filter(b =>
-      (!brokerDirectorHead  || b.sales_director_head    === brokerDirectorHead) &&
-      (!brokerNetworkOfficer || b.broker_network_officer === brokerNetworkOfficer)
-    ).map(b => b.bir_registered_name)
-  );
-  const brokerNetworkAssociates = uniqueNonNull(
-    allBrokers.filter(b =>
-      (!brokerDirectorHead  || b.sales_director_head    === brokerDirectorHead) &&
-      (!brokerNetworkOfficer || b.broker_network_officer === brokerNetworkOfficer) &&
-      (!brokerBirName        || b.bir_registered_name    === brokerBirName)
-    ).map(b => b.broker_network_associate)
-  );
+
+  function handleBrokerAssociateChange(name: string) {
+    const rec = name ? allBrokers.find(b => b.broker_network_associate === name) : null;
+    setBrokerNetworkAssociate(name);
+    setBrokerBirName(rec?.full_name                    ?? '');
+    setBrokerNetworkOfficer(rec?.broker_network_officer ?? '');
+    setBrokerDirectorHead(rec?.sales_director_head     ?? '');
+    setBrokerSalesHead(rec?.sales_head                 ?? '');
+    setBrokerCascadeSource(name ? 'associate' : null);
+  }
+
+  function handleBrokerOfficerChange(name: string) {
+    const rec = name ? allBrokers.find(b => b.broker_network_officer === name) : null;
+    setBrokerNetworkOfficer(name);
+    setBrokerDirectorHead(rec?.sales_director_head ?? '');
+    setBrokerSalesHead(rec?.sales_head             ?? '');
+    setBrokerCascadeSource(name ? 'officer' : null);
+  }
+
+  function handleBrokerSdhChange(name: string) {
+    const rec = name ? allBrokers.find(b => b.sales_director_head === name) : null;
+    setBrokerDirectorHead(name);
+    setBrokerSalesHead(rec?.sales_head ?? '');
+    setBrokerCascadeSource(name ? 'sdh' : null);
+  }
+
+  const birOptions = [...new Set(allBrokers.map(b => b.full_name).filter((v): v is string => !!v))];
+  const brokerAssociateOptions = [...new Set(
+    (brokerBirName && brokerCascadeSource !== 'associate'
+      ? allBrokers.filter(b => b.full_name === brokerBirName)
+      : allBrokers
+    ).map(b => b.broker_network_associate).filter((v): v is string => !!v)
+  )];
+  const brokerOfficerOptions = [...new Set(
+    (brokerCascadeSource !== 'bir' && brokerCascadeSource !== 'associate' && brokerNetworkAssociate
+      ? allBrokers.filter(b => b.broker_network_associate === brokerNetworkAssociate)
+      : allBrokers
+    ).map(b => b.broker_network_officer).filter((v): v is string => !!v)
+  )];
+  const brokerSdhOptions = [...new Set(
+    (brokerCascadeSource !== 'bir' && brokerCascadeSource !== 'associate' && brokerCascadeSource !== 'officer' && brokerNetworkOfficer
+      ? allBrokers.filter(b => b.broker_network_officer === brokerNetworkOfficer)
+      : allBrokers
+    ).map(b => b.sales_director_head).filter((v): v is string => !!v)
+  )];
+  const brokerShOptions = [...new Set(
+    (brokerCascadeSource === null && brokerDirectorHead
+      ? allBrokers.filter(b => b.sales_director_head === brokerDirectorHead)
+      : allBrokers
+    ).map(b => b.sales_head).filter((v): v is string => !!v)
+  )];
 
   function resetSellerSelections() {
     setSellerDirector(''); setSellerManager(''); setSellerSpecialist('');
-    setBrokerDirectorHead(''); setBrokerNetworkOfficer('');
-    setBrokerBirName(''); setBrokerNetworkAssociate('');
+    setBrokerNetworkAssociate(''); setBrokerNetworkOfficer('');
+    setBrokerDirectorHead(''); setBrokerSalesHead(''); setBrokerBirName('');
+    setBrokerCascadeSource(null);
   }
 
   function loadSellerFromClient(c: ClientRecord) {
     setSellerDirector(c.sales_director ?? '');
     setSellerManager(c.sales_manager ?? '');
     setSellerSpecialist(c.property_specialist ?? '');
-    setBrokerDirectorHead(c.broker_director_head ?? '');
-    setBrokerNetworkOfficer(c.broker_network_officer ?? '');
-    setBrokerBirName(c.broker_bir_name ?? '');
     setBrokerNetworkAssociate(c.broker_network_associate ?? '');
+    setBrokerNetworkOfficer(c.broker_network_officer ?? '');
+    setBrokerDirectorHead(c.broker_director_head ?? '');
+    setBrokerSalesHead(c.broker_sales_head ?? '');
+    setBrokerBirName(c.broker_bir_name ?? '');
+    setBrokerCascadeSource(
+      c.broker_network_associate ? 'associate' :
+      c.broker_network_officer   ? 'officer'   :
+      c.broker_director_head     ? 'sdh'       :
+      c.broker_bir_name          ? 'bir'       : null
+    );
   }
 
   function openClient(client: ClientRecord) {
@@ -403,10 +479,11 @@ export default function ClientRegistrationPage() {
         sales_director:           form.sellerType === 'In House' ? sellerDirector         : undefined,
         sales_manager:            form.sellerType === 'In House' ? sellerManager          : undefined,
         property_specialist:      form.sellerType === 'In House' ? sellerSpecialist       : undefined,
-        broker_director_head:     form.sellerType === 'Broker'   ? brokerDirectorHead     : undefined,
-        broker_network_officer:   form.sellerType === 'Broker'   ? brokerNetworkOfficer   : undefined,
-        broker_bir_name:          form.sellerType === 'Broker'   ? brokerBirName          : undefined,
         broker_network_associate: form.sellerType === 'Broker'   ? brokerNetworkAssociate : undefined,
+        broker_network_officer:   form.sellerType === 'Broker'   ? brokerNetworkOfficer   : undefined,
+        broker_director_head:     form.sellerType === 'Broker'   ? brokerDirectorHead     : undefined,
+        broker_sales_head:        form.sellerType === 'Broker'   ? brokerSalesHead        : undefined,
+        broker_bir_name:          form.sellerType === 'Broker'   ? brokerBirName          : undefined,
       });
       const updated: ClientRecord = {
         ...selectedClient!,
@@ -430,10 +507,11 @@ export default function ClientRegistrationPage() {
         sales_director:           form.sellerType === 'In House' ? sellerDirector         || null : null,
         sales_manager:            form.sellerType === 'In House' ? sellerManager          || null : null,
         property_specialist:      form.sellerType === 'In House' ? sellerSpecialist       || null : null,
-        broker_director_head:     form.sellerType === 'Broker'   ? brokerDirectorHead     || null : null,
-        broker_network_officer:   form.sellerType === 'Broker'   ? brokerNetworkOfficer   || null : null,
-        broker_bir_name:          form.sellerType === 'Broker'   ? brokerBirName          || null : null,
         broker_network_associate: form.sellerType === 'Broker'   ? brokerNetworkAssociate || null : null,
+        broker_network_officer:   form.sellerType === 'Broker'   ? brokerNetworkOfficer   || null : null,
+        broker_director_head:     form.sellerType === 'Broker'   ? brokerDirectorHead     || null : null,
+        broker_sales_head:        form.sellerType === 'Broker'   ? brokerSalesHead        || null : null,
+        broker_bir_name:          form.sellerType === 'Broker'   ? brokerBirName          || null : null,
       };
       triggerClientEmail(updated, 'on_client_updated').catch(e => console.error('[email-trigger]', e));
       setSelectedClient(updated);
@@ -838,25 +916,55 @@ export default function ClientRegistrationPage() {
 
                   {form.sellerType === 'Broker' && (
                     <>
-                      <DarkInputRow label="Sales Director Head" icon={<UserCog size={11} />}>
-                        <DarkSelectInput value={brokerDirectorHead} options={brokerDirectorHeads}
-                          onChange={v => { if (editMode) { setBrokerDirectorHead(v); setBrokerNetworkOfficer(''); setBrokerBirName(''); setBrokerNetworkAssociate(''); } }}
-                          placeholder="Select Sales Director Head" disabled={!editMode} />
-                      </DarkInputRow>
-                      <DarkInputRow label="Broker Network Officer" icon={<Users size={11} />}>
-                        <DarkSelectInput value={brokerNetworkOfficer} options={brokerNetworkOfficers}
-                          onChange={v => { if (editMode) { setBrokerNetworkOfficer(v); setBrokerBirName(''); setBrokerNetworkAssociate(''); } }}
-                          placeholder="Select Network Officer" disabled={!editMode} />
-                      </DarkInputRow>
-                      <DarkInputRow label="BIR Registered Name" icon={<Briefcase size={11} />}>
-                        <DarkSelectInput value={brokerBirName} options={brokerBirNames}
-                          onChange={v => { if (editMode) { setBrokerBirName(v); setBrokerNetworkAssociate(''); } }}
-                          placeholder="Select BIR Registered Name" disabled={!editMode} />
+                      <DarkInputRow label="Broker Name" icon={<User size={11} />}>
+                        <DarkSelectInput
+                          value={brokerBirName}
+                          options={birOptions}
+                          onChange={v => { if (editMode) handleBrokerBirChange(v); }}
+                          placeholder={allBrokers.length === 0 ? 'Loading…' : 'Select Broker'}
+                          disabled={!editMode || brokerCascadeSource === 'associate'}
+                          searchable
+                        />
                       </DarkInputRow>
                       <DarkInputRow label="Broker Network Associate" icon={<User size={11} />}>
-                        <DarkSelectInput value={brokerNetworkAssociate} options={brokerNetworkAssociates}
-                          onChange={v => { if (editMode) setBrokerNetworkAssociate(v); }}
-                          placeholder="Select Network Associate" disabled={!editMode} />
+                        <DarkSelectInput
+                          value={brokerNetworkAssociate}
+                          options={brokerAssociateOptions}
+                          onChange={v => { if (editMode) handleBrokerAssociateChange(v); }}
+                          placeholder="Select Associate"
+                          disabled={!editMode || brokerCascadeSource === 'bir'}
+                          searchable
+                        />
+                      </DarkInputRow>
+                      <DarkInputRow label="Broker Network Officer" icon={<Users size={11} />}>
+                        <DarkSelectInput
+                          value={brokerNetworkOfficer}
+                          options={brokerOfficerOptions}
+                          onChange={v => { if (editMode) handleBrokerOfficerChange(v); }}
+                          placeholder="Select Network Officer"
+                          disabled={!editMode || brokerCascadeSource === 'bir' || brokerCascadeSource === 'associate'}
+                          searchable
+                        />
+                      </DarkInputRow>
+                      <DarkInputRow label="Sales Division Head" icon={<UserCog size={11} />}>
+                        <DarkSelectInput
+                          value={brokerDirectorHead}
+                          options={brokerSdhOptions}
+                          onChange={v => { if (editMode) handleBrokerSdhChange(v); }}
+                          placeholder="Select Division Head"
+                          disabled={!editMode || brokerCascadeSource === 'bir' || brokerCascadeSource === 'associate' || brokerCascadeSource === 'officer'}
+                          searchable
+                        />
+                      </DarkInputRow>
+                      <DarkInputRow label="Sales Head" icon={<UserCog size={11} />}>
+                        <DarkSelectInput
+                          value={brokerSalesHead}
+                          options={brokerShOptions}
+                          onChange={v => { if (editMode) { setBrokerSalesHead(v); setBrokerCascadeSource(null); } }}
+                          placeholder="Select Sales Head"
+                          disabled={!editMode || brokerCascadeSource !== null}
+                          searchable
+                        />
                       </DarkInputRow>
                     </>
                   )}

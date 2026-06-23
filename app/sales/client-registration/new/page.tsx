@@ -15,7 +15,8 @@ import {
 import { saveClient, updateClientSignatureByClientId, fetchAllClients, checkEmailExists, ClientRecord } from '@/lib/clients';
 import { triggerClientEmail } from '@/lib/email';
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
-import { fetchAllBrokers, BrokerRecord } from '@/lib/brokers';
+import { fetchAllBrokers, BrokerRecord as BrokersTableRecord } from '@/lib/brokers';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 
 const GENDER_OPTIONS    = ['Male', 'Female', 'Non-Binary'];
 const CIVIL_STATUS_OPTIONS = ['Single', 'Married', 'Widowed', 'Separated', 'Annulled'];
@@ -233,14 +234,16 @@ export default function NewClientPage() {
 
   // Seller state
   const [allSalespersons, setAllSalespersons] = useState<SalespersonRecord[]>([]);
-  const [allBrokers, setAllBrokers]           = useState<BrokerRecord[]>([]);
+  const [allBrokers,      setAllBrokers]      = useState<BrokersTableRecord[]>([]);
   const [sellerDirector, setSellerDirector]   = useState('');
   const [sellerManager, setSellerManager]     = useState('');
   const [sellerSpecialist, setSellerSpecialist] = useState('');
-  const [brokerDirectorHead, setBrokerDirectorHead]           = useState('');
-  const [brokerNetworkOfficer, setBrokerNetworkOfficer]       = useState('');
-  const [brokerBirName, setBrokerBirName]                     = useState('');
-  const [brokerNetworkAssociate, setBrokerNetworkAssociate]   = useState('');
+  const [brokerNetworkAssociate, setBrokerNetworkAssociate] = useState('');
+  const [brokerNetworkOfficer, setBrokerNetworkOfficer]     = useState('');
+  const [brokerDirectorHead, setBrokerDirectorHead]         = useState('');
+  const [brokerSalesHead, setBrokerSalesHead]               = useState('');
+  const [brokerBirName, setBrokerBirName]                   = useState('');
+  const [brokerCascadeSource, setBrokerCascadeSource] = useState<'bir' | 'associate' | 'officer' | 'sdh' | null>(null);
 
   // Signature state
   const [sigMode, setSigMode]       = useState<'idle' | 'draw' | 'upload'>('idle');
@@ -268,38 +271,73 @@ export default function NewClientPage() {
     setSellerDirector(ps?.sales_director ?? '');
   }
 
-  // Broker cascading filter logic — unique values per level
-  function uniqueNonNull(arr: (string | null)[]): string[] {
-    return [...new Set(arr.filter(Boolean) as string[])].sort();
+  // Broker cascade — uses Brokers table (BIR → Associate → Officer → SDH → SH)
+  function handleBrokerBirChange(name: string) {
+    const rec = name ? allBrokers.find(b => b.full_name === name) : null;
+    setBrokerBirName(name);
+    setBrokerNetworkAssociate(rec?.broker_network_associate ?? '');
+    setBrokerNetworkOfficer(rec?.broker_network_officer    ?? '');
+    setBrokerDirectorHead(rec?.sales_director_head         ?? '');
+    setBrokerSalesHead(rec?.sales_head                     ?? '');
+    setBrokerCascadeSource(name ? 'bir' : null);
   }
-  const brokerDirectorHeads = uniqueNonNull(allBrokers.map(b => b.sales_director_head));
-  const brokerNetworkOfficers = uniqueNonNull(
-    allBrokers
-      .filter(b => !brokerDirectorHead || b.sales_director_head === brokerDirectorHead)
-      .map(b => b.broker_network_officer)
-  );
-  const brokerBirNames = uniqueNonNull(
-    allBrokers
-      .filter(b =>
-        (!brokerDirectorHead  || b.sales_director_head    === brokerDirectorHead) &&
-        (!brokerNetworkOfficer || b.broker_network_officer === brokerNetworkOfficer)
-      )
-      .map(b => b.bir_registered_name)
-  );
-  const brokerNetworkAssociates = uniqueNonNull(
-    allBrokers
-      .filter(b =>
-        (!brokerDirectorHead   || b.sales_director_head    === brokerDirectorHead) &&
-        (!brokerNetworkOfficer  || b.broker_network_officer === brokerNetworkOfficer) &&
-        (!brokerBirName         || b.bir_registered_name    === brokerBirName)
-      )
-      .map(b => b.broker_network_associate)
-  );
+
+  function handleBrokerAssociateChange(name: string) {
+    const rec = name ? allBrokers.find(b => b.broker_network_associate === name) : null;
+    setBrokerNetworkAssociate(name);
+    setBrokerBirName(rec?.full_name                    ?? '');
+    setBrokerNetworkOfficer(rec?.broker_network_officer ?? '');
+    setBrokerDirectorHead(rec?.sales_director_head     ?? '');
+    setBrokerSalesHead(rec?.sales_head                 ?? '');
+    setBrokerCascadeSource(name ? 'associate' : null);
+  }
+
+  function handleBrokerOfficerChange(name: string) {
+    const rec = name ? allBrokers.find(b => b.broker_network_officer === name) : null;
+    setBrokerNetworkOfficer(name);
+    setBrokerDirectorHead(rec?.sales_director_head ?? '');
+    setBrokerSalesHead(rec?.sales_head             ?? '');
+    setBrokerCascadeSource(name ? 'officer' : null);
+  }
+
+  function handleBrokerSdhChange(name: string) {
+    const rec = name ? allBrokers.find(b => b.sales_director_head === name) : null;
+    setBrokerDirectorHead(name);
+    setBrokerSalesHead(rec?.sales_head ?? '');
+    setBrokerCascadeSource(name ? 'sdh' : null);
+  }
+
+  const birOptions = [...new Set(allBrokers.map(b => b.full_name).filter((v): v is string => !!v))];
+  const brokerAssociateOptions = [...new Set(
+    (brokerBirName && brokerCascadeSource !== 'associate'
+      ? allBrokers.filter(b => b.full_name === brokerBirName)
+      : allBrokers
+    ).map(b => b.broker_network_associate).filter((v): v is string => !!v)
+  )];
+  const brokerOfficerOptions = [...new Set(
+    (brokerCascadeSource !== 'bir' && brokerCascadeSource !== 'associate' && brokerNetworkAssociate
+      ? allBrokers.filter(b => b.broker_network_associate === brokerNetworkAssociate)
+      : allBrokers
+    ).map(b => b.broker_network_officer).filter((v): v is string => !!v)
+  )];
+  const brokerSdhOptions = [...new Set(
+    (brokerCascadeSource !== 'bir' && brokerCascadeSource !== 'associate' && brokerCascadeSource !== 'officer' && brokerNetworkOfficer
+      ? allBrokers.filter(b => b.broker_network_officer === brokerNetworkOfficer)
+      : allBrokers
+    ).map(b => b.sales_director_head).filter((v): v is string => !!v)
+  )];
+  const brokerShOptions = [...new Set(
+    (brokerCascadeSource === null && brokerDirectorHead
+      ? allBrokers.filter(b => b.sales_director_head === brokerDirectorHead)
+      : allBrokers
+    ).map(b => b.sales_head).filter((v): v is string => !!v)
+  )];
 
   function resetSellerSelections() {
     setSellerDirector(''); setSellerManager(''); setSellerSpecialist('');
-    setBrokerDirectorHead(''); setBrokerNetworkOfficer('');
-    setBrokerBirName(''); setBrokerNetworkAssociate('');
+    setBrokerNetworkAssociate(''); setBrokerNetworkOfficer('');
+    setBrokerDirectorHead(''); setBrokerSalesHead(''); setBrokerBirName('');
+    setBrokerCascadeSource(null);
   }
 
   async function validate() {
@@ -358,10 +396,11 @@ export default function NewClientPage() {
         sales_director:           form.sellerType === 'In House' ? sellerDirector           : undefined,
         sales_manager:            form.sellerType === 'In House' ? sellerManager            : undefined,
         property_specialist:      form.sellerType === 'In House' ? sellerSpecialist         : undefined,
-        broker_director_head:     form.sellerType === 'Broker'   ? brokerDirectorHead       : undefined,
-        broker_network_officer:   form.sellerType === 'Broker'   ? brokerNetworkOfficer     : undefined,
-        broker_bir_name:          form.sellerType === 'Broker'   ? brokerBirName            : undefined,
         broker_network_associate: form.sellerType === 'Broker'   ? brokerNetworkAssociate   : undefined,
+        broker_network_officer:   form.sellerType === 'Broker'   ? brokerNetworkOfficer     : undefined,
+        broker_director_head:     form.sellerType === 'Broker'   ? brokerDirectorHead       : undefined,
+        broker_sales_head:        form.sellerType === 'Broker'   ? brokerSalesHead          : undefined,
+        broker_bir_name:          form.sellerType === 'Broker'   ? brokerBirName            : undefined,
       });
       if (sigPreview) {
         try { await updateClientSignatureByClientId(clientId, sigPreview); } catch {}
@@ -379,10 +418,11 @@ export default function NewClientPage() {
         sales_director: form.sellerType === 'In House' ? sellerDirector : null,
         sales_manager: form.sellerType === 'In House' ? sellerManager : null,
         property_specialist: form.sellerType === 'In House' ? sellerSpecialist : null,
-        broker_director_head: form.sellerType === 'Broker' ? brokerDirectorHead : null,
-        broker_network_officer: form.sellerType === 'Broker' ? brokerNetworkOfficer : null,
-        broker_bir_name: form.sellerType === 'Broker' ? brokerBirName : null,
         broker_network_associate: form.sellerType === 'Broker' ? brokerNetworkAssociate : null,
+        broker_network_officer:   form.sellerType === 'Broker' ? brokerNetworkOfficer : null,
+        broker_director_head:     form.sellerType === 'Broker' ? brokerDirectorHead : null,
+        broker_sales_head:        form.sellerType === 'Broker' ? brokerSalesHead : null,
+        broker_bir_name:          form.sellerType === 'Broker' ? brokerBirName : null,
         signature_base64: sigPreview, created_at: new Date().toISOString(),
       } as ClientRecord, 'on_client_created').catch(e => console.error('[email-trigger]', e));
       setSavedClient({ ...form });
@@ -742,39 +782,51 @@ export default function NewClientPage() {
             </>
           )}
 
-          {/* Broker — cascading dropdowns */}
+          {/* Broker — cascading searchable dropdowns (BIR → Associate → Officer → SDH → SH) */}
           {form.sellerType === 'Broker' && (
             <>
-              <InputRow label="Sales Director Head" icon={<UserCog size={11} />}>
-                <SelectInput
-                  value={brokerDirectorHead}
-                  options={brokerDirectorHeads}
-                  onChange={v => { setBrokerDirectorHead(v); setBrokerNetworkOfficer(''); setBrokerBirName(''); setBrokerNetworkAssociate(''); }}
-                  placeholder={allBrokers.length === 0 ? 'Loading…' : 'Select Sales Director Head'}
-                />
-              </InputRow>
-              <InputRow label="Broker Network Officer" icon={<Users size={11} />}>
-                <SelectInput
-                  value={brokerNetworkOfficer}
-                  options={brokerNetworkOfficers}
-                  onChange={v => { setBrokerNetworkOfficer(v); setBrokerBirName(''); setBrokerNetworkAssociate(''); }}
-                  placeholder={brokerNetworkOfficers.length === 0 ? 'No results' : 'Select Network Officer'}
-                />
-              </InputRow>
-              <InputRow label="BIR Registered Name" icon={<Briefcase size={11} />}>
-                <SelectInput
+              <InputRow label="Broker Name" icon={<User size={11} />}>
+                <SearchableSelect
                   value={brokerBirName}
-                  options={brokerBirNames}
-                  onChange={v => { setBrokerBirName(v); setBrokerNetworkAssociate(''); }}
-                  placeholder={brokerBirNames.length === 0 ? 'No results' : 'Select BIR Registered Name'}
+                  options={birOptions}
+                  onChange={handleBrokerBirChange}
+                  placeholder={allBrokers.length === 0 ? 'Loading…' : 'All Brokers'}
                 />
               </InputRow>
               <InputRow label="Broker Network Associate" icon={<User size={11} />}>
-                <SelectInput
+                <SearchableSelect
                   value={brokerNetworkAssociate}
-                  options={brokerNetworkAssociates}
-                  onChange={setBrokerNetworkAssociate}
-                  placeholder={brokerNetworkAssociates.length === 0 ? 'No results' : 'Select Network Associate'}
+                  options={brokerAssociateOptions}
+                  onChange={handleBrokerAssociateChange}
+                  placeholder="All Associates"
+                  disabled={brokerCascadeSource === 'bir'}
+                />
+              </InputRow>
+              <InputRow label="Broker Network Officer" icon={<Users size={11} />}>
+                <SearchableSelect
+                  value={brokerNetworkOfficer}
+                  options={brokerOfficerOptions}
+                  onChange={handleBrokerOfficerChange}
+                  placeholder="All Network Officers"
+                  disabled={brokerCascadeSource === 'bir' || brokerCascadeSource === 'associate'}
+                />
+              </InputRow>
+              <InputRow label="Sales Division Head" icon={<UserCog size={11} />}>
+                <SearchableSelect
+                  value={brokerDirectorHead}
+                  options={brokerSdhOptions}
+                  onChange={handleBrokerSdhChange}
+                  placeholder="All Division Heads"
+                  disabled={brokerCascadeSource === 'bir' || brokerCascadeSource === 'associate' || brokerCascadeSource === 'officer'}
+                />
+              </InputRow>
+              <InputRow label="Sales Head" icon={<UserCog size={11} />}>
+                <SearchableSelect
+                  value={brokerSalesHead}
+                  options={brokerShOptions}
+                  onChange={v => { setBrokerSalesHead(v); setBrokerCascadeSource(null); }}
+                  placeholder="All Sales Heads"
+                  disabled={brokerCascadeSource !== null}
                 />
               </InputRow>
             </>

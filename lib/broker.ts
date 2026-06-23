@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 
 export interface BrokerRecord {
   seller_name:            string; // mapped from Full Name — used to match commission records
+  broker_id:             string | null;
   bir_registered_name:   string | null;
   broker_network_officer: string | null;
   sales_director_head:   string | null;

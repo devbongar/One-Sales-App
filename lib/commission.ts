@@ -111,7 +111,7 @@ export async function generateCommissionSchedule(reservationId: string): Promise
       if (shName)  targets.push({ name: shName,  sellerId: shId,  positionRank: 'SH'  });
     }
   } else {
-    // Broker: look up chain from Brokers table by name
+    // Broker: look up chain from Brokers table by Broker ID (resolved by commission RPC)
     const { data: brokerRow } = await supabase
       .from('Brokers')
       .select('"Broker ID", "Broker Network Associate", "Broker Network Associate ID", "Broker Network Officer", "Broker Network Officer ID", "Sales Director Head", "Sales Director Head ID", "Sales Head", "Sales Head ID"')
