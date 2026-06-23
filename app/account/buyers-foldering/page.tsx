@@ -7,8 +7,9 @@ import GlassCard from '@/components/ui/GlassCard';
 import { supabase } from '@/lib/supabase';
 import {
   Building2, ChevronRight, FolderOpen, Loader2,
-  Search, SlidersHorizontal, User, X, Check,
+  Search, SlidersHorizontal, User, X,
 } from 'lucide-react';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 
 interface Reservation {
   reservation_id: string;
@@ -17,13 +18,16 @@ interface Reservation {
   inventory_code: string | null;
   unit_type: string;
   seller_name: string | null;
-  payment_proof_url:      string | null;
-  proof_of_billing_urls:  string | null;
-  proof_of_income_urls:   string | null;
-  proof_of_valid_id_urls: string | null;
-  co_owner_id_urls:       string[] | null;
-  atty_in_fact_id_urls:   string[] | null;
-  spouse_id_urls:         string[] | null;
+  status: string;
+  proof_of_billing_urls:             string | null;
+  proof_of_income_urls:              string | null;
+  additional_proof_of_income_urls:   string | null;
+  existing_loan_disclosure_urls:     string | null;
+  signed_floor_layout_urls:          string | null;
+  proof_of_valid_id_urls:            string | null;
+  co_owner_id_urls:                  string[] | null;
+  atty_in_fact_id_urls:              string[] | null;
+  spouse_id_urls:                    string[] | null;
 }
 
 function getInitials(name: string) {
@@ -38,9 +42,11 @@ function parseJson(s: string | null): string[] {
 
 function countCategories(r: Reservation): number {
   return [
-    parseJson(r.payment_proof_url).length > 0,
     parseJson(r.proof_of_billing_urls).length > 0,
     parseJson(r.proof_of_income_urls).length > 0,
+    parseJson(r.additional_proof_of_income_urls).length > 0,
+    parseJson(r.existing_loan_disclosure_urls).length > 0,
+    parseJson(r.signed_floor_layout_urls).length > 0,
     parseJson(r.proof_of_valid_id_urls).length > 0,
     (r.co_owner_id_urls ?? []).length > 0,
     (r.atty_in_fact_id_urls ?? []).length > 0,
@@ -49,9 +55,9 @@ function countCategories(r: Reservation): number {
 }
 
 function folderBadgeStyle(count: number): { style: React.CSSProperties; label: string } {
-  if (count === 7) return { style: { background: 'rgba(52,199,89,0.12)',  color: '#1A7F37' }, label: 'Complete' };
+  if (count === 9) return { style: { background: 'rgba(52,199,89,0.12)',  color: '#1A7F37' }, label: 'Complete' };
   if (count === 0) return { style: { background: 'rgba(142,142,147,0.12)', color: '#6C6C70' }, label: 'Empty' };
-  return { style: { background: 'rgba(255,159,10,0.12)', color: '#A05A00' }, label: `${count}/7` };
+  return { style: { background: 'rgba(255,159,10,0.12)', color: '#A05A00' }, label: `${count}/9` };
 }
 
 export default function BuyersFolderingPage() {
@@ -64,14 +70,15 @@ export default function BuyersFolderingPage() {
   const [sellerOptions,  setSellerOptions]  = useState<string[]>([]);
   const [projectOptions, setProjectOptions] = useState<string[]>([]);
 
-  const [sellerFilter,  setSellerFilter]  = useState('');
-  const [projectFilter, setProjectFilter] = useState('');
-  const [statusFilter,  setStatusFilter]  = useState('');
+  const [sellerFilter,            setSellerFilter]            = useState('');
+  const [projectFilter,           setProjectFilter]           = useState('');
+  const [statusFilter,            setStatusFilter]            = useState('');
+  const [reservationStatusFilter, setReservationStatusFilter] = useState('');
 
   const activeFilterCount = [sellerFilter, projectFilter, statusFilter].filter(Boolean).length;
 
   useEffect(() => {
-    supabase.from('reservations').select('seller_name, project').eq('finance_status', 'proof-submitted').limit(5000)
+    supabase.from('reservations').select('seller_name, project').in('status', ['Reserved', 'Booked']).limit(5000)
       .then(({ data }) => {
         if (!data) return;
         setSellerOptions([...new Set(data.map(r => r.seller_name).filter(Boolean))] as string[]);
@@ -83,12 +90,18 @@ export default function BuyersFolderingPage() {
     setLoading(true);
     let query = supabase
       .from('reservations')
-      .select(`reservation_id, client_name, project, inventory_code, unit_type, seller_name,
-        payment_proof_url, proof_of_billing_urls, proof_of_income_urls, proof_of_valid_id_urls,
+      .select(`reservation_id, client_name, project, inventory_code, unit_type, seller_name, status,
+        proof_of_billing_urls, proof_of_income_urls, additional_proof_of_income_urls,
+        existing_loan_disclosure_urls, signed_floor_layout_urls, proof_of_valid_id_urls,
         co_owner_id_urls, atty_in_fact_id_urls, spouse_id_urls`)
-      .eq('finance_status', 'proof-submitted')
       .order('created_at', { ascending: false })
       .limit(5000);
+
+    if (reservationStatusFilter) {
+      query = query.eq('status', reservationStatusFilter);
+    } else {
+      query = query.in('status', ['Reserved', 'Booked']);
+    }
 
     if (sellerFilter)  query = query.eq('seller_name', sellerFilter);
     if (projectFilter) query = query.eq('project', projectFilter);
@@ -97,14 +110,14 @@ export default function BuyersFolderingPage() {
       setReservations((data ?? []) as Reservation[]);
       setLoading(false);
     });
-  }, [sellerFilter, projectFilter]);
+  }, [reservationStatusFilter, sellerFilter, projectFilter]);
 
   const filtered = reservations.filter(r => {
     if (statusFilter) {
       const c = countCategories(r);
       if (statusFilter === 'Empty'      && c !== 0) return false;
-      if (statusFilter === 'Incomplete' && (c === 0 || c === 7)) return false;
-      if (statusFilter === 'Complete'   && c !== 7) return false;
+      if (statusFilter === 'Incomplete' && (c === 0 || c === 9)) return false;
+      if (statusFilter === 'Complete'   && c !== 9) return false;
     }
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -138,6 +151,24 @@ export default function BuyersFolderingPage() {
               </span>
             )}
           </button>
+        </div>
+
+        {/* Reservation status quick filters */}
+        <div className="flex gap-2">
+          {([['', 'All'], ['Reserved', 'For Booking'], ['Booked', 'Booked']] as [string, string][]).map(([val, label]) => (
+            <button
+              key={val}
+              type="button"
+              onClick={() => setReservationStatusFilter(val)}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                reservationStatusFilter === val
+                  ? 'bg-[#C03D25] text-white shadow-sm'
+                  : 'bg-white/80 border border-black/[0.08] text-[#6C6C70]'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
         {loading ? (
@@ -191,59 +222,58 @@ export default function BuyersFolderingPage() {
         )}
       </div>
 
-      {filterOpen && <div className="fixed inset-0 z-[45] bg-black/40" onClick={() => setFilterOpen(false)} />}
+      {filterOpen && (
+        <div className="fixed inset-0 z-[45] bg-black/40" onClick={() => setFilterOpen(false)} />
+      )}
       <div className={`fixed inset-x-0 bottom-0 z-[46] transition-transform duration-300 ease-out ${filterOpen ? 'translate-y-0' : 'translate-y-full'}`}>
         <div className="bg-white rounded-t-3xl shadow-2xl">
-          <div className="flex justify-center pt-3 pb-1"><div className="w-9 h-1 rounded-full bg-[#D1D1D6]" /></div>
+          <div className="flex justify-center pt-3 pb-1">
+            <div className="w-9 h-1 rounded-full bg-[#D1D1D6]" />
+          </div>
           <div className="flex items-center justify-between px-5 py-3">
             <p className="text-base font-bold text-[#1C1C1E]">Filters</p>
-            <button type="button" onClick={() => setFilterOpen(false)} className="w-7 h-7 rounded-full bg-[#F2F2F7] flex items-center justify-center"><X size={14} className="text-[#8E8E93]" /></button>
+            <button type="button" onClick={() => setFilterOpen(false)} className="w-7 h-7 rounded-full bg-[#F2F2F7] flex items-center justify-center">
+              <X size={14} className="text-[#8E8E93]" />
+            </button>
           </div>
-          <div className="px-5 space-y-5 pb-4">
-            <div className="space-y-2">
+          <div className="px-5 space-y-4 pb-4 max-h-[60vh] overflow-y-auto">
+            <div className="space-y-1.5">
               <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Folder Status</p>
-              <div className="flex gap-2 flex-wrap">
-                {(['', 'Empty', 'Incomplete', 'Complete']).map(s => (
-                  <button key={s} type="button" onClick={() => setStatusFilter(s)}
-                    className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 ${statusFilter === s ? 'bg-[#C03D25] border-[#C03D25] text-white' : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'}`}>
-                    {statusFilter === s && s && <Check size={11} />}
-                    {s || 'All'}
-                  </button>
-                ))}
-              </div>
+              <SearchableSelect
+                value={statusFilter}
+                onChange={setStatusFilter}
+                options={['Empty', 'Incomplete', 'Complete']}
+                placeholder="All Statuses"
+              />
             </div>
-            {projectOptions.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Project</p>
-                <div className="flex gap-2 flex-wrap">
-                  {(['', ...projectOptions]).map(p => (
-                    <button key={p} type="button" onClick={() => setProjectFilter(p)}
-                      className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 ${projectFilter === p ? 'bg-[#C03D25] border-[#C03D25] text-white' : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'}`}>
-                      {projectFilter === p && p && <Check size={11} />}{p || 'All'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            {sellerOptions.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Seller</p>
-                <div className="flex gap-2 flex-wrap">
-                  {(['', ...sellerOptions]).map(s => (
-                    <button key={s} type="button" onClick={() => setSellerFilter(s)}
-                      className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 ${sellerFilter === s ? 'bg-[#C03D25] border-[#C03D25] text-white' : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'}`}>
-                      {sellerFilter === s && s && <Check size={11} />}{s || 'All'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Project</p>
+              <SearchableSelect
+                value={projectFilter}
+                onChange={setProjectFilter}
+                options={projectOptions}
+                placeholder="All Projects"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Seller</p>
+              <SearchableSelect
+                value={sellerFilter}
+                onChange={setSellerFilter}
+                options={sellerOptions}
+                placeholder="All Sellers"
+              />
+            </div>
           </div>
           <div className="px-5 pb-10 pt-2 flex gap-3">
             <button type="button" onClick={() => { setSellerFilter(''); setProjectFilter(''); setStatusFilter(''); }}
-              className="flex-1 py-3.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-70">Clear All</button>
+              className="flex-1 py-3.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-70">
+              Clear All
+            </button>
             <button type="button" onClick={() => setFilterOpen(false)}
-              className="flex-1 py-3.5 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80">Done</button>
+              className="flex-1 py-3.5 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80">
+              Done
+            </button>
           </div>
         </div>
       </div>
