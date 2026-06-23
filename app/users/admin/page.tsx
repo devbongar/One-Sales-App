@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { AlertTriangle, Calendar, ChevronLeft, ChevronRight, CheckCircle2, DollarSign, CalendarDays, Loader2, Save, Plus, Trash2, Eraser, Building2, Layers, Percent, Home, ShieldCheck, GripVertical, Users, Crown, UserPlus, Network, FileCheck, Eye, EyeOff, KeyRound, Briefcase, Globe, Check, X } from 'lucide-react';
+import { AlertTriangle, Calendar, ChevronLeft, ChevronRight, CheckCircle2, DollarSign, CalendarDays, Loader2, Save, Plus, Trash2, Eraser, Building2, Layers, Percent, Home, ShieldCheck, GripVertical, Users, Crown, UserPlus, Network, FileCheck, Eye, EyeOff, KeyRound, Briefcase, Globe, Check, X, Mail, Search } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import {
   DndContext, closestCenter, PointerSensor, TouchSensor,
@@ -12,6 +12,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import PageShell from '@/components/layout/PageShell';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 import {
   fetchReservationFees,
   saveReservationFees,
@@ -2000,6 +2001,16 @@ function getInitialsUM(name: string) {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+const ROLE_BADGE_COLORS: Record<string, { bg: string; text: string }> = {
+  'All Access':         { bg: 'rgba(88,86,214,0.12)',  text: '#4B47C0' },
+  'Sales Director':     { bg: 'rgba(255,149,0,0.12)',  text: '#A05A00' },
+  'Account Management': { bg: 'rgba(48,176,199,0.12)', text: '#0E6E7E' },
+  'Finance':            { bg: 'rgba(52,199,89,0.12)',  text: '#1A7F37' },
+};
+function roleBadgeColor(roleName: string) {
+  return ROLE_BADGE_COLORS[roleName] ?? { bg: 'rgba(192,61,37,0.10)', text: '#C03D25' };
+}
+
 function UserManagementOverlay({ onClose }: { onClose: () => void }) {
   const [users, setUsers]           = useState<UserProfile[]>([]);
   const [roles, setRoles]           = useState<{ id: number; role_name: string }[]>([]);
@@ -2007,6 +2018,8 @@ function UserManagementOverlay({ onClose }: { onClose: () => void }) {
   const [loadError, setLoadError]   = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [editUser, setEditUser]     = useState<UserProfile | null>(null);
+  const [roleFilter, setRoleFilter] = useState<string[]>([]);
+  const [search,    setSearch]      = useState('');
 
   const loadUsers = useCallback(async () => {
     setLoading(true); setLoadError(null);
@@ -2047,52 +2060,116 @@ function UserManagementOverlay({ onClose }: { onClose: () => void }) {
         </button>
       </div>
 
+      {/* Search + Role filter — always visible */}
+      <div className="px-4 py-2.5 shrink-0 bg-white border-b border-black/[0.06] flex gap-2 items-center">
+        <div className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-2xl bg-[#F2F2F7]">
+          <Search size={15} className="text-[#8E8E93] shrink-0" />
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search…"
+            disabled={loading || !!loadError}
+            className="flex-1 bg-transparent text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC] min-w-0 disabled:opacity-40"
+          />
+          {search && <button type="button" onClick={() => setSearch('')}><X size={13} className="text-[#8E8E93]" /></button>}
+        </div>
+        <div className="w-44 shrink-0">
+          <SearchableSelect
+            multiSelect
+            value={roleFilter}
+            onChange={setRoleFilter}
+            options={[...roles.map(r => r.role_name), 'No Role']}
+            placeholder="All Roles"
+            align="right"
+            disabled={loading || !!loadError}
+          />
+        </div>
+      </div>
+
       {/* List */}
       <div className="flex-1 overflow-y-auto px-4 py-4 pb-10 space-y-3">
-        {loading ? (
-          <div className="flex items-center justify-center h-40">
-            <Loader2 size={32} className="text-[#C03D25] animate-spin" />
-          </div>
-        ) : loadError ? (
-          <div className="rounded-2xl px-4 py-4" style={{ background: 'rgba(255,59,48,0.06)', border: '1px solid rgba(255,59,48,0.2)' }}>
-            <p className="text-xs font-bold text-[#FF3B30]">{loadError}</p>
-          </div>
-        ) : users.length === 0 ? (
-          <div className="rounded-3xl py-10 flex flex-col items-center gap-2" style={cardStyle}>
-            <Users size={28} className="text-[#C7C7CC]" />
-            <p className="text-sm text-[#8E8E93]">No users yet. Add one above.</p>
-          </div>
-        ) : (
-          users.map(u => (
-            <button
-              key={u.id}
-              type="button"
-              onClick={() => setEditUser(u)}
-              className="w-full flex items-center gap-3 px-4 py-3.5 rounded-3xl text-left active:scale-[0.98] transition-all"
-              style={cardStyle}
-            >
-              <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 bg-[#C03D25]/10">
-                <span className="text-sm font-bold text-[#C03D25]">{getInitialsUM(u.full_name || u.email)}</span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-[#1C1C1E] truncate">
-                  {u.display_name || u.full_name || '—'}
-                </p>
-                <p className="text-xs text-[#8E8E93] truncate">{u.email}</p>
-              </div>
-              {u.access_roles?.role_name ? (
-                <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-[#C03D25]/10 text-[#C03D25] shrink-0">
-                  {u.access_roles.role_name}
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-[#F2F2F7] text-[#8E8E93] shrink-0">
-                  No Role
-                </span>
+        {(() => {
+          const q = search.trim().toLowerCase();
+          const isFiltered = !!search.trim() || roleFilter.length > 0;
+          const filtered = users.filter(u => {
+            if (roleFilter.length > 0) {
+              const roleName = u.access_roles?.role_name ?? '';
+              const matchesRole = roleFilter.some(f =>
+                f === 'No Role' ? !roleName : f === roleName
+              );
+              if (!matchesRole) return false;
+            }
+            if (q && !( (u.full_name ?? '').toLowerCase().includes(q) || (u.display_name ?? '').toLowerCase().includes(q) || (u.email ?? '').toLowerCase().includes(q) )) return false;
+            return true;
+          });
+
+          if (loading) return (
+            <div className="flex items-center justify-center h-40">
+              <Loader2 size={32} className="text-[#C03D25] animate-spin" />
+            </div>
+          );
+
+          if (loadError) return (
+            <div className="rounded-2xl px-4 py-4" style={{ background: 'rgba(255,59,48,0.06)', border: '1px solid rgba(255,59,48,0.2)' }}>
+              <p className="text-xs font-bold text-[#FF3B30]">{loadError}</p>
+            </div>
+          );
+
+          if (filtered.length === 0) return (
+            <div className="rounded-3xl py-10 flex flex-col items-center gap-3" style={cardStyle}>
+              <Users size={28} className="text-[#C7C7CC]" />
+              <p className="text-sm text-[#8E8E93]">{users.length === 0 ? 'No users yet. Add one above.' : 'No users match this filter.'}</p>
+              {isFiltered && (
+                <button type="button" onClick={() => { setSearch(''); setRoleFilter([]); }}
+                  className="px-4 py-2 rounded-xl bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70">
+                  Clear filters
+                </button>
               )}
-              <ChevronRight size={15} className="text-[#C7C7CC] shrink-0" />
-            </button>
-          ))
-        )}
+            </div>
+          );
+
+          return (
+            <>
+              <p className="text-[11px] font-semibold text-[#8E8E93] px-1">
+                {isFiltered ? `${filtered.length} of ${users.length} users` : `${users.length} user${users.length !== 1 ? 's' : ''}`}
+              </p>
+              {filtered.map(u => {
+                const badgeColor = u.access_roles?.role_name ? roleBadgeColor(u.access_roles.role_name) : null;
+                return (
+                  <button
+                    key={u.id}
+                    type="button"
+                    onClick={() => setEditUser(u)}
+                    className="w-full flex items-center gap-3 px-4 py-3.5 rounded-3xl text-left active:scale-[0.98] transition-all"
+                    style={cardStyle}
+                  >
+                    <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 bg-[#C03D25]/10">
+                      <span className="text-sm font-bold text-[#C03D25]">{getInitialsUM(u.full_name || u.email)}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-[#1C1C1E] truncate">{u.full_name || '—'}</p>
+                      {u.display_name && (
+                        <p className="text-[11px] text-[#8E8E93] truncate">Goes by "{u.display_name}"</p>
+                      )}
+                      <p className="text-xs text-[#8E8E93] truncate">{u.email}</p>
+                    </div>
+                    {badgeColor ? (
+                      <span className="text-[10px] font-bold px-2.5 py-1 rounded-full shrink-0" style={{ background: badgeColor.bg, color: badgeColor.text }}>
+                        {u.access_roles!.role_name}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-[#F2F2F7] text-[#C7C7CC] shrink-0">
+                        No Role
+                      </span>
+                    )}
+                    <ChevronRight size={15} className="text-[#C7C7CC] shrink-0" />
+                  </button>
+                );
+              })}
+            </>
+          );
+        })()}
       </div>
 
       {/* Create User Sheet */}
@@ -2120,28 +2197,27 @@ function UserManagementOverlay({ onClose }: { onClose: () => void }) {
 function CreateUserSheet({
   roles, onClose, onCreated,
 }: { roles: { id: number; role_name: string }[]; onClose: () => void; onCreated: () => void }) {
-  const [fullName,     setFullName]     = useState('');
-  const [displayName,  setDisplayName]  = useState('');
-  const [email,        setEmail]        = useState('');
-  const [password,     setPassword]     = useState('');
-  const [showPass,     setShowPass]     = useState(false);
-  const [roleId,       setRoleId]       = useState<number | null>(null);
-  const [saving,       setSaving]       = useState(false);
-  const [error,        setError]        = useState<string | null>(null);
+  const [fullName,    setFullName]    = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [email,       setEmail]       = useState('');
+  const [roleName,    setRoleName]    = useState('');
+  const [saving,      setSaving]      = useState(false);
+  const [error,       setError]       = useState<string | null>(null);
 
   async function handleCreate() {
-    if (!fullName.trim() || !email.trim() || !password.trim()) {
-      setError('Full name, email, and password are required.'); return;
+    if (!fullName.trim() || !email.trim()) {
+      setError('Full name and email are required.'); return;
     }
+    const roleId = roles.find(r => r.role_name === roleName)?.id ?? null;
     setSaving(true); setError(null);
     try {
       const res = await fetch('/api/admin/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ full_name: fullName.trim(), display_name: displayName.trim() || null, email: email.trim(), password, role_id: roleId }),
+        body: JSON.stringify({ full_name: fullName.trim(), display_name: displayName.trim() || null, email: email.trim(), role_id: roleId }),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data.error ?? 'Failed to create user'); return; }
+      if (!res.ok) { setError(data.error ?? 'Failed to send invitation'); return; }
       onCreated();
     } catch (e: any) {
       setError(e.message ?? 'Server error');
@@ -2154,9 +2230,11 @@ function CreateUserSheet({
     <div className="fixed inset-0 z-60 flex items-end" style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}>
       <div className="w-full bg-white rounded-t-3xl px-5 pt-5 pb-10 space-y-4 max-h-[90vh] overflow-y-auto" style={{ animation: 'overlaySlideUp 0.28s cubic-bezier(0.32,0.72,0,1) both' }}>
         <div className="flex items-center justify-between mb-1">
-          <h2 className="text-base font-bold text-[#1C1C1E]">Create User</h2>
+          <h2 className="text-base font-bold text-[#1C1C1E]">Invite User</h2>
           <button onClick={onClose} className="p-2 rounded-xl bg-[#F2F2F7] active:opacity-70"><X size={16} /></button>
         </div>
+
+        <p className="text-xs text-[#6C6C70]">An invitation email will be sent so they can set their own password.</p>
 
         <div className="space-y-1.5">
           <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider">Full Name</p>
@@ -2178,38 +2256,13 @@ function CreateUserSheet({
         </div>
 
         <div className="space-y-1.5">
-          <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider">Password</p>
-          <div className="relative">
-            <input type={showPass ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
-              placeholder="Min. 8 characters" className={overlayInputCls + ' pr-10'} />
-            <button type="button" onClick={() => setShowPass(p => !p)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#C7C7CC] active:opacity-70">
-              {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider">Role</p>
-          <div className="space-y-2">
-            {roles.map(r => (
-              <button key={r.id} type="button" onClick={() => setRoleId(roleId === r.id ? null : r.id)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl border transition-colors text-left ${
-                  roleId === r.id
-                    ? 'bg-[#C03D25]/08 border-[#C03D25]/30'
-                    : 'bg-[#F2F2F7] border-transparent'
-                }`}>
-                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                  roleId === r.id ? 'border-[#C03D25] bg-[#C03D25]' : 'border-[#C7C7CC]'
-                }`}>
-                  {roleId === r.id && <Check size={11} className="text-white" />}
-                </div>
-                <span className={`text-sm font-medium ${roleId === r.id ? 'text-[#C03D25]' : 'text-[#1C1C1E]'}`}>
-                  {r.role_name}
-                </span>
-              </button>
-            ))}
-          </div>
+          <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider">Role <span className="normal-case font-normal text-[#C7C7CC]">optional</span></p>
+          <SearchableSelect
+            value={roleName}
+            onChange={setRoleName}
+            options={roles.map(r => r.role_name)}
+            placeholder="No Role"
+          />
         </div>
 
         {error && (
@@ -2222,7 +2275,7 @@ function CreateUserSheet({
           disabled={saving}
           className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-md active:opacity-80 disabled:opacity-50 flex items-center justify-center gap-2"
         >
-          {saving ? <><Loader2 size={16} className="animate-spin" /> Creating…</> : 'Create Account'}
+          {saving ? <><Loader2 size={16} className="animate-spin" /> Sending…</> : 'Send Invitation'}
         </button>
       </div>
     </div>
@@ -2242,12 +2295,14 @@ function EditUserSheet({
 }: { user: UserProfile; roles: { id: number; role_name: string }[]; onClose: () => void; onSaved: () => void }) {
   const [fullName,      setFullName]      = useState(user.full_name ?? '');
   const [displayName,   setDisplayName]   = useState(user.display_name ?? '');
-  const [roleId,        setRoleId]        = useState<number | null>(user.role_id);
+  const [roleName,      setRoleName]      = useState<string>(user.access_roles?.role_name ?? '');
   const [sellerId,      setSellerId]      = useState<string | null>(user.seller_id ?? null);
   const [saving,        setSaving]        = useState(false);
   const [deleting,      setDeleting]      = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error,         setError]         = useState<string | null>(null);
+  const [resending,     setResending]     = useState(false);
+  const [resendDone,    setResendDone]    = useState(false);
 
   // Salesperson lookup for dropdown
   const [sellers,        setSellers]        = useState<SellerLinkRecord[]>([]);
@@ -2279,6 +2334,7 @@ function EditUserSheet({
   );
 
   async function handleSaveRole() {
+    const roleId = roles.find(r => r.role_name === roleName)?.id ?? null;
     setSaving(true); setError(null);
     try {
       const res = await fetch(`/api/admin/users/${user.id}`, {
@@ -2299,6 +2355,22 @@ function EditUserSheet({
       onSaved();
     } catch (e: any) { setError(e.message); }
     finally { setDeleting(false); }
+  }
+
+  async function handleResend() {
+    setResending(true); setResendDone(false); setError(null);
+    try {
+      const res = await fetch('/api/admin/users/resend-invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: user.email, full_name: user.full_name ?? user.email }),
+      });
+      const d = await res.json();
+      if (!res.ok) { setError(d.error ?? 'Failed to resend invitation'); return; }
+      setResendDone(true);
+      setTimeout(() => setResendDone(false), 4000);
+    } catch (e: any) { setError(e.message); }
+    finally { setResending(false); }
   }
 
   return (
@@ -2330,27 +2402,14 @@ function EditUserSheet({
           <p className="text-[10px] text-[#8E8E93] px-1">Shown in the app instead of full name</p>
         </div>
 
-        <div className="space-y-2">
-          <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider">Assign Role</p>
-          <div className="space-y-2">
-            {roles.map(r => (
-              <button key={r.id} type="button" onClick={() => setRoleId(roleId === r.id ? null : r.id)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl border transition-colors text-left ${
-                  roleId === r.id
-                    ? 'bg-[#C03D25]/08 border-[#C03D25]/30'
-                    : 'bg-[#F2F2F7] border-transparent'
-                }`}>
-                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                  roleId === r.id ? 'border-[#C03D25] bg-[#C03D25]' : 'border-[#C7C7CC]'
-                }`}>
-                  {roleId === r.id && <Check size={11} className="text-white" />}
-                </div>
-                <span className={`text-sm font-medium ${roleId === r.id ? 'text-[#C03D25]' : 'text-[#1C1C1E]'}`}>
-                  {r.role_name}
-                </span>
-              </button>
-            ))}
-          </div>
+        <div className="space-y-1.5">
+          <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider">Assign Role <span className="normal-case font-normal text-[#C7C7CC]">optional</span></p>
+          <SearchableSelect
+            value={roleName}
+            onChange={setRoleName}
+            options={roles.map(r => r.role_name)}
+            placeholder="No Role"
+          />
         </div>
 
         {/* ── Salesperson Record ── */}
@@ -2435,6 +2494,13 @@ function EditUserSheet({
         <button type="button" onClick={handleSaveRole} disabled={saving}
           className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80 disabled:opacity-50 flex items-center justify-center gap-2">
           {saving ? <><Loader2 size={16} className="animate-spin" /> Saving…</> : 'Save Changes'}
+        </button>
+
+        <button type="button" onClick={handleResend} disabled={resending || resendDone}
+          className="w-full py-3.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-70 disabled:opacity-50 flex items-center justify-center gap-2">
+          {resending ? <><Loader2 size={15} className="animate-spin" /> Sending…</> :
+           resendDone ? <><CheckCircle2 size={15} className="text-[#34C759]" /> Invitation Sent!</> :
+           <><Mail size={15} /> Resend Invitation</>}
         </button>
 
         <button type="button" onClick={() => setConfirmDelete(true)}

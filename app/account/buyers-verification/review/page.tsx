@@ -116,7 +116,7 @@ function FileOverlay({ url, title, onClose, isBlob }: { url: string; title: stri
   const img = isImage(url);
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#1C1C1E]">
-      <div className="flex items-center justify-between px-4 py-3 bg-[#1C1C1E] border-b border-white/10 shrink-0">
+      <div className="flex items-center justify-between px-4 pb-3 bg-[#1C1C1E] border-b border-white/10 shrink-0" style={{ paddingTop: 'max(12px, env(safe-area-inset-top))' }}>
         <p className="text-white text-[13px] font-semibold truncate">{title}</p>
         <button
           onClick={onClose}
