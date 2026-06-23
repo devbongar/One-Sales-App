@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import { amdReview } from '@/lib/review';
+import { addActivityLog } from '@/lib/activity-log';
+import { getSession } from '@/lib/auth';
 import { generateReservationAgreement, generateBuyerInformationForm, generateTermsOfPayment } from '@/lib/pdf-generators';
 import {
   Building2, Tag, User, FileText,
@@ -266,6 +268,7 @@ export default function DirectorReviewPage() {
   const [fileUrl,     setFileUrl]     = useState<string | null>(null);
   const [fileTitle,   setFileTitle]   = useState('');
   const [fileIsBlob,  setFileIsBlob]  = useState(false);
+  const [actorName,   setActorName]   = useState<string | null>(null);
 
   function openFile(url: string, title: string, isBlob = false) { setFileUrl(url); setFileTitle(title); setFileIsBlob(isBlob); }
   function closeFile() { setFileUrl(null); setFileTitle(''); setFileIsBlob(false); }
@@ -275,6 +278,7 @@ export default function DirectorReviewPage() {
     if (!raw) { router.replace('/account/buyers-verification'); return; }
     const b = JSON.parse(raw) as ReviewBooking;
     setBooking(b);
+    getSession().then(s => setActorName(s?.display_name ?? s?.full_name ?? null));
   }, []);
 
   async function handleApprove() {
@@ -282,6 +286,7 @@ export default function DirectorReviewPage() {
     setSaving(true);
     try {
       await amdReview(booking.reservation_id, true);
+      addActivityLog(booking.reservation_id, 'amd-approved', actorName).catch(console.error);
       setDone('approved');
     } catch (err) { alert('Failed to approve. Please try again.'); console.error(err); }
     finally { setSaving(false); }
@@ -293,6 +298,7 @@ export default function DirectorReviewPage() {
     setSaving(true);
     try {
       await amdReview(booking.reservation_id, false, rejectNotes.trim());
+      addActivityLog(booking.reservation_id, 'amd-rejected', actorName, rejectNotes.trim()).catch(console.error);
       setDone('rejected');
     } catch (err) { alert('Failed to reject. Please try again.'); console.error(err); }
     finally { setSaving(false); }

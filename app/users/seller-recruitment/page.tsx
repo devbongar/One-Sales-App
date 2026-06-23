@@ -225,8 +225,11 @@ function DetailSheet({ seller, onClose, onSaved }: {
 }) {
   const [editMode, setEditMode] = useState(false);
   const [form,     setForm]     = useState<SellerRecruitRecord>(seller);
-  const [saving,   setSaving]   = useState(false);
-  const [error,    setError]    = useState('');
+  const [saving,      setSaving]      = useState(false);
+  const [error,       setError]       = useState('');
+  const [resending,   setResending]   = useState(false);
+  const [resendDone,  setResendDone]  = useState(false);
+  const [resendError, setResendError] = useState('');
 
   const [sigMode,    setSigMode]    = useState<'idle' | 'draw' | 'upload'>('idle');
   const [sigPreview, setSigPreview] = useState<string | null>(seller.signature_base64 ?? null);
@@ -395,6 +398,30 @@ function DetailSheet({ seller, onClose, onSaved }: {
       setError(e instanceof Error ? e.message : 'Failed to save. Please try again.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleResend() {
+    if (!seller.email_address) return;
+    setResending(true); setResendDone(false); setResendError('');
+    try {
+      const res = await fetch('/api/admin/users/resend-invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email:      seller.email_address,
+          full_name:  seller.seller_name,
+          redirectTo: '/seller-onboarding',
+        }),
+      });
+      const d = await res.json();
+      if (!res.ok) { setResendError(d.error ?? 'Failed to send invitation'); return; }
+      setResendDone(true);
+      setTimeout(() => setResendDone(false), 4000);
+    } catch (e: any) {
+      setResendError(e.message ?? 'Server error');
+    } finally {
+      setResending(false);
     }
   }
 
@@ -600,6 +627,25 @@ function DetailSheet({ seller, onClose, onSaved }: {
                 );
               })()}
             </ERow>
+
+            {!editMode && seller.email_address && (
+              <div className="space-y-1.5 pt-1">
+                <button
+                  type="button"
+                  onClick={handleResend}
+                  disabled={resending || resendDone}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl text-sm font-semibold transition-all active:opacity-70 disabled:opacity-50"
+                  style={{ background: resendDone ? 'rgba(52,199,89,0.12)' : 'rgba(192,61,37,0.08)', color: resendDone ? '#1A7F37' : '#C03D25' }}
+                >
+                  {resending
+                    ? <><Loader2 size={15} className="animate-spin" /> Sending…</>
+                    : resendDone
+                      ? <><Check size={15} /> Invitation Sent!</>
+                      : <><Mail size={15} /> Resend Invitation</>}
+                </button>
+                {resendError && <p className="text-xs text-red-400 text-center">{resendError}</p>}
+              </div>
+            )}
           </SectionCard>
 
           {/* Seller Signature */}

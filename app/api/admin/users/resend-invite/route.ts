@@ -38,11 +38,11 @@ async function getSenderEmail(): Promise<string> {
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, full_name } = await req.json();
+    const { email, full_name, redirectTo: customRedirect } = await req.json();
     if (!email) return NextResponse.json({ error: 'Email is required' }, { status: 400 });
 
     const origin     = req.headers.get('origin') ?? process.env.NEXT_PUBLIC_APP_URL ?? '';
-    const redirectTo = `${origin}/set-password`;
+    const redirectTo = origin + (customRedirect ?? '/set-password');
 
     const { data: linkData, error: linkErr } = await adminClient.auth.admin.generateLink({
       type:    'recovery',
