@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Email and full name are required' }, { status: 400 });
     }
 
-    const origin     = req.headers.get('origin') ?? process.env.NEXT_PUBLIC_APP_URL ?? '';
+    const origin     = process.env.NEXT_PUBLIC_APP_URL ?? req.headers.get('origin') ?? '';
     const redirectTo = `${origin}/set-password`;
 
     const { data: linkData, error: linkErr } = await adminClient.auth.admin.generateLink({

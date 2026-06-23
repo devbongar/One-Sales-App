@@ -19,22 +19,22 @@ import {
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
 
 // ── iOS 26 design tokens ──────────────────────────────────────
-const PAGE_GRADIENT = 'linear-gradient(to bottom, #FFFFFF 0%, #FFB8A8 18%, #C03D25 52%, #2A0800 100%)';
+const PAGE_GRADIENT = 'linear-gradient(to bottom, #FFFFFF 0%, #8E8E93 50%, #3A3A3C 100%)';
 
-const dInputCls = 'w-full px-3 py-2.5 rounded-xl border border-white/20 bg-white/10 text-sm text-white outline-none focus:border-white/40 focus:bg-white/15 transition-colors placeholder:text-white/30';
-const dReadCls  = 'w-full px-3 py-2.5 rounded-xl bg-white/10 text-sm text-white';
+const dInputCls = 'w-full px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/70 text-sm text-[#1C1C1E] outline-none focus:border-black/20 focus:bg-white/90 transition-colors placeholder:text-[#C7C7CC]';
+const dReadCls  = 'w-full px-3 py-2.5 rounded-xl bg-white/60 text-sm text-[#1C1C1E]';
 
 function DarkInputRow({ label, icon, error, required, children }: {
   label: string; icon: React.ReactNode; error?: string; required?: boolean; children: React.ReactNode;
 }) {
   return (
     <div className="space-y-1.5">
-      <label className="text-xs font-semibold text-white/50 flex items-center gap-1.5">
+      <label className="text-xs font-semibold text-[#6C6C70] flex items-center gap-1.5">
         {icon} {label}
-        {required && <span className="text-red-300 font-bold">*</span>}
+        {required && <span className="text-red-500 font-bold">*</span>}
       </label>
       {children}
-      {error && <p className="text-xs text-red-300 mt-0.5">{error}</p>}
+      {error && <p className="text-xs text-red-500 mt-0.5">{error}</p>}
     </div>
   );
 }
@@ -72,28 +72,28 @@ function DarkSelectInput({ value, options, onChange, placeholder, disabled, sear
         onKeyDown={e => !disabled && e.key === 'Enter' && setOpen(p => !p)}
         className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-sm ${
           disabled
-            ? 'border-transparent bg-white/10 cursor-default'
-            : 'border-white/20 bg-white/10 cursor-pointer'
+            ? 'border-transparent bg-white/60 cursor-default'
+            : 'border-black/[0.10] bg-white/70 cursor-pointer'
         }`}
       >
-        <span className={`text-sm ${value ? 'text-white' : 'text-white/30'}`}>
+        <span className={`text-sm ${value ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
           {value || placeholder}
         </span>
         {!disabled && (value
           ? <button type="button" onClick={e => { e.stopPropagation(); onChange(''); setOpen(false); }}>
-              <X size={13} className="text-white/40" />
+              <X size={13} className="text-[#8E8E93]" />
             </button>
-          : <ChevronDown size={14} className={`text-white/40 shrink-0 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+          : <ChevronDown size={14} className={`text-[#8E8E93] shrink-0 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
         )}
       </div>
       {open && !disabled && (
         <div ref={optionsRef} className="mt-1 rounded-xl overflow-hidden" style={{
-          background: 'rgba(18, 10, 45, 0.96)',
+          background: 'rgba(255, 255, 255, 0.98)',
           backdropFilter: 'blur(24px)',
-          border: '1px solid rgba(255,255,255,0.12)',
+          border: '1px solid rgba(0,0,0,0.08)',
         }}>
           {searchable && (
-            <div className="px-2 py-2 border-b border-white/[0.08]">
+            <div className="px-2 py-2 border-b border-black/[0.06]">
               <input
                 ref={searchRef}
                 type="text"
@@ -101,21 +101,21 @@ function DarkSelectInput({ value, options, onChange, placeholder, disabled, sear
                 onChange={e => setQuery(e.target.value)}
                 onClick={e => e.stopPropagation()}
                 placeholder="Search…"
-                className="w-full px-2 py-1.5 text-sm rounded-lg bg-white/10 border border-white/20 text-white placeholder:text-white/30 outline-none"
+                className="w-full px-2 py-1.5 text-sm rounded-lg bg-[#F2F2F7] border border-black/[0.08] text-[#1C1C1E] placeholder:text-[#C7C7CC] outline-none"
               />
             </div>
           )}
           <div className="max-h-48 overflow-y-auto">
             {filtered.length === 0
-              ? <p className="px-3 py-2.5 text-sm text-white/30">No results</p>
+              ? <p className="px-3 py-2.5 text-sm text-[#C7C7CC]">No results</p>
               : filtered.map(o => (
                 <button key={o} type="button"
                   onClick={() => { onChange(o); setOpen(false); }}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 text-sm border-b border-white/[0.06] last:border-0 active:bg-white/10 ${
-                    o === value ? 'text-[#C03D25] font-semibold' : 'text-white/80'
+                  className={`w-full flex items-center justify-between px-3 py-2.5 text-sm border-b border-black/[0.05] last:border-0 active:bg-black/[0.04] ${
+                    o === value ? 'text-[#C03D25] font-semibold bg-black/[0.03]' : 'text-[#3C3C43]'
                   }`}>
                   {o}
-                  {o === value && <Check size={13} className="shrink-0" />}
+                  {o === value && <Check size={13} className="shrink-0 text-[#C03D25]" />}
                 </button>
               ))
             }
@@ -154,7 +154,7 @@ function DarkSearchableCombobox({ value, options, onChange, placeholder, disable
   return (
     <div className="relative">
       <div className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-sm ${
-        disabled ? 'border-transparent bg-white/10 cursor-default' : 'border-white/20 bg-white/10 cursor-text'
+        disabled ? 'border-transparent bg-white/60 cursor-default' : 'border-black/[0.10] bg-white/70 cursor-text'
       }`}>
         <input
           ref={inputRef}
@@ -164,15 +164,15 @@ function DarkSearchableCombobox({ value, options, onChange, placeholder, disable
           placeholder={value || placeholder}
           onFocus={() => { if (!disabled) { setOpen(true); setQuery(''); } }}
           onChange={e => setQuery(e.target.value)}
-          className="flex-1 bg-transparent outline-none text-sm text-white placeholder:text-white/30 min-w-0"
+          className="flex-1 bg-transparent outline-none text-sm text-[#1C1C1E] placeholder:text-[#C7C7CC] min-w-0"
         />
         {!disabled && value && !open && (
           <button type="button" onClick={clear}>
-            <X size={13} className="text-white/40" />
+            <X size={13} className="text-[#8E8E93]" />
           </button>
         )}
         {!disabled && !value && (
-          <ChevronDown size={14} className="text-white/40 shrink-0" />
+          <ChevronDown size={14} className="text-[#8E8E93] shrink-0" />
         )}
       </div>
 
@@ -180,21 +180,22 @@ function DarkSearchableCombobox({ value, options, onChange, placeholder, disable
         <>
           <div className="fixed inset-0 z-40" onClick={() => { setOpen(false); setQuery(''); }} />
           <div className="absolute left-0 right-0 top-full z-50 mt-1 rounded-xl overflow-hidden" style={{
-            background: 'rgba(18, 10, 45, 0.96)',
+            background: 'rgba(255, 255, 255, 0.98)',
             backdropFilter: 'blur(24px)',
-            border: '1px solid rgba(255,255,255,0.12)',
+            border: '1px solid rgba(0,0,0,0.08)',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
           }}>
             <div className="max-h-52 overflow-y-auto">
               {filtered.length === 0
-                ? <p className="px-3 py-2.5 text-sm text-white/30">No results</p>
+                ? <p className="px-3 py-2.5 text-sm text-[#C7C7CC]">No results</p>
                 : filtered.map(o => (
                   <button key={o} type="button"
                     onMouseDown={e => { e.preventDefault(); select(o); }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 text-sm border-b border-white/[0.06] last:border-0 active:bg-white/10 ${
-                      o === value ? 'text-[#C03D25] font-semibold' : 'text-white/80'
+                    className={`w-full flex items-center justify-between px-3 py-2.5 text-sm border-b border-black/[0.05] last:border-0 active:bg-black/[0.04] ${
+                      o === value ? 'bg-[#C03D25]/5 text-[#C03D25] font-semibold' : 'text-[#3C3C43]'
                     }`}>
                     {o}
-                    {o === value && <Check size={13} className="shrink-0" />}
+                    {o === value && <Check size={13} className="shrink-0 text-[#C03D25]" />}
                   </button>
                 ))
               }
@@ -209,13 +210,13 @@ function DarkSearchableCombobox({ value, options, onChange, placeholder, disable
 function DarkSectionCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="rounded-3xl p-4 space-y-4" style={{
-      background: 'rgba(160, 45, 25, 0.38)',
+      background: 'rgba(255, 255, 255, 0.88)',
       backdropFilter: 'blur(24px) saturate(160%)',
       WebkitBackdropFilter: 'blur(24px) saturate(160%)',
-      border: '1px solid rgba(255, 255, 255, 0.25)',
-      boxShadow: '0 8px 32px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.18)',
+      border: '1px solid rgba(0, 0, 0, 0.06)',
+      boxShadow: '0 2px 16px rgba(0, 0, 0, 0.08)',
     }}>
-      <p className="text-xs font-bold text-white/40 uppercase tracking-wider">{title}</p>
+      <p className="text-xs font-bold text-[#6C6C70] uppercase tracking-wider">{title}</p>
       {children}
     </div>
   );
@@ -608,22 +609,22 @@ export default function ExistingClientPage() {
             <button
               type="button"
               onClick={() => editMode ? cancelEdit() : setSelectedClient(null)}
-              className="w-9 h-9 rounded-full flex items-center justify-center bg-black/20 backdrop-blur-sm border border-white/10"
+              className="w-9 h-9 rounded-full flex items-center justify-center bg-black/10 backdrop-blur-sm border border-black/10"
             >
               {editMode
-                ? <X size={16} className="text-white" />
-                : <ChevronLeft size={18} className="text-white" />
+                ? <X size={16} className="text-[#1C1C1E]" />
+                : <ChevronLeft size={18} className="text-[#1C1C1E]" />
               }
             </button>
             {editMode ? (
               <button type="button" onClick={handleSave} disabled={saving}
-                className="px-4 py-1.5 rounded-full bg-white/90 text-[#1C1C1E] text-sm font-semibold flex items-center gap-1.5 disabled:opacity-60">
+                className="px-4 py-1.5 rounded-full bg-[#1C1C1E] text-white text-sm font-semibold flex items-center gap-1.5 disabled:opacity-60">
                 {saving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
                 {saving ? 'Saving…' : 'Save'}
               </button>
             ) : (
               <button type="button" onClick={() => setEditMode(true)}
-                className="px-4 py-1.5 rounded-full bg-black/20 backdrop-blur-sm border border-white/10 text-white text-sm font-semibold flex items-center gap-1.5">
+                className="px-4 py-1.5 rounded-full bg-black/10 backdrop-blur-sm border border-black/10 text-[#1C1C1E] text-sm font-semibold flex items-center gap-1.5">
                 <Edit2 size={13} /> Edit
               </button>
             )}
@@ -635,32 +636,38 @@ export default function ExistingClientPage() {
 
               {/* Hero */}
               <div className="flex flex-col items-center pt-4 pb-8 gap-2">
-                <div className="w-24 h-24 rounded-full flex items-center justify-center bg-black/35 backdrop-blur-sm border-[3px] border-white/15 shadow-2xl">
-                  <span className="text-3xl font-bold text-white/70">
+                <div
+                  className="w-24 h-24 rounded-3xl flex items-center justify-center"
+                  style={{
+                    background: 'linear-gradient(135deg, #E05A3A 0%, #A83020 100%)',
+                    boxShadow: '0 8px 32px rgba(192,61,37,0.40)',
+                  }}
+                >
+                  <span className="text-3xl font-bold text-white">
                     {selectedClient.first_name.charAt(0)}{selectedClient.last_name.charAt(0)}
                   </span>
                 </div>
-                <p className="text-[11px] font-semibold text-white/40 uppercase tracking-widest mt-1">
+                <p className="text-[11px] font-semibold text-[#6C6C70] uppercase tracking-widest mt-1">
                   {selectedClient.client_id ?? '—'}
                 </p>
-                <p className="text-[26px] font-bold text-white text-center leading-tight">
+                <p className="text-[26px] font-bold text-[#1C1C1E] text-center leading-tight">
                   {selectedClient.first_name}{selectedClient.middle_name ? ` ${selectedClient.middle_name}` : ''}{' '}
                   {selectedClient.last_name}{selectedClient.suffix ? ` ${selectedClient.suffix}` : ''}
                 </p>
                 <div className="flex items-center gap-2 mt-1">
                   {selectedClient.citizenship && (
-                    <span className="text-xs text-white/60">{selectedClient.citizenship}</span>
+                    <span className="text-xs text-[#6C6C70]">{selectedClient.citizenship}</span>
                   )}
                   <span className={`text-[11px] font-semibold px-3 py-0.5 rounded-full ${
                     selectedClient.client_type === 'Local'
-                      ? 'bg-green-500/25 text-green-200'
-                      : 'bg-blue-500/25 text-blue-200'
+                      ? 'bg-green-100 text-green-700'
+                      : 'bg-blue-100 text-blue-700'
                   }`}>{selectedClient.client_type}</span>
                 </div>
               </div>
 
               {errors._global && (
-                <p className="text-xs text-red-300 bg-red-500/20 px-3 py-2 rounded-xl mb-4">{errors._global}</p>
+                <p className="text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded-xl mb-4">{errors._global}</p>
               )}
 
               <div className="space-y-4">
@@ -675,8 +682,8 @@ export default function ExistingClientPage() {
                           form.clientType === t
                             ? 'bg-[#C03D25] border-[#C03D25]/50 text-white'
                             : editMode
-                              ? 'bg-white/10 border-white/10 text-white/50'
-                              : 'bg-white/5 border-white/5 text-white/30'
+                              ? 'bg-white/60 border-black/[0.08] text-[#6C6C70]'
+                              : 'bg-white/40 border-black/[0.04] text-[#8E8E93]'
                         } ${!editMode ? 'cursor-default' : ''}`}>
                         {form.clientType === t && <Check size={13} />}
                         {t}
@@ -730,16 +737,16 @@ export default function ExistingClientPage() {
                   <DarkInputRow label="Date of Birth" icon={<Calendar size={11} />} error={errors.dateOfBirth} required={editMode}>
                     <div className={`w-full flex items-center px-3 py-2.5 rounded-xl border overflow-hidden transition-colors ${
                       !editMode
-                        ? 'border-transparent bg-white/10'
-                        : 'border-white/20 bg-white/10 focus-within:border-white/40'
+                        ? 'border-transparent bg-white/60'
+                        : 'border-black/[0.10] bg-white/70 focus-within:border-black/20'
                     }`}>
                       <input
                         type="date"
                         value={form.dateOfBirth}
                         readOnly={!editMode}
                         onChange={e => editMode && set('dateOfBirth')(e.target.value)}
-                        className="w-full min-w-0 bg-transparent text-sm text-white outline-none"
-                        style={{ colorScheme: 'dark' }}
+                        className="w-full min-w-0 bg-transparent text-sm text-[#1C1C1E] outline-none"
+                        style={{ colorScheme: 'light' }}
                       />
                     </div>
                   </DarkInputRow>
@@ -748,15 +755,15 @@ export default function ExistingClientPage() {
                       <div role="button" tabIndex={0}
                         onClick={() => { setCitizenshipSearch(''); setCitizenshipPickerOpen(true); }}
                         onKeyDown={e => e.key === 'Enter' && (setCitizenshipSearch(''), setCitizenshipPickerOpen(true))}
-                        className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-white/20 bg-white/10 cursor-pointer">
-                        <span className={`text-sm ${form.citizenship ? 'text-white' : 'text-white/30'}`}>
+                        className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/70 cursor-pointer">
+                        <span className={`text-sm ${form.citizenship ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
                           {form.citizenship || 'Select citizenship'}
                         </span>
                         {form.citizenship
                           ? <button type="button" onClick={e => { e.stopPropagation(); set('citizenship')(''); }}>
-                              <X size={13} className="text-white/40" />
+                              <X size={13} className="text-[#8E8E93]" />
                             </button>
-                          : <ChevronDown size={14} className="text-white/40 shrink-0" />
+                          : <ChevronDown size={14} className="text-[#8E8E93] shrink-0" />
                         }
                       </div>
                     ) : (
@@ -774,12 +781,12 @@ export default function ExistingClientPage() {
                         onClick={() => { if (editMode) { setCountrySearch(''); setCountryPickerOpen(true); } }}
                         className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl border text-sm shrink-0 ${
                           editMode
-                            ? 'border-white/20 bg-white/10 active:opacity-70'
-                            : 'border-transparent bg-white/10 cursor-default'
+                            ? 'border-black/[0.10] bg-white/70 active:opacity-70'
+                            : 'border-transparent bg-white/60 cursor-default'
                         }`}>
                         <span>{selectedCountry.flag}</span>
-                        <span className="font-medium text-white">{selectedCountry.dial}</span>
-                        {editMode && <ChevronDown size={12} className="text-white/40" />}
+                        <span className="font-medium text-[#1C1C1E]">{selectedCountry.dial}</span>
+                        {editMode && <ChevronDown size={12} className="text-[#8E8E93]" />}
                       </button>
                       <input
                         type="tel"
@@ -794,10 +801,10 @@ export default function ExistingClientPage() {
                         }}
                         placeholder={form.countryCode === '+63' ? '9171234567' : ''}
                         maxLength={form.countryCode === '+63' ? 10 : 15}
-                        className={`flex-1 px-3 py-2.5 rounded-xl border text-sm text-white outline-none transition-colors placeholder:text-white/30 ${
+                        className={`flex-1 px-3 py-2.5 rounded-xl border text-sm text-[#1C1C1E] outline-none transition-colors placeholder:text-[#C7C7CC] ${
                           !editMode
-                            ? 'border-transparent bg-white/10 cursor-default'
-                            : 'border-white/20 bg-white/10 focus:border-white/40 focus:bg-white/15'
+                            ? 'border-transparent bg-white/60 cursor-default'
+                            : 'border-black/[0.10] bg-white/70 focus:border-black/20 focus:bg-white/90'
                         }`}
                       />
                     </div>
@@ -837,7 +844,7 @@ export default function ExistingClientPage() {
                         !editMode
                           ? dReadCls
                           : errors.email
-                            ? 'w-full px-3 py-2.5 rounded-xl border border-red-400/70 bg-white/10 text-sm text-white outline-none focus:border-red-400 transition-colors placeholder:text-white/30'
+                            ? 'w-full px-3 py-2.5 rounded-xl border border-red-400 bg-red-50/80 text-sm text-[#1C1C1E] outline-none focus:border-red-500 transition-colors placeholder:text-[#C7C7CC]'
                             : dInputCls
                       }
                     />
@@ -869,8 +876,9 @@ export default function ExistingClientPage() {
                         className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-semibold transition-all ${
                           form.sellerType === t
                             ? 'bg-[#C03D25] border-[#C03D25]/50 text-white'
-                            : editMode ? 'bg-white/10 border-white/10 text-white/50'
-                                       : 'bg-white/5 border-white/5 text-white/30'
+                            : editMode
+                              ? 'bg-white/60 border-black/[0.08] text-[#6C6C70]'
+                              : 'bg-white/40 border-black/[0.04] text-[#8E8E93]'
                         } ${!editMode ? 'cursor-default' : ''}`}>
                         {form.sellerType === t && <Check size={13} />}
                         {t}
@@ -969,40 +977,40 @@ export default function ExistingClientPage() {
             <button
               type="button"
               onClick={() => setCitizenshipPickerOpen(false)}
-              className="w-9 h-9 rounded-full flex items-center justify-center bg-black/20 backdrop-blur-sm border border-white/10"
+              className="w-9 h-9 rounded-full flex items-center justify-center bg-black/10 backdrop-blur-sm border border-black/10"
             >
-              <ChevronLeft size={18} className="text-white" />
+              <ChevronLeft size={18} className="text-[#1C1C1E]" />
             </button>
-            <p className="text-white font-semibold text-sm">Select Citizenship</p>
+            <p className="text-[#1C1C1E] font-semibold text-sm">Select Citizenship</p>
             <div className="w-9" />
           </div>
           <div className="absolute inset-0 overflow-y-auto">
             <div className="px-4 pt-[88px] pb-12 space-y-3">
-              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-white/20 bg-white/10">
-                <Search size={14} className="text-white/40 shrink-0" />
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/70">
+                <Search size={14} className="text-[#8E8E93] shrink-0" />
                 <input autoFocus type="text" value={citizenshipSearch}
                   onChange={e => setCitizenshipSearch(e.target.value)}
                   placeholder="Search citizenship…"
-                  className="flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/30"
+                  className="flex-1 bg-transparent text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC]"
                 />
                 {citizenshipSearch && (
                   <button type="button" onClick={() => setCitizenshipSearch('')}>
-                    <X size={12} className="text-white/40" />
+                    <X size={12} className="text-[#8E8E93]" />
                   </button>
                 )}
               </div>
               <div className="rounded-2xl overflow-hidden" style={{
-                background: 'rgba(160, 45, 25, 0.38)',
+                background: 'rgba(255, 255, 255, 0.88)',
                 backdropFilter: 'blur(24px)',
-                border: '1px solid rgba(255,255,255,0.2)',
+                border: '1px solid rgba(0,0,0,0.06)',
               }}>
                 {filteredCitizenships.map(c => (
                   <button key={c} type="button"
                     onClick={() => { set('citizenship')(c); setCitizenshipPickerOpen(false); setCitizenshipSearch(''); }}
-                    className={`w-full flex items-center justify-between px-4 py-3.5 border-b border-white/[0.06] last:border-0 text-left active:bg-white/10 ${
-                      form.citizenship === c ? 'bg-white/10' : ''
+                    className={`w-full flex items-center justify-between px-4 py-3.5 border-b border-black/[0.05] last:border-0 text-left active:bg-black/[0.04] ${
+                      form.citizenship === c ? 'bg-[#C03D25]/5' : ''
                     }`}>
-                    <span className="text-sm text-white">{c}</span>
+                    <span className="text-sm text-[#1C1C1E]">{c}</span>
                     {form.citizenship === c && <Check size={14} className="text-[#C03D25] shrink-0" />}
                   </button>
                 ))}
@@ -1019,42 +1027,42 @@ export default function ExistingClientPage() {
             <button
               type="button"
               onClick={() => setCountryPickerOpen(false)}
-              className="w-9 h-9 rounded-full flex items-center justify-center bg-black/20 backdrop-blur-sm border border-white/10"
+              className="w-9 h-9 rounded-full flex items-center justify-center bg-black/10 backdrop-blur-sm border border-black/10"
             >
-              <ChevronLeft size={18} className="text-white" />
+              <ChevronLeft size={18} className="text-[#1C1C1E]" />
             </button>
-            <p className="text-white font-semibold text-sm">Select Country</p>
+            <p className="text-[#1C1C1E] font-semibold text-sm">Select Country</p>
             <div className="w-9" />
           </div>
           <div className="absolute inset-0 overflow-y-auto">
             <div className="px-4 pt-[88px] pb-12 space-y-3">
-              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-white/20 bg-white/10">
-                <Search size={14} className="text-white/40 shrink-0" />
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/70">
+                <Search size={14} className="text-[#8E8E93] shrink-0" />
                 <input autoFocus type="text" value={countrySearch}
                   onChange={e => setCountrySearch(e.target.value)}
                   placeholder="Search country or dial code…"
-                  className="flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/30"
+                  className="flex-1 bg-transparent text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC]"
                 />
                 {countrySearch && (
                   <button type="button" onClick={() => setCountrySearch('')}>
-                    <X size={12} className="text-white/40" />
+                    <X size={12} className="text-[#8E8E93]" />
                   </button>
                 )}
               </div>
               <div className="rounded-2xl overflow-hidden" style={{
-                background: 'rgba(160, 45, 25, 0.38)',
+                background: 'rgba(255, 255, 255, 0.88)',
                 backdropFilter: 'blur(24px)',
-                border: '1px solid rgba(255,255,255,0.2)',
+                border: '1px solid rgba(0,0,0,0.06)',
               }}>
                 {filteredCountries.map(c => (
                   <button key={`${c.name}-${c.dial}`} type="button"
                     onClick={() => { set('countryCode')(c.dial); setCountryPickerOpen(false); setCountrySearch(''); }}
-                    className={`w-full flex items-center gap-3 px-4 py-3.5 border-b border-white/[0.06] last:border-0 text-left active:bg-white/10 ${
-                      form.countryCode === c.dial && selectedCountry.name === c.name ? 'bg-white/10' : ''
+                    className={`w-full flex items-center gap-3 px-4 py-3.5 border-b border-black/[0.05] last:border-0 text-left active:bg-black/[0.04] ${
+                      form.countryCode === c.dial && selectedCountry.name === c.name ? 'bg-[#C03D25]/5' : ''
                     }`}>
                     <span className="text-xl shrink-0">{c.flag}</span>
-                    <span className="flex-1 text-sm text-white">{c.name}</span>
-                    <span className="text-sm font-semibold text-white/50">{c.dial}</span>
+                    <span className="flex-1 text-sm text-[#1C1C1E]">{c.name}</span>
+                    <span className="text-sm font-semibold text-[#8E8E93]">{c.dial}</span>
                     {form.countryCode === c.dial && selectedCountry.name === c.name && (
                       <Check size={14} className="text-[#C03D25] shrink-0" />
                     )}
