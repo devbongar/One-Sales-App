@@ -9,21 +9,23 @@ import {
   Loader2, Users, Phone, Mail, Heart,
   Briefcase, Calendar, User, Globe,
   X, Check, ChevronDown, ChevronLeft, Search, Edit2, UserCog,
-  SlidersHorizontal, Plus, Building2,
+  SlidersHorizontal, Plus, Building2, PenLine, Upload, RotateCcw,
 } from 'lucide-react';
-import { fetchAllClients, updateClient, checkEmailExists, ClientRecord } from '@/lib/clients';
+import { fetchAllClients, updateClient, updateClientSignature, ClientRecord } from '@/lib/clients';
+import { getSession } from '@/lib/auth';
+import type { AppUser } from '@/types';
 import {
   COUNTRY_CODES, CITIZENSHIP_LIST,
   REASON_OPTIONS, SOURCE_OPTIONS, INCOME_OPTIONS,
 } from '@/lib/client-form-options';
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
-import { fetchAllBrokers, BrokerRecord as BrokersTableRecord } from '@/lib/brokers';
+import { fetchAllBrokers, BrokerRecord as BrokersTableRecord, fetchAllBrokerRecruits, BrokerRecruitRecord } from '@/lib/brokers';
 import SearchableCombobox from '@/components/ui/SearchableCombobox';
 
 // ── iOS 26 design tokens ──────────────────────────────────────
 const PAGE_GRADIENT = 'linear-gradient(to bottom, #FFFFFF 0%, #8E8E93 50%, #3A3A3C 100%)';
 
-const dInputCls = 'w-full px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/70 text-sm text-[#1C1C1E] outline-none focus:border-black/20 focus:bg-white/90 transition-colors placeholder:text-[#C7C7CC]';
+const dInputCls = 'w-full px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/80 text-sm text-[#1C1C1E] outline-none focus:border-black/20 focus:bg-white transition-colors placeholder:text-[#C7C7CC]';
 const dReadCls  = 'w-full px-3 py-2.5 rounded-xl bg-white/60 text-sm text-[#1C1C1E]';
 
 function DarkInputRow({ label, icon, error, required, children }: {
@@ -89,11 +91,7 @@ function DarkSelectInput({ value, options, onChange, placeholder, disabled, sear
         )}
       </div>
       {open && !disabled && (
-        <div ref={optionsRef} className="mt-1 rounded-xl overflow-hidden" style={{
-          background: 'rgba(255, 255, 255, 0.98)',
-          backdropFilter: 'blur(24px)',
-          border: '1px solid rgba(0,0,0,0.08)',
-        }}>
+        <div ref={optionsRef} className="mt-1 rounded-xl border border-black/[0.08] bg-white shadow-md overflow-hidden">
           {searchable && (
             <div className="px-2 py-2 border-b border-black/[0.06]">
               <input
@@ -129,9 +127,9 @@ function DarkSelectInput({ value, options, onChange, placeholder, disabled, sear
 }
 
 
-function DarkSectionCard({ title, children, zIndex }: { title: string; children: React.ReactNode; zIndex?: number }) {
+function DarkSectionCard({ title, children, zIndex, required }: { title: string; children: React.ReactNode; zIndex?: number; required?: boolean }) {
   return (
-    <div className="rounded-3xl p-4 space-y-4" style={{
+    <div className="rounded-3xl p-4 space-y-3" style={{
       background: 'rgba(255, 255, 255, 0.88)',
       backdropFilter: 'blur(24px) saturate(160%)',
       WebkitBackdropFilter: 'blur(24px) saturate(160%)',
@@ -140,7 +138,9 @@ function DarkSectionCard({ title, children, zIndex }: { title: string; children:
       position: 'relative',
       zIndex,
     }}>
-      <p className="text-xs font-bold text-[#6C6C70] uppercase tracking-wider">{title}</p>
+      <p className="text-xs font-bold text-[#6C6C70] uppercase tracking-wider">
+        {title}{required && <span className="text-red-500 font-bold ml-1">*</span>}
+      </p>
       {children}
     </div>
   );
@@ -175,7 +175,7 @@ function mapClientToForm(c: ClientRecord): FormState {
     gender:                 c.gender                   ?? '',
     civilStatus:            c.civil_status             ?? '',
     dateOfBirth:            c.date_of_birth            ?? '',
-    citizenship:            c.citizenship              ?? '',
+    citizenship:            (c.citizenship ?? '').split(' | ')[0]?.trim() ?? '',
     countryCode:            c.country_code             ?? '+63',
     mobileNumber:           c.mobile_number            ?? '',
     landlineNo:             c.landline_no              ?? '',
@@ -219,12 +219,19 @@ export default function ExistingClientPage() {
   const [returnTo, setReturnTo]                           = useState<string | null>(null);
   const [countryPickerOpen, setCountryPickerOpen]         = useState(false);
   const [countrySearch, setCountrySearch]                 = useState('');
-  const [citizenshipPickerOpen, setCitizenshipPickerOpen] = useState(false);
-  const [citizenshipSearch, setCitizenshipSearch]         = useState('');
+  const [citizenshipPickerOpen, setCitizenshipPickerOpen]     = useState(false);
+  const [citizenshipSearch, setCitizenshipSearch]             = useState('');
+  const [citizenshipPickerTarget, setCitizenshipPickerTarget] = useState<'primary' | number>('primary');
+  const [hasMultipleCitizenship, setHasMultipleCitizenship]   = useState(false);
+  const [otherCitizenships, setOtherCitizenships]             = useState<string[]>([]);
+
+  // Session
+  const [user, setUser] = useState<AppUser | null>(null);
 
   // Seller state
-  const [allSalespersons, setAllSalespersons]               = useState<SalespersonRecord[]>([]);
-  const [allBrokers,      setAllBrokers]                    = useState<BrokersTableRecord[]>([]);
+  const [allSalespersons,   setAllSalespersons]   = useState<SalespersonRecord[]>([]);
+  const [allBrokers,        setAllBrokers]         = useState<BrokersTableRecord[]>([]);
+  const [allBrokerRecruits, setAllBrokerRecruits]  = useState<BrokerRecruitRecord[]>([]);
   const [sellerDirector, setSellerDirector]                 = useState('');
   const [sellerManager, setSellerManager]                   = useState('');
   const [sellerSpecialist, setSellerSpecialist]             = useState('');
@@ -237,6 +244,14 @@ export default function ExistingClientPage() {
 
   // Megawide employee
   const [isMegawideEmployee, setIsMegawideEmployee] = useState(false);
+
+  // Signature state
+  const [sigMode, setSigMode]       = useState<'idle' | 'draw' | 'upload'>('idle');
+  const [sigPreview, setSigPreview] = useState<string | null>(null);
+  const sigCanvasRef                = useRef<HTMLCanvasElement>(null);
+  const sigDrawing                  = useRef(false);
+  const sigLastPos                  = useRef<{ x: number; y: number } | null>(null);
+  const sigFileRef                  = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchAllClients()
@@ -254,6 +269,8 @@ export default function ExistingClientPage() {
       .finally(() => setLoading(false));
     fetchAllSalespersons().then(setAllSalespersons).catch(console.error);
     fetchAllBrokers().then(setAllBrokers).catch(console.error);
+    fetchAllBrokerRecruits().then(setAllBrokerRecruits).catch(console.error);
+    getSession().then(setUser).catch(console.error);
   }, []);
 
   // In House — specialist-first: pick PS, manager+director auto-fill from PS record
@@ -358,29 +375,46 @@ export default function ExistingClientPage() {
     );
   }
 
+  function parseCitizenships(raw: string | null) {
+    const parts = (raw ?? '').split(' | ').map(s => s.trim()).filter(Boolean);
+    return { primary: parts[0] ?? '', others: parts.slice(1) };
+  }
+
   function openClient(client: ClientRecord) {
     setSelectedClient(client);
     setForm(mapClientToForm(client));
+    const { others } = parseCitizenships(client.citizenship);
+    setOtherCitizenships(others);
+    setHasMultipleCitizenship(others.length > 0);
     loadSellerFromClient(client);
     setIsMegawideEmployee(client.is_megawide_employee ?? false);
     setEditMode(false);
     setErrors({});
+    setSigPreview(null);
+    setSigMode('idle');
   }
 
   function cancelEdit() {
     setEditMode(false);
     setForm(mapClientToForm(selectedClient!));
+    const { others } = parseCitizenships(selectedClient!.citizenship);
+    setOtherCitizenships(others);
+    setHasMultipleCitizenship(others.length > 0);
     loadSellerFromClient(selectedClient!);
     setIsMegawideEmployee(selectedClient!.is_megawide_employee ?? false);
     setErrors({});
+    setSigPreview(null);
+    setSigMode('idle');
   }
 
 
   const set = (key: keyof FormState) => (val: string) =>
     setForm(f => ({ ...f, [key]: val }));
 
-  async function validate() {
+  function validate() {
     const e: Record<string, string> = {};
+    if (!form.gender)                 e.gender                 = 'Gender is required';
+    if (!form.civilStatus)            e.civilStatus            = 'Civil status is required';
     if (!form.lastName.trim())        e.lastName               = 'Last name is required';
     if (!form.firstName.trim())       e.firstName              = 'First name is required';
     if (!form.dateOfBirth)            e.dateOfBirth            = 'Date of birth is required';
@@ -393,10 +427,8 @@ export default function ExistingClientPage() {
     if (!form.email.trim())           e.email                  = 'Email address is required';
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
                                       e.email                  = 'Enter a valid email address';
-    else {
-      const taken = await checkEmailExists(form.email, selectedClient!.id);
-      if (taken)                      e.email                  = 'This email is already registered';
-    }
+    else if (allClients.some(c => c.id !== selectedClient?.id && c.email?.toLowerCase() === form.email.trim().toLowerCase()))
+                                      e.email                  = 'This email is already registered';
     if (!form.reasonForBuying)        e.reasonForBuying        = 'Reason for buying is required';
     if (!form.sourceOfSale)           e.sourceOfSale           = 'Source of sale is required';
     if (!form.monthlyHouseholdIncome) e.monthlyHouseholdIncome = 'Monthly income is required';
@@ -410,9 +442,23 @@ export default function ExistingClientPage() {
   }
 
   async function handleSave() {
-    if (!await validate()) return;
+    if (!validate()) return;
     setSaving(true);
     try {
+      let sellerIds: { seller_id?: string | null; sales_manager_id?: string | null; sales_director_id?: string | null; sales_division_head_id?: string | null; sales_head_id?: string | null; broker_id?: string | null; } = {};
+      if (form.sellerType === 'In House') {
+        if (isMegawideEmployee) {
+          const sdRec = allSalespersons.find(s => s.seller_name === sellerDirector);
+          sellerIds = { sales_director_id: sdRec?.seller_id ?? null, sales_division_head_id: sdRec?.sales_division_head_id ?? null, sales_head_id: sdRec?.sales_head_id ?? null };
+        } else {
+          const psRec = allSalespersons.find(s => s.seller_name === sellerSpecialist);
+          sellerIds = { seller_id: psRec?.seller_id ?? null, sales_manager_id: psRec?.sales_manager_id ?? null, sales_director_id: psRec?.sales_director_id ?? null, sales_division_head_id: psRec?.sales_division_head_id ?? null, sales_head_id: psRec?.sales_head_id ?? null };
+        }
+      } else if (form.sellerType === 'Broker') {
+        const birRec = allBrokers.find(b => bName(b) === brokerBirName);
+        const rRec   = birRec ? allBrokerRecruits.find(r => r.broker_id === birRec.broker_id) : null;
+        sellerIds = { broker_id: rRec?.broker_id ?? birRec?.broker_id ?? null, sales_manager_id: rRec?.broker_network_associate_id ?? null, sales_director_id: rRec?.broker_network_officer_id ?? null, sales_division_head_id: rRec?.sales_director_head_id ?? null, sales_head_id: rRec?.sales_head_id ?? null };
+      }
       await updateClient(selectedClient!.id, {
         client_type:              form.clientType,
         last_name:                form.lastName,
@@ -422,7 +468,7 @@ export default function ExistingClientPage() {
         gender:                   form.gender,
         civil_status:             form.civilStatus,
         date_of_birth:            form.dateOfBirth,
-        citizenship:              form.citizenship,
+        citizenship:              [form.citizenship, ...otherCitizenships.filter(Boolean)].join(' | '),
         country_code:             form.countryCode,
         mobile_number:            form.mobileNumber,
         landline_no:              form.landlineNo,
@@ -440,6 +486,7 @@ export default function ExistingClientPage() {
         broker_sales_head:        form.sellerType === 'Broker'   ? brokerSalesHead        : undefined,
         broker_bir_name:          form.sellerType === 'Broker'   ? brokerBirName          : undefined,
         is_megawide_employee:     isMegawideEmployee,
+        ...sellerIds,
       });
       const updated: ClientRecord = {
         ...selectedClient!,
@@ -451,7 +498,7 @@ export default function ExistingClientPage() {
         gender:                   form.gender                 || null,
         civil_status:             form.civilStatus            || null,
         date_of_birth:            form.dateOfBirth            || null,
-        citizenship:              form.citizenship            || null,
+        citizenship:              [form.citizenship, ...otherCitizenships.filter(Boolean)].join(' | ') || null,
         country_code:             form.countryCode,
         mobile_number:            form.mobileNumber           || null,
         landline_no:              form.landlineNo             || null,
@@ -470,8 +517,13 @@ export default function ExistingClientPage() {
         broker_bir_name:          form.sellerType === 'Broker'   ? brokerBirName          || null : null,
         is_megawide_employee:     isMegawideEmployee,
       };
-      setSelectedClient(updated);
-      setAllClients(prev => prev.map(c => c.id === updated.id ? updated : c));
+      if (sigPreview) await updateClientSignature(selectedClient!.id, sigPreview);
+      const finalSig = sigPreview ?? selectedClient!.signature_base64;
+      const updatedWithSig: ClientRecord = { ...updated, signature_base64: finalSig };
+      setSelectedClient(updatedWithSig);
+      setAllClients(prev => prev.map(c => c.id === updatedWithSig.id ? updatedWithSig : c));
+      setSigPreview(null);
+      setSigMode('idle');
       setEditMode(false);
       if (returnTo) router.push(returnTo);
     } catch (e: any) {
@@ -492,11 +544,19 @@ export default function ExistingClientPage() {
         c.dial.includes(countrySearch))
     : COUNTRY_CODES;
 
+  const SEE_ALL_ROLES = ['All Access', 'Account Management', 'Finance Verification'];
+  const visibleClients = !user || SEE_ALL_ROLES.includes(user.role_name ?? '') || !user.seller_id
+    ? allClients
+    : allClients.filter(c =>
+        [c.seller_id, c.sales_manager_id, c.sales_director_id, c.sales_division_head_id, c.sales_head_id, c.broker_id]
+          .some(id => id && id === user!.seller_id)
+      );
+
   const citizenshipOptions = [...new Set(
-    allClients.map(c => c.citizenship).filter(Boolean) as string[]
+    visibleClients.map(c => c.citizenship).filter(Boolean) as string[]
   )].sort();
 
-  const filteredClients = allClients.filter(c => {
+  const filteredClients = visibleClients.filter(c => {
     const fullName = `${c.last_name} ${c.first_name} ${c.middle_name ?? ''}`.toLowerCase();
     if (clientTypeFilter && c.client_type !== clientTypeFilter) return false;
     if (citizenshipFilter && c.citizenship !== citizenshipFilter) return false;
@@ -610,7 +670,7 @@ export default function ExistingClientPage() {
 
           {/* Scrollable content */}
           <div className="absolute inset-0 overflow-y-auto">
-            <div className="px-4 pt-[88px] pb-12">
+            <div className="px-4 pt-[88px] pb-12 max-w-lg mx-auto w-full">
 
               {/* Hero */}
               <div className="flex flex-col items-center pt-4 pb-8 gap-2">
@@ -651,7 +711,7 @@ export default function ExistingClientPage() {
               <div className="space-y-4">
 
                 {/* Client Type */}
-                <DarkSectionCard title="Client Type">
+                <DarkSectionCard title="Client Type" required={editMode}>
                   <div className="grid grid-cols-2 gap-2">
                     {(['Local', 'International'] as const).map(t => (
                       <button key={t} type="button"
@@ -704,11 +764,11 @@ export default function ExistingClientPage() {
                       className={editMode ? dInputCls : dReadCls}
                     />
                   </DarkInputRow>
-                  <DarkInputRow label="Gender" icon={<User size={11} />}>
+                  <DarkInputRow label="Gender" icon={<User size={11} />} error={errors.gender} required={editMode}>
                     <DarkSelectInput value={form.gender} options={GENDER_OPTIONS}
                       onChange={set('gender')} placeholder="Select gender" disabled={!editMode} />
                   </DarkInputRow>
-                  <DarkInputRow label="Civil Status" icon={<Heart size={11} />}>
+                  <DarkInputRow label="Civil Status" icon={<Heart size={11} />} error={errors.civilStatus} required={editMode}>
                     <DarkSelectInput value={form.civilStatus} options={CIVIL_STATUS_OPTIONS}
                       onChange={set('civilStatus')} placeholder="Select civil status" disabled={!editMode} />
                   </DarkInputRow>
@@ -729,12 +789,12 @@ export default function ExistingClientPage() {
                       />
                     </div>
                   </DarkInputRow>
-                  <DarkInputRow label="Citizenship" icon={<Globe size={11} />} error={errors.citizenship} required={editMode}>
+                  <DarkInputRow label={hasMultipleCitizenship ? 'Citizenship 1' : 'Citizenship'} icon={<Globe size={11} />} error={errors.citizenship} required={editMode}>
                     {editMode ? (
                       <div role="button" tabIndex={0}
-                        onClick={() => { setCitizenshipSearch(''); setCitizenshipPickerOpen(true); }}
-                        onKeyDown={e => e.key === 'Enter' && (setCitizenshipSearch(''), setCitizenshipPickerOpen(true))}
-                        className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/70 cursor-pointer">
+                        onClick={() => { setCitizenshipPickerTarget('primary'); setCitizenshipSearch(''); setCitizenshipPickerOpen(true); }}
+                        onKeyDown={e => e.key === 'Enter' && (setCitizenshipPickerTarget('primary'), setCitizenshipSearch(''), setCitizenshipPickerOpen(true))}
+                        className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/80 cursor-pointer">
                         <span className={`text-sm ${form.citizenship ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
                           {form.citizenship || 'Select citizenship'}
                         </span>
@@ -749,6 +809,59 @@ export default function ExistingClientPage() {
                       <div className={dReadCls}>{form.citizenship || '—'}</div>
                     )}
                   </DarkInputRow>
+
+                  {/* Multiple citizenship toggle */}
+                  {editMode && (
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-[#6C6C70] flex items-center gap-1.5">
+                        <Globe size={11} /> Multiple Citizenship
+                      </label>
+                      <button type="button"
+                        onClick={() => { setHasMultipleCitizenship(p => { if (p) setOtherCitizenships([]); return !p; }); }}
+                        className="relative rounded-full shrink-0 transition-all duration-300 focus:outline-none"
+                        style={{ width: 52, height: 28, background: hasMultipleCitizenship ? 'linear-gradient(90deg, #E05A3A 0%, #C03D25 100%)' : 'rgba(0,0,0,0.15)' }}>
+                        <span className="absolute bg-white rounded-full transition-all duration-300"
+                          style={{ width: 24, height: 24, top: 2, left: hasMultipleCitizenship ? 26 : 2, boxShadow: '0 1px 4px rgba(0,0,0,0.25)' }} />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Secondary citizenships */}
+                  {hasMultipleCitizenship && otherCitizenships.map((c, i) => (
+                    <DarkInputRow key={i} label={`Citizenship ${i + 2}`} icon={<Globe size={11} />}>
+                      {editMode ? (
+                        <div className="flex gap-2">
+                          <div role="button" tabIndex={0}
+                            onClick={() => { setCitizenshipPickerTarget(i); setCitizenshipSearch(''); setCitizenshipPickerOpen(true); }}
+                            onKeyDown={e => e.key === 'Enter' && (setCitizenshipPickerTarget(i), setCitizenshipSearch(''), setCitizenshipPickerOpen(true))}
+                            className="flex-1 flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/80 cursor-pointer">
+                            <span className={`text-sm ${c ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>{c || 'Select citizenship'}</span>
+                            {c
+                              ? <button type="button" onClick={e => { e.stopPropagation(); setOtherCitizenships(prev => prev.map((v, j) => j === i ? '' : v)); }}>
+                                  <X size={13} className="text-[#8E8E93]" />
+                                </button>
+                              : <ChevronDown size={14} className="text-[#8E8E93] shrink-0" />
+                            }
+                          </div>
+                          <button type="button"
+                            onClick={() => setOtherCitizenships(prev => prev.filter((_, j) => j !== i))}
+                            className="w-10 flex items-center justify-center rounded-xl border border-black/[0.10] bg-white/60 active:opacity-70 shrink-0">
+                            <X size={14} className="text-[#8E8E93]" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className={dReadCls}>{c || '—'}</div>
+                      )}
+                    </DarkInputRow>
+                  ))}
+
+                  {hasMultipleCitizenship && editMode && (
+                    <button type="button"
+                      onClick={() => setOtherCitizenships(prev => [...prev, ''])}
+                      className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl border border-dashed border-black/[0.15] bg-white/40 text-xs font-medium text-[#6C6C70] active:opacity-70">
+                      + Add Citizenship
+                    </button>
+                  )}
                 </DarkSectionCard>
 
                 {/* Contact Details */}
@@ -800,33 +913,41 @@ export default function ExistingClientPage() {
                     />
                   </DarkInputRow>
                   <DarkInputRow label="Email Address" icon={<Mail size={11} />} error={errors.email} required={editMode}>
-                    <input
-                      type="email"
-                      inputMode="email"
-                      readOnly={!editMode}
-                      value={form.email}
-                      onChange={e => {
-                        if (!editMode) return;
-                        set('email')(e.target.value);
-                        if (errors.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.target.value))
-                          setErrors(prev => ({ ...prev, email: '' }));
-                      }}
-                      onBlur={() => {
-                        if (!editMode) return;
-                        if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
-                          setErrors(prev => ({ ...prev, email: 'Enter a valid email address' }));
-                        else
-                          setErrors(prev => ({ ...prev, email: '' }));
-                      }}
-                      placeholder="juan@email.com"
-                      className={
-                        !editMode
-                          ? dReadCls
-                          : errors.email
-                            ? 'w-full px-3 py-2.5 rounded-xl border border-red-400 bg-red-50/80 text-sm text-[#1C1C1E] outline-none focus:border-red-500 transition-colors placeholder:text-[#C7C7CC]'
-                            : dInputCls
-                      }
-                    />
+                    <>
+                      <input
+                        type="email"
+                        inputMode="email"
+                        readOnly={!editMode}
+                        value={form.email}
+                        onChange={e => {
+                          if (!editMode) return;
+                          set('email')(e.target.value);
+                          if (errors.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.target.value))
+                            setErrors(prev => ({ ...prev, email: '' }));
+                        }}
+                        onBlur={() => {
+                          if (!editMode) return;
+                          if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
+                            setErrors(prev => ({ ...prev, email: 'Enter a valid email address' }));
+                          else
+                            setErrors(prev =>
+                              prev.email === 'Enter a valid email address' ? { ...prev, email: '' } : prev
+                            );
+                        }}
+                        placeholder="juan@email.com"
+                        className={
+                          !editMode
+                            ? dReadCls
+                            : errors.email
+                              ? 'w-full px-3 py-2.5 rounded-xl border border-red-400 bg-red-50/80 text-sm text-[#1C1C1E] outline-none focus:border-red-500 transition-colors placeholder:text-[#C7C7CC]'
+                              : dInputCls
+                        }
+                      />
+                      {editMode && !errors.email && form.email.trim().length > 0 &&
+                        allClients.some(c => c.id !== selectedClient?.id && c.email?.toLowerCase() === form.email.trim().toLowerCase()) && (
+                        <p className="text-xs text-amber-500 mt-0.5">This email is already registered.</p>
+                      )}
+                    </>
                   </DarkInputRow>
                 </DarkSectionCard>
 
@@ -997,6 +1118,93 @@ export default function ExistingClientPage() {
                   )}
                 </DarkSectionCard>
 
+                {/* Client Signature */}
+                <DarkSectionCard title="Client Signature">
+                  {errors.signature && <p className="text-xs text-red-500 -mt-1">{errors.signature}</p>}
+
+                  {/* Preview */}
+                  {(sigPreview ?? selectedClient?.signature_base64) && sigMode !== 'draw' ? (
+                    <div className="rounded-2xl border border-black/[0.08] bg-white/60 p-3 flex items-center justify-center min-h-[100px]">
+                      <img src={sigPreview ?? selectedClient?.signature_base64 ?? ''} alt="Client Signature" className="max-h-[90px] object-contain" />
+                    </div>
+                  ) : sigMode === 'idle' ? (
+                    <div className="rounded-2xl border border-dashed border-black/[0.15] bg-white/40 p-4 flex items-center justify-center min-h-[72px]">
+                      <p className="text-xs text-[#8E8E93]">No signature on file</p>
+                    </div>
+                  ) : null}
+
+                  {/* Draw canvas */}
+                  {editMode && sigMode === 'draw' && (
+                    <div className="space-y-2">
+                      <canvas
+                        ref={sigCanvasRef} width={600} height={180}
+                        className="w-full rounded-2xl border border-black/[0.12] bg-white touch-none"
+                        style={{ cursor: 'crosshair' }}
+                        onMouseDown={e => { sigDrawing.current = true; const r = sigCanvasRef.current!.getBoundingClientRect(); const sx = sigCanvasRef.current!.width/r.width, sy = sigCanvasRef.current!.height/r.height; sigLastPos.current = { x: (e.clientX-r.left)*sx, y: (e.clientY-r.top)*sy }; }}
+                        onMouseMove={e => { if (!sigDrawing.current || !sigCanvasRef.current) return; const r = sigCanvasRef.current.getBoundingClientRect(); const sx = sigCanvasRef.current.width/r.width, sy = sigCanvasRef.current.height/r.height; const pos = { x: (e.clientX-r.left)*sx, y: (e.clientY-r.top)*sy }; const ctx = sigCanvasRef.current.getContext('2d')!; ctx.beginPath(); ctx.moveTo(sigLastPos.current!.x, sigLastPos.current!.y); ctx.lineTo(pos.x, pos.y); ctx.strokeStyle='#1C1C1E'; ctx.lineWidth=2; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.stroke(); sigLastPos.current=pos; }}
+                        onMouseUp={() => { sigDrawing.current = false; }}
+                        onMouseLeave={() => { sigDrawing.current = false; }}
+                        onTouchStart={e => { e.preventDefault(); sigDrawing.current = true; const r = sigCanvasRef.current!.getBoundingClientRect(); const sx = sigCanvasRef.current!.width/r.width, sy = sigCanvasRef.current!.height/r.height; sigLastPos.current = { x: (e.touches[0].clientX-r.left)*sx, y: (e.touches[0].clientY-r.top)*sy }; }}
+                        onTouchMove={e => { e.preventDefault(); if (!sigDrawing.current || !sigCanvasRef.current) return; const r = sigCanvasRef.current.getBoundingClientRect(); const sx = sigCanvasRef.current.width/r.width, sy = sigCanvasRef.current.height/r.height; const pos = { x: (e.touches[0].clientX-r.left)*sx, y: (e.touches[0].clientY-r.top)*sy }; const ctx = sigCanvasRef.current.getContext('2d')!; ctx.beginPath(); ctx.moveTo(sigLastPos.current!.x, sigLastPos.current!.y); ctx.lineTo(pos.x, pos.y); ctx.strokeStyle='#1C1C1E'; ctx.lineWidth=2; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.stroke(); sigLastPos.current=pos; }}
+                        onTouchEnd={() => { sigDrawing.current = false; }}
+                      />
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => sigCanvasRef.current?.getContext('2d')?.clearRect(0, 0, 600, 180)}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#6C6C70] active:opacity-70">
+                          <RotateCcw size={13} /> Clear
+                        </button>
+                        <button type="button" onClick={() => { const b64 = sigCanvasRef.current?.toDataURL('image/png') ?? ''; setSigPreview(b64); setSigMode('idle'); }}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-[#1C1C1E] text-white text-xs font-semibold active:opacity-70">
+                          <Check size={13} /> Use Signature
+                        </button>
+                        <button type="button" onClick={() => setSigMode('idle')}
+                          className="w-9 flex items-center justify-center rounded-xl border border-black/[0.10] bg-white/60 active:opacity-70">
+                          <X size={14} className="text-[#8E8E93]" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Upload waiting */}
+                  {editMode && sigMode === 'upload' && !sigPreview && (
+                    <div className="rounded-2xl border border-dashed border-black/[0.15] bg-white/40 p-4 flex flex-col items-center gap-2 min-h-[72px]">
+                      <p className="text-xs text-[#8E8E93]">Select an image file</p>
+                      <button type="button" onClick={() => sigFileRef.current?.click()}
+                        className="px-4 py-1.5 rounded-xl bg-[#1C1C1E] text-white text-xs font-medium active:opacity-70">Browse</button>
+                      <button type="button" onClick={() => setSigMode('idle')} className="text-xs text-[#8E8E93] underline">Cancel</button>
+                    </div>
+                  )}
+
+                  {/* Action buttons — edit mode only */}
+                  {editMode && sigMode === 'idle' && (
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => setSigMode('draw')}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#1C1C1E] active:opacity-70">
+                        <PenLine size={13} /> {(sigPreview ?? selectedClient?.signature_base64) ? 'Redraw' : 'Draw Signature'}
+                      </button>
+                      <button type="button" onClick={() => { setSigMode('upload'); sigFileRef.current?.click(); }}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#1C1C1E] active:opacity-70">
+                        <Upload size={13} /> Upload
+                      </button>
+                      {sigPreview && (
+                        <button type="button" onClick={() => setSigPreview(null)}
+                          className="w-9 flex items-center justify-center rounded-xl border border-black/[0.10] bg-white/60 active:opacity-70">
+                          <X size={14} className="text-[#8E8E93]" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  <input ref={sigFileRef} type="file" accept="image/*" className="hidden" onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onloadend = () => { setSigPreview(reader.result as string); setSigMode('idle'); };
+                    reader.readAsDataURL(file);
+                    e.target.value = '';
+                  }} />
+                </DarkSectionCard>
+
               </div>
             </div>
           </div>
@@ -1037,16 +1245,30 @@ export default function ExistingClientPage() {
                 backdropFilter: 'blur(24px)',
                 border: '1px solid rgba(0,0,0,0.06)',
               }}>
-                {filteredCitizenships.map(c => (
-                  <button key={c} type="button"
-                    onClick={() => { set('citizenship')(c); setCitizenshipPickerOpen(false); setCitizenshipSearch(''); }}
-                    className={`w-full flex items-center justify-between px-4 py-3.5 border-b border-black/[0.05] last:border-0 text-left active:bg-black/[0.04] ${
-                      form.citizenship === c ? 'bg-[#C03D25]/5' : ''
-                    }`}>
-                    <span className="text-sm text-[#1C1C1E]">{c}</span>
-                    {form.citizenship === c && <Check size={14} className="text-[#C03D25] shrink-0" />}
-                  </button>
-                ))}
+                {filteredCitizenships.map(c => {
+                  const currentVal = citizenshipPickerTarget === 'primary'
+                    ? form.citizenship
+                    : (otherCitizenships[citizenshipPickerTarget as number] ?? '');
+                  return (
+                    <button key={c} type="button"
+                      onClick={() => {
+                        if (citizenshipPickerTarget === 'primary') {
+                          set('citizenship')(c);
+                        } else {
+                          const idx = citizenshipPickerTarget as number;
+                          setOtherCitizenships(prev => prev.map((v, i) => i === idx ? c : v));
+                        }
+                        setCitizenshipPickerOpen(false);
+                        setCitizenshipSearch('');
+                      }}
+                      className={`w-full flex items-center justify-between px-4 py-3.5 border-b border-black/[0.05] last:border-0 text-left active:bg-black/[0.04] ${
+                        currentVal === c ? 'bg-[#C03D25]/5' : ''
+                      }`}>
+                      <span className="text-sm text-[#1C1C1E]">{c}</span>
+                      {currentVal === c && <Check size={14} className="text-[#C03D25] shrink-0" />}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>

@@ -11,14 +11,16 @@ import {
   X, Check, ChevronDown, ChevronLeft, Search, Edit2, UserCog,
   SlidersHorizontal, Plus, PenLine, Upload, RotateCcw, Building2,
 } from 'lucide-react';
-import { fetchAllClients, updateClient, updateClientSignature, checkEmailExists, ClientRecord } from '@/lib/clients';
+import { fetchAllClients, updateClient, updateClientSignature, ClientRecord } from '@/lib/clients';
+import { getSession } from '@/lib/auth';
+import type { AppUser } from '@/types';
 import { triggerClientEmail } from '@/lib/email';
 import {
   COUNTRY_CODES, CITIZENSHIP_LIST,
   REASON_OPTIONS, SOURCE_OPTIONS, INCOME_OPTIONS,
 } from '@/lib/client-form-options';
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
-import { fetchAllBrokers, BrokerRecord as BrokersTableRecord } from '@/lib/brokers';
+import { fetchAllBrokers, BrokerRecord as BrokersTableRecord, fetchAllBrokerRecruits, BrokerRecruitRecord } from '@/lib/brokers';
 import SearchableCombobox from '@/components/ui/SearchableCombobox';
 
 // ── iOS 26 design tokens ──────────────────────────────────────
@@ -129,7 +131,7 @@ function DarkSelectInput({ value, options, onChange, placeholder, disabled, sear
   );
 }
 
-function DarkSectionCard({ title, children, zIndex }: { title: string; children: React.ReactNode; zIndex?: number }) {
+function DarkSectionCard({ title, children, zIndex, required }: { title: string; children: React.ReactNode; zIndex?: number; required?: boolean }) {
   return (
     <div className="rounded-3xl p-4 space-y-4" style={{ position: 'relative', zIndex,
       background: 'rgba(255, 255, 255, 0.88)',
@@ -138,7 +140,7 @@ function DarkSectionCard({ title, children, zIndex }: { title: string; children:
       border: '1px solid rgba(0, 0, 0, 0.06)',
       boxShadow: '0 2px 16px rgba(0, 0, 0, 0.08)',
     }}>
-      <p className="text-xs font-bold text-[#6C6C70] uppercase tracking-wider">{title}</p>
+      <p className="text-xs font-bold text-[#6C6C70] uppercase tracking-wider">{title}{required && <span className="text-red-500 font-bold ml-0.5">*</span>}</p>
       {children}
     </div>
   );
@@ -174,7 +176,7 @@ function mapClientToForm(c: ClientRecord): FormState {
     gender:                 c.gender                   ?? '',
     civilStatus:            c.civil_status             ?? '',
     dateOfBirth:            c.date_of_birth            ?? '',
-    citizenship:            c.citizenship              ?? '',
+    citizenship:            (c.citizenship ?? '').split(' | ')[0]?.trim() ?? '',
     countryCode:            c.country_code             ?? '+63',
     mobileNumber:           c.mobile_number            ?? '',
     landlineNo:             c.landline_no              ?? '',
@@ -217,12 +219,19 @@ export default function ClientRegistrationPage() {
   const [saving, setSaving]                               = useState(false);
   const [countryPickerOpen, setCountryPickerOpen]         = useState(false);
   const [countrySearch, setCountrySearch]                 = useState('');
-  const [citizenshipPickerOpen, setCitizenshipPickerOpen] = useState(false);
-  const [citizenshipSearch, setCitizenshipSearch]         = useState('');
+  const [citizenshipPickerOpen, setCitizenshipPickerOpen]     = useState(false);
+  const [citizenshipSearch, setCitizenshipSearch]             = useState('');
+  const [citizenshipPickerTarget, setCitizenshipPickerTarget] = useState<'primary' | number>('primary');
+  const [hasMultipleCitizenship, setHasMultipleCitizenship]   = useState(false);
+  const [otherCitizenships, setOtherCitizenships]             = useState<string[]>([]);
+
+  // Session
+  const [user, setUser] = useState<AppUser | null>(null);
 
   // Seller state
-  const [allSalespersons, setAllSalespersons]               = useState<SalespersonRecord[]>([]);
-  const [allBrokers,      setAllBrokers]                    = useState<BrokersTableRecord[]>([]);
+  const [allSalespersons,   setAllSalespersons]   = useState<SalespersonRecord[]>([]);
+  const [allBrokers,        setAllBrokers]         = useState<BrokersTableRecord[]>([]);
+  const [allBrokerRecruits, setAllBrokerRecruits]  = useState<BrokerRecruitRecord[]>([]);
   const [sellerDirector, setSellerDirector]                 = useState('');
   const [sellerManager, setSellerManager]                   = useState('');
   const [sellerSpecialist, setSellerSpecialist]             = useState('');
@@ -249,6 +258,8 @@ export default function ClientRegistrationPage() {
       .finally(() => setLoading(false));
     fetchAllSalespersons().then(setAllSalespersons).catch(console.error);
     fetchAllBrokers().then(setAllBrokers).catch(console.error);
+    fetchAllBrokerRecruits().then(setAllBrokerRecruits).catch(console.error);
+    getSession().then(setUser).catch(console.error);
   }, []);
 
   // In House — specialist-first: pick PS, manager+director auto-fill
@@ -348,9 +359,17 @@ export default function ClientRegistrationPage() {
     );
   }
 
+  function parseCitizenships(raw: string | null) {
+    const parts = (raw ?? '').split(' | ').map(s => s.trim()).filter(Boolean);
+    return { primary: parts[0] ?? '', others: parts.slice(1) };
+  }
+
   function openClient(client: ClientRecord) {
     setSelectedClient(client);
     setForm(mapClientToForm(client));
+    const { others } = parseCitizenships(client.citizenship);
+    setOtherCitizenships(others);
+    setHasMultipleCitizenship(others.length > 0);
     loadSellerFromClient(client);
     setIsMegawideEmployee(client.is_megawide_employee ?? false);
     setEditMode(false);
@@ -362,6 +381,9 @@ export default function ClientRegistrationPage() {
   function cancelEdit() {
     setEditMode(false);
     setForm(mapClientToForm(selectedClient!));
+    const { others } = parseCitizenships(selectedClient!.citizenship);
+    setOtherCitizenships(others);
+    setHasMultipleCitizenship(others.length > 0);
     loadSellerFromClient(selectedClient!);
     setIsMegawideEmployee(selectedClient!.is_megawide_employee ?? false);
     setErrors({});
@@ -374,6 +396,10 @@ export default function ClientRegistrationPage() {
 
   function validate() {
     const e: Record<string, string> = {};
+    if (!form.gender)                  e.gender                 = 'Gender is required';
+    if (!form.civilStatus)             e.civilStatus            = 'Civil status is required';
+    if (!selectedClient?.signature_base64 && !sigPreview)
+                                       e.signature              = 'Client signature is required';
     if (!form.lastName.trim())        e.lastName               = 'Last name is required';
     if (!form.firstName.trim())       e.firstName              = 'First name is required';
     if (!form.dateOfBirth) {
@@ -390,9 +416,8 @@ export default function ClientRegistrationPage() {
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
                                       e.email                  = 'Enter a valid email address';
     else if (
-      form.email.trim().toLowerCase() !== (selectedClient?.email ?? '').toLowerCase() &&
-      allClients.some(c => c.email?.toLowerCase() === form.email.trim().toLowerCase())
-    )                                 e.email                  = 'This email is already registered';
+      allClients.some(c => c.id !== selectedClient?.id && c.email?.toLowerCase() === form.email.trim().toLowerCase())
+    )                                   e.email                  = 'This email is already registered';
     if (!form.reasonForBuying)        e.reasonForBuying        = 'Reason for buying is required';
     if (!form.sourceOfSale)           e.sourceOfSale           = 'Source of sale is required';
     if (!form.monthlyHouseholdIncome) e.monthlyHouseholdIncome = 'Monthly income is required';
@@ -409,6 +434,20 @@ export default function ClientRegistrationPage() {
     if (!validate()) return;
     setSaving(true);
     try {
+      let sellerIds: { seller_id?: string | null; sales_manager_id?: string | null; sales_director_id?: string | null; sales_division_head_id?: string | null; sales_head_id?: string | null; broker_id?: string | null; } = {};
+      if (form.sellerType === 'In House') {
+        if (isMegawideEmployee) {
+          const sdRec = allSalespersons.find(s => s.seller_name === sellerDirector);
+          sellerIds = { sales_director_id: sdRec?.seller_id ?? null, sales_division_head_id: sdRec?.sales_division_head_id ?? null, sales_head_id: sdRec?.sales_head_id ?? null };
+        } else {
+          const psRec = allSalespersons.find(s => s.seller_name === sellerSpecialist);
+          sellerIds = { seller_id: psRec?.seller_id ?? null, sales_manager_id: psRec?.sales_manager_id ?? null, sales_director_id: psRec?.sales_director_id ?? null, sales_division_head_id: psRec?.sales_division_head_id ?? null, sales_head_id: psRec?.sales_head_id ?? null };
+        }
+      } else if (form.sellerType === 'Broker') {
+        const birRec = allBrokers.find(b => bName(b) === brokerBirName);
+        const rRec   = birRec ? allBrokerRecruits.find(r => r.broker_id === birRec.broker_id) : null;
+        sellerIds = { broker_id: rRec?.broker_id ?? birRec?.broker_id ?? null, sales_manager_id: rRec?.broker_network_associate_id ?? null, sales_director_id: rRec?.broker_network_officer_id ?? null, sales_division_head_id: rRec?.sales_director_head_id ?? null, sales_head_id: rRec?.sales_head_id ?? null };
+      }
       await updateClient(selectedClient!.id, {
         client_type:              form.clientType,
         last_name:                form.lastName,
@@ -418,7 +457,7 @@ export default function ClientRegistrationPage() {
         gender:                   form.gender,
         civil_status:             form.civilStatus,
         date_of_birth:            form.dateOfBirth,
-        citizenship:              form.citizenship,
+        citizenship:              [form.citizenship, ...otherCitizenships.filter(Boolean)].join(' | '),
         country_code:             form.countryCode,
         mobile_number:            form.mobileNumber,
         landline_no:              form.landlineNo,
@@ -436,6 +475,7 @@ export default function ClientRegistrationPage() {
         broker_sales_head:        form.sellerType === 'Broker'   ? brokerSalesHead        : undefined,
         broker_bir_name:          form.sellerType === 'Broker'   ? brokerBirName          : undefined,
         is_megawide_employee:     isMegawideEmployee,
+        ...sellerIds,
       });
       const updated: ClientRecord = {
         ...selectedClient!,
@@ -447,7 +487,7 @@ export default function ClientRegistrationPage() {
         gender:                   form.gender                 || null,
         civil_status:             form.civilStatus            || null,
         date_of_birth:            form.dateOfBirth            || null,
-        citizenship:              form.citizenship            || null,
+        citizenship:              [form.citizenship, ...otherCitizenships.filter(Boolean)].join(' | ') || null,
         country_code:             form.countryCode,
         mobile_number:            form.mobileNumber           || null,
         landline_no:              form.landlineNo             || null,
@@ -488,11 +528,19 @@ export default function ClientRegistrationPage() {
         c.dial.includes(countrySearch))
     : COUNTRY_CODES;
 
+  const SEE_ALL_ROLES = ['All Access', 'Account Management', 'Finance Verification'];
+  const visibleClients = !user || SEE_ALL_ROLES.includes(user.role_name ?? '') || !user.seller_id
+    ? allClients
+    : allClients.filter(c =>
+        [c.seller_id, c.sales_manager_id, c.sales_director_id, c.sales_division_head_id, c.sales_head_id, c.broker_id]
+          .some(id => id && id === user!.seller_id)
+      );
+
   const citizenshipOptions = [...new Set(
-    allClients.map(c => c.citizenship).filter(Boolean) as string[]
+    visibleClients.map(c => c.citizenship).filter(Boolean) as string[]
   )].sort();
 
-  const filteredClients = allClients.filter(c => {
+  const filteredClients = visibleClients.filter(c => {
     if (clientTypeFilter && c.client_type !== clientTypeFilter) return false;
     if (citizenshipFilter && c.citizenship !== citizenshipFilter) return false;
     if (clientSearch) {
@@ -669,7 +717,7 @@ export default function ClientRegistrationPage() {
 
               <div className="space-y-4">
 
-                <DarkSectionCard title="Client Type">
+                <DarkSectionCard title="Client Type" required={editMode}>
                   <div className="grid grid-cols-2 gap-2">
                     {(['Local', 'International'] as const).map(t => (
                       <button key={t} type="button"
@@ -709,11 +757,11 @@ export default function ClientRegistrationPage() {
                       onChange={e => set('suffix')(toProperCase(e.target.value))}
                       placeholder="e.g. Jr., Sr., III" className={editMode ? dInputCls : dReadCls} />
                   </DarkInputRow>
-                  <DarkInputRow label="Gender" icon={<User size={11} />}>
+                  <DarkInputRow label="Gender" icon={<User size={11} />} error={errors.gender} required={editMode}>
                     <DarkSelectInput value={form.gender} options={GENDER_OPTIONS}
                       onChange={set('gender')} placeholder="Select gender" disabled={!editMode} />
                   </DarkInputRow>
-                  <DarkInputRow label="Civil Status" icon={<Heart size={11} />}>
+                  <DarkInputRow label="Civil Status" icon={<Heart size={11} />} error={errors.civilStatus} required={editMode}>
                     <DarkSelectInput value={form.civilStatus} options={CIVIL_STATUS_OPTIONS}
                       onChange={set('civilStatus')} placeholder="Select civil status" disabled={!editMode} />
                   </DarkInputRow>
@@ -728,11 +776,11 @@ export default function ClientRegistrationPage() {
                         style={{ colorScheme: 'light' }} />
                     </div>
                   </DarkInputRow>
-                  <DarkInputRow label="Citizenship" icon={<Globe size={11} />} error={errors.citizenship} required={editMode}>
+                  <DarkInputRow label={hasMultipleCitizenship ? 'Citizenship 1' : 'Citizenship'} icon={<Globe size={11} />} error={errors.citizenship} required={editMode}>
                     {editMode ? (
                       <div role="button" tabIndex={0}
-                        onClick={() => { setCitizenshipSearch(''); setCitizenshipPickerOpen(true); }}
-                        onKeyDown={e => e.key === 'Enter' && (setCitizenshipSearch(''), setCitizenshipPickerOpen(true))}
+                        onClick={() => { setCitizenshipPickerTarget('primary'); setCitizenshipSearch(''); setCitizenshipPickerOpen(true); }}
+                        onKeyDown={e => e.key === 'Enter' && (setCitizenshipPickerTarget('primary'), setCitizenshipSearch(''), setCitizenshipPickerOpen(true))}
                         className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/70 cursor-pointer">
                         <span className={`text-sm ${form.citizenship ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
                           {form.citizenship || 'Select citizenship'}
@@ -748,6 +796,59 @@ export default function ClientRegistrationPage() {
                       <div className={dReadCls}>{form.citizenship || '—'}</div>
                     )}
                   </DarkInputRow>
+
+                  {/* Multiple citizenship toggle */}
+                  {editMode && (
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-[#6C6C70] flex items-center gap-1.5">
+                        <Globe size={11} /> Multiple Citizenship
+                      </label>
+                      <button type="button"
+                        onClick={() => { setHasMultipleCitizenship(p => { if (p) setOtherCitizenships([]); return !p; }); }}
+                        className="relative rounded-full shrink-0 transition-all duration-300 focus:outline-none"
+                        style={{ width: 52, height: 28, background: hasMultipleCitizenship ? 'linear-gradient(90deg, #E05A3A 0%, #C03D25 100%)' : 'rgba(0,0,0,0.15)' }}>
+                        <span className="absolute bg-white rounded-full transition-all duration-300"
+                          style={{ width: 24, height: 24, top: 2, left: hasMultipleCitizenship ? 26 : 2, boxShadow: '0 1px 4px rgba(0,0,0,0.25)' }} />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Secondary citizenships */}
+                  {hasMultipleCitizenship && otherCitizenships.map((c, i) => (
+                    <DarkInputRow key={i} label={`Citizenship ${i + 2}`} icon={<Globe size={11} />}>
+                      {editMode ? (
+                        <div className="flex gap-2">
+                          <div role="button" tabIndex={0}
+                            onClick={() => { setCitizenshipPickerTarget(i); setCitizenshipSearch(''); setCitizenshipPickerOpen(true); }}
+                            onKeyDown={e => e.key === 'Enter' && (setCitizenshipPickerTarget(i), setCitizenshipSearch(''), setCitizenshipPickerOpen(true))}
+                            className="flex-1 flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/70 cursor-pointer">
+                            <span className={`text-sm ${c ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>{c || 'Select citizenship'}</span>
+                            {c
+                              ? <button type="button" onClick={e => { e.stopPropagation(); setOtherCitizenships(prev => prev.map((v, j) => j === i ? '' : v)); }}>
+                                  <X size={13} className="text-[#8E8E93]" />
+                                </button>
+                              : <ChevronDown size={14} className="text-[#8E8E93] shrink-0" />
+                            }
+                          </div>
+                          <button type="button"
+                            onClick={() => setOtherCitizenships(prev => prev.filter((_, j) => j !== i))}
+                            className="w-10 flex items-center justify-center rounded-xl border border-black/[0.10] bg-white/60 active:opacity-70 shrink-0">
+                            <X size={14} className="text-[#8E8E93]" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className={dReadCls}>{c || '—'}</div>
+                      )}
+                    </DarkInputRow>
+                  ))}
+
+                  {hasMultipleCitizenship && editMode && (
+                    <button type="button"
+                      onClick={() => setOtherCitizenships(prev => [...prev, ''])}
+                      className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl border border-dashed border-black/[0.15] bg-white/40 text-xs font-medium text-[#6C6C70] active:opacity-70">
+                      + Add Citizenship
+                    </button>
+                  )}
                 </DarkSectionCard>
 
                 <DarkSectionCard title="Contact Details">
@@ -785,31 +886,37 @@ export default function ClientRegistrationPage() {
                       placeholder="02-8123-4567" className={editMode ? dInputCls : dReadCls} />
                   </DarkInputRow>
                   <DarkInputRow label="Email Address" icon={<Mail size={11} />} error={errors.email} required={editMode}>
-                    <input type="email" inputMode="email" readOnly={!editMode}
-                      value={form.email}
-                      onChange={e => {
-                        if (!editMode) return;
-                        set('email')(e.target.value);
-                        if (errors.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.target.value))
-                          setErrors(prev => ({ ...prev, email: '' }));
-                      }}
-                      onBlur={() => {
-                        if (!editMode) return;
-                        if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
-                          setErrors(prev => ({ ...prev, email: 'Enter a valid email address' }));
-                        else
-                          setErrors(prev =>
-                            prev.email === 'Enter a valid email address' ? { ...prev, email: '' } : prev
-                          );
-                      }}
-                      placeholder="juan@email.com"
-                      className={
-                        !editMode ? dReadCls
-                          : errors.email
-                            ? 'w-full px-3 py-2.5 rounded-xl border border-red-400 bg-white/70 text-sm text-[#1C1C1E] outline-none focus:border-red-500 transition-colors placeholder:text-[#C7C7CC]'
-                            : dInputCls
-                      }
-                    />
+                    <>
+                      <input type="email" inputMode="email" readOnly={!editMode}
+                        value={form.email}
+                        onChange={e => {
+                          if (!editMode) return;
+                          set('email')(e.target.value);
+                          if (errors.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.target.value))
+                            setErrors(prev => ({ ...prev, email: '' }));
+                        }}
+                        onBlur={() => {
+                          if (!editMode) return;
+                          if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
+                            setErrors(prev => ({ ...prev, email: 'Enter a valid email address' }));
+                          else
+                            setErrors(prev =>
+                              prev.email === 'Enter a valid email address' ? { ...prev, email: '' } : prev
+                            );
+                        }}
+                        placeholder="juan@email.com"
+                        className={
+                          !editMode ? dReadCls
+                            : errors.email
+                              ? 'w-full px-3 py-2.5 rounded-xl border border-red-400 bg-white/70 text-sm text-[#1C1C1E] outline-none focus:border-red-500 transition-colors placeholder:text-[#C7C7CC]'
+                              : dInputCls
+                        }
+                      />
+                      {editMode && !errors.email && form.email.trim().length > 0 &&
+                        allClients.some(c => c.id !== selectedClient?.id && c.email?.toLowerCase() === form.email.trim().toLowerCase()) && (
+                        <p className="text-xs text-amber-500 mt-0.5">This email is already registered.</p>
+                      )}
+                    </>
                   </DarkInputRow>
                 </DarkSectionCard>
 
@@ -960,7 +1067,7 @@ export default function ClientRegistrationPage() {
                 </DarkSectionCard>
 
                 {/* Signature Section */}
-                <DarkSectionCard title="Client Signature">
+                <DarkSectionCard title="Client Signature" required={editMode}>
                   {(() => {
                     const currentSig = sigPreview ?? selectedClient.signature_base64 ?? null;
 
@@ -1016,6 +1123,7 @@ export default function ClientRegistrationPage() {
 
                     return (
                       <div className="space-y-3">
+                        {errors.signature && <p className="text-xs text-red-500">{errors.signature}</p>}
                         {/* Current signature display */}
                         {currentSig && sigMode === 'idle' ? (
                           <div className="rounded-2xl border border-black/[0.08] bg-white/60 p-3 flex items-center justify-center min-h-[100px]">
@@ -1145,16 +1253,30 @@ export default function ClientRegistrationPage() {
                 background: 'rgba(255, 255, 255, 0.88)', backdropFilter: 'blur(24px)',
                 border: '1px solid rgba(0,0,0,0.06)',
               }}>
-                {filteredCitizenships.map(c => (
-                  <button key={c} type="button"
-                    onClick={() => { set('citizenship')(c); setCitizenshipPickerOpen(false); setCitizenshipSearch(''); }}
-                    className={`w-full flex items-center justify-between px-4 py-3.5 border-b border-black/[0.05] last:border-0 text-left active:bg-black/[0.04] ${
-                      form.citizenship === c ? 'bg-black/[0.04]' : ''
-                    }`}>
-                    <span className="text-sm text-[#1C1C1E]">{c}</span>
-                    {form.citizenship === c && <Check size={14} className="text-[#C03D25] shrink-0" />}
-                  </button>
-                ))}
+                {filteredCitizenships.map(c => {
+                  const currentVal = citizenshipPickerTarget === 'primary'
+                    ? form.citizenship
+                    : (otherCitizenships[citizenshipPickerTarget as number] ?? '');
+                  return (
+                    <button key={c} type="button"
+                      onClick={() => {
+                        if (citizenshipPickerTarget === 'primary') {
+                          set('citizenship')(c);
+                        } else {
+                          const idx = citizenshipPickerTarget as number;
+                          setOtherCitizenships(prev => prev.map((v, i) => i === idx ? c : v));
+                        }
+                        setCitizenshipPickerOpen(false);
+                        setCitizenshipSearch('');
+                      }}
+                      className={`w-full flex items-center justify-between px-4 py-3.5 border-b border-black/[0.05] last:border-0 text-left active:bg-black/[0.04] ${
+                        currentVal === c ? 'bg-black/[0.04]' : ''
+                      }`}>
+                      <span className="text-sm text-[#1C1C1E]">{c}</span>
+                      {currentVal === c && <Check size={14} className="text-[#C03D25] shrink-0" />}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>

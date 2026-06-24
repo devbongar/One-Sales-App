@@ -28,6 +28,13 @@ export interface ClientPayload {
   broker_director_head?: string;
   broker_sales_head?: string;
   broker_bir_name?: string;
+  // Seller ID fields (for filtering)
+  seller_id?: string | null;
+  sales_manager_id?: string | null;
+  sales_director_id?: string | null;
+  sales_division_head_id?: string | null;
+  sales_head_id?: string | null;
+  broker_id?: string | null;
 }
 
 export interface ClientRecord {
@@ -61,6 +68,12 @@ export interface ClientRecord {
   civil_status: string | null;
   signature_base64: string | null;
   created_at: string;
+  seller_id: string | null;
+  sales_manager_id: string | null;
+  sales_director_id: string | null;
+  sales_division_head_id: string | null;
+  sales_head_id: string | null;
+  broker_id: string | null;
 }
 
 export async function checkEmailExists(email: string, excludeId?: string): Promise<boolean> {
@@ -100,6 +113,17 @@ export async function updateClientSignatureByClientId(clientId: string, signatur
   if (error) throw error;
 }
 
+function idFields(payload: ClientPayload) {
+  return {
+    seller_id:              payload.seller_id              ?? null,
+    sales_manager_id:       payload.sales_manager_id       ?? null,
+    sales_director_id:      payload.sales_director_id      ?? null,
+    sales_division_head_id: payload.sales_division_head_id ?? null,
+    sales_head_id:          payload.sales_head_id          ?? null,
+    broker_id:              payload.broker_id              ?? null,
+  };
+}
+
 export async function saveClient(payload: ClientPayload): Promise<string> {
   const { data, error } = await supabase.rpc('save_client', {
     p_client_type:              payload.client_type,
@@ -130,7 +154,9 @@ export async function saveClient(payload: ClientPayload): Promise<string> {
     p_is_megawide_employee:     payload.is_megawide_employee     ?? false,
   });
   if (error) throw error;
-  return data as string;
+  const clientId = data as string;
+  await supabase.from('clients').update(idFields(payload)).eq('client_id', clientId);
+  return clientId;
 }
 
 export async function updateClient(id: string, payload: ClientPayload): Promise<void> {
@@ -164,6 +190,7 @@ export async function updateClient(id: string, payload: ClientPayload): Promise<
     p_is_megawide_employee:     payload.is_megawide_employee     ?? null,
   });
   if (error) throw error;
+  await supabase.from('clients').update(idFields(payload)).eq('id', id);
 }
 
 export interface BuyerInfoPayload {

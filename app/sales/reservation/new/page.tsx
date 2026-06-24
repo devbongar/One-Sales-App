@@ -7,7 +7,7 @@ import GlassCard from '@/components/ui/GlassCard';
 import GlassButton from '@/components/ui/GlassButton';
 import { fetchProjects, fetchTowers, fetchFloors, fetchFloorsByCategory, fetchUnitTypes, fetchInventoryUnits, InventoryUnit } from '@/lib/inventory';
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
-import { fetchAllBrokers, BrokerRecord as BrokersTableRecord } from '@/lib/brokers';
+import { fetchAllBrokers, fetchAllBrokerRecruits, BrokerRecord as BrokersTableRecord, BrokerRecruitRecord } from '@/lib/brokers';
 import { fetchAllClients, ClientRecord, saveClient } from '@/lib/clients';
 import { fetchAllPayterms, PaytermRecord } from '@/lib/paytems';
 import { fetchReservationFee, fetchVatThreshold, computeVat, fetchHicTarget } from '@/lib/admin';
@@ -430,8 +430,13 @@ export default function NewReservationPage() {
   const [comparisons,  setComparisons]  = useState<ComparisonItem[]>([]);
   const [duplicateAlert, setDuplicateAlert] = useState(false);
   const [showAddSheet, setShowAddSheet] = useState(false);
-  const [useHIC,       setUseHIC]       = useState(false);
-  const [userRole,     setUserRole]     = useState('');
+  const [useHIC,          setUseHIC]          = useState(false);
+  const [userRole,           setUserRole]           = useState('');
+  const [userSellerId,       setUserSellerId]       = useState<string | null>(null);
+  const [userSalesperson,    setUserSalesperson]    = useState<SalespersonRecord | null>(null);
+  const [userBroker,         setUserBroker]         = useState<BrokerRecruitRecord | null>(null);
+  const [allBrokerRecruits,  setAllBrokerRecruits]  = useState<BrokerRecruitRecord[]>([]);
+  const [clientOwnerWarn,    setClientOwnerWarn]    = useState<string | null>(null);
   const [reservationFee, setReservationFee] = useState(0);
   // undefined = loading, null = not configured, number = ok
   const [vatThreshold, setVatThreshold] = useState<number | null | undefined>(undefined);
@@ -479,10 +484,11 @@ export default function NewReservationPage() {
   // Payterm data from DB
   const [allPayterms, setAllPayterms] = useState<PaytermRecord[]>([]);
 
-  // Fetch all salespersons and brokers on mount
+  // Fetch all salespersons, brokers, and broker recruits on mount
   useEffect(() => {
     fetchAllSalespersons().then(setAllSalespersons).catch(console.error);
     fetchAllBrokers().then(setAllBrokers).catch(console.error);
+    fetchAllBrokerRecruits().then(setAllBrokerRecruits).catch(console.error);
   }, []);
 
   // Fetch paytems once project + tower are selected (avoids transient DNS failure on mount)
@@ -493,8 +499,45 @@ export default function NewReservationPage() {
 
   // Read user role from session
   useEffect(() => {
-    getSession().then(s => setUserRole(s?.role_name ?? '')).catch(() => {});
+    getSession().then(s => { setUserRole(s?.role_name ?? ''); setUserSellerId(s?.seller_id ?? null); }).catch(() => {});
   }, []);
+
+  // Resolve logged-in user's salesperson or broker record once lists are loaded
+  useEffect(() => {
+    if (!userSellerId) return;
+    const sp = allSalespersons.find(s => s.seller_id === userSellerId) ?? null;
+    setUserSalesperson(sp);
+    if (!sp) {
+      const br = allBrokerRecruits.find(b => b.broker_id === userSellerId) ?? null;
+      setUserBroker(br);
+    }
+  }, [userSellerId, allSalespersons, allBrokerRecruits]);
+
+  const SEE_ALL_ROLES_SELLER = ['All Access', 'Account Management'];
+
+  // Auto-fill seller section for new clients (no selectedClientRecord)
+  useEffect(() => {
+    if (selectedClientRecord) return; // existing client populates its own seller info
+    if (!userSellerId) return;
+    if (SEE_ALL_ROLES_SELLER.includes(userRole)) return; // these roles pick manually
+
+    if (userSalesperson) {
+      setSellerRecord(userSalesperson);
+      setBrokerClientInfo(null);
+    } else if (userBroker) {
+      const br = userBroker;
+      setBrokerClientInfo({
+        associate:   br.broker_network_associate  ?? '',
+        officer:     br.broker_network_officer    ?? '',
+        directorHead: br.sales_director_head      ?? '',
+        salesHead:   br.sales_head                ?? '',
+        birName:     br.bir_registered_name       ?? '',
+        brokerId:    br.broker_id,
+      });
+      setSellerRecord(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userSellerId, userRole, userSalesperson, userBroker, selectedClientRecord]);
 
   // Fetch reservation fee when selected unit changes
   useEffect(() => {
@@ -709,7 +752,21 @@ export default function NewReservationPage() {
         c.dial.includes(clientCountrySearch))
     : COUNTRY_CODES;
 
+  const SEE_ALL_ROLES = ['All Access', 'Account Management', 'Finance Verification'];
+  const isSellerLocked = !!(userSalesperson?.position_rank === 'PS' || userBroker);
+
   function handleSelectClient(c: ClientRecord) {
+    // Block if client belongs to another seller
+    if (userSellerId && !SEE_ALL_ROLES.includes(userRole)) {
+      const isOwned = [c.seller_id, c.sales_manager_id, c.sales_director_id, c.sales_division_head_id, c.sales_head_id, c.broker_id]
+        .some(id => id && id === userSellerId);
+      if (!isOwned) {
+        const ownerName = c.property_specialist || c.broker_bir_name || 'another seller';
+        setClientOwnerWarn(`This client is registered to ${ownerName} and cannot proceed with the transaction.`);
+        return;
+      }
+    }
+    setClientOwnerWarn(null);
     setSelectedClientRecord(c);
     setClientLastName(c.last_name);
     setClientFirstName(c.first_name);
@@ -1163,6 +1220,7 @@ export default function NewReservationPage() {
                   onChange={e => {
                     setClientLastName(e.target.value);
                     setClientSuggestionsOpen(true);
+                    setClientOwnerWarn(null);
                   }}
                   onFocus={() => setClientSuggestionsOpen(true)}
                   onBlur={() => setTimeout(() => setClientSuggestionsOpen(false), 150)}
@@ -1196,6 +1254,12 @@ export default function NewReservationPage() {
                     ))}
                   </div>
                 </>
+              )}
+              {clientOwnerWarn && (
+                <div className="mt-1.5 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-2">
+                  <span className="text-amber-500 text-xs mt-0.5 shrink-0">⚠</span>
+                  <p className="text-xs text-amber-700">{clientOwnerWarn}</p>
+                </div>
               )}
               {errors.fullName && <p className="text-red-400 text-[11px] px-1 pb-2">{errors.fullName}</p>}
             </div>
@@ -1324,7 +1388,9 @@ export default function NewReservationPage() {
               <>
                 <div className="flex items-center gap-2 py-2 px-1 border-b border-black/[0.06] bg-blue-50/50">
                   <UserCheck size={14} className="text-blue-600 shrink-0" />
-                  <span className="text-xs font-semibold text-blue-700 flex-1">Broker — from client record</span>
+                  <span className="text-xs font-semibold text-blue-700 flex-1">
+                    {selectedClientRecord ? 'Broker — from client record' : 'Broker'}
+                  </span>
                 </div>
                 {brokerClientInfo.associate && (
                   <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
@@ -1368,8 +1434,8 @@ export default function NewReservationPage() {
                 <div className="border-b border-black/[0.06] last:border-0">
                   <button
                     type="button"
-                    disabled={!!selectedClientRecord}
-                    onClick={() => { if (!selectedClientRecord) { setSellerDropdownOpen(p => !p); setSellerSearch(''); } }}
+                    disabled={!!selectedClientRecord || isSellerLocked}
+                    onClick={() => { if (!selectedClientRecord && !isSellerLocked) { setSellerDropdownOpen(p => !p); setSellerSearch(''); } }}
                     className="w-full flex items-center gap-3 py-3 px-1"
                   >
                     <span className="text-[#C03D25] shrink-0"><UserPlus size={16} /></span>
@@ -1377,9 +1443,9 @@ export default function NewReservationPage() {
                     <span className={`text-sm text-right truncate max-w-[160px] ${sellerRecord ? 'text-[#1C1C1E]' : 'text-[#8E8E93]'}`}>
                       {sellerRecord ? sellerRecord.seller_name : 'Search name'}
                     </span>
-                    {sellerRecord && !selectedClientRecord
+                    {sellerRecord && !selectedClientRecord && !isSellerLocked
                       ? <X size={14} className="text-[#C7C7CC] shrink-0" onClickCapture={e => { e.stopPropagation(); setSellerRecord(null); setSellerDropdownOpen(false); }} />
-                      : !selectedClientRecord
+                      : !selectedClientRecord && !isSellerLocked
                         ? <ChevronDown size={14} className={`text-[#C7C7CC] shrink-0 transition-transform duration-200 ${sellerDropdownOpen ? 'rotate-180' : ''}`} />
                         : null
                     }
