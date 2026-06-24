@@ -9,7 +9,7 @@ import {
   Loader2, Users, Phone, Mail, Heart,
   Briefcase, Calendar, User, Globe,
   X, Check, ChevronDown, ChevronLeft, Search, Edit2, UserCog,
-  SlidersHorizontal, Plus, PenLine, Upload, RotateCcw,
+  SlidersHorizontal, Plus, PenLine, Upload, RotateCcw, Building2,
 } from 'lucide-react';
 import { fetchAllClients, updateClient, updateClientSignature, checkEmailExists, ClientRecord } from '@/lib/clients';
 import { triggerClientEmail } from '@/lib/email';
@@ -19,6 +19,7 @@ import {
 } from '@/lib/client-form-options';
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
 import { fetchAllBrokers, BrokerRecord as BrokersTableRecord } from '@/lib/brokers';
+import SearchableCombobox from '@/components/ui/SearchableCombobox';
 
 // ── iOS 26 design tokens ──────────────────────────────────────
 const PAGE_GRADIENT = 'linear-gradient(to bottom, #FFFFFF 0%, #8E8E93 50%, #3A3A3C 100%)';
@@ -128,9 +129,9 @@ function DarkSelectInput({ value, options, onChange, placeholder, disabled, sear
   );
 }
 
-function DarkSectionCard({ title, children }: { title: string; children: React.ReactNode }) {
+function DarkSectionCard({ title, children, zIndex }: { title: string; children: React.ReactNode; zIndex?: number }) {
   return (
-    <div className="rounded-3xl p-4 space-y-4" style={{
+    <div className="rounded-3xl p-4 space-y-4" style={{ position: 'relative', zIndex,
       background: 'rgba(255, 255, 255, 0.88)',
       backdropFilter: 'blur(24px) saturate(160%)',
       WebkitBackdropFilter: 'blur(24px) saturate(160%)',
@@ -143,66 +144,6 @@ function DarkSectionCard({ title, children }: { title: string; children: React.R
   );
 }
 
-function SearchableCombobox({ value, options, onChange, placeholder, disabled }: {
-  value: string; options: string[]; onChange: (v: string) => void;
-  placeholder: string; disabled?: boolean;
-}) {
-  const [query, setQuery] = useState('');
-  const [open, setOpen] = useState(false);
-
-  const filtered = query.trim()
-    ? options.filter(o => o.toLowerCase().includes(query.toLowerCase()))
-    : options;
-
-  function select(name: string) { onChange(name); setQuery(''); setOpen(false); }
-  function clear(e: React.MouseEvent) { e.stopPropagation(); onChange(''); setQuery(''); setOpen(false); }
-
-  return (
-    <div className="relative">
-      <div className={`w-full flex items-center gap-1 px-3 py-2.5 rounded-xl border text-sm ${
-        disabled ? 'border-transparent bg-white/60 cursor-default' : 'border-black/[0.10] bg-white/70'
-      }`}>
-        <input
-          type="text"
-          readOnly={disabled}
-          value={open ? query : value}
-          placeholder={value || placeholder}
-          onFocus={() => { if (!disabled) { setOpen(true); setQuery(''); } }}
-          onChange={e => setQuery(e.target.value)}
-          className="flex-1 bg-transparent outline-none text-sm text-[#1C1C1E] placeholder:text-[#C7C7CC] min-w-0"
-        />
-        {!disabled && value && !open && (
-          <button type="button" onClick={clear}><X size={13} className="text-[#8E8E93]" /></button>
-        )}
-        {!disabled && !value && <ChevronDown size={14} className="text-[#8E8E93] shrink-0" />}
-      </div>
-
-      {open && !disabled && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => { setOpen(false); setQuery(''); }} />
-          <div className="absolute left-0 right-0 top-full z-50 mt-1 rounded-xl overflow-hidden"
-            style={{ background: 'rgba(255,255,255,0.98)', backdropFilter: 'blur(24px)', border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 8px 32px rgba(0,0,0,0.12)' }}>
-            <div className="max-h-52 overflow-y-auto">
-              {filtered.length === 0
-                ? <p className="px-3 py-2.5 text-sm text-[#C7C7CC]">No results</p>
-                : filtered.map(o => (
-                  <button key={o} type="button"
-                    onMouseDown={e => { e.preventDefault(); select(o); }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 text-sm border-b border-black/[0.05] last:border-0 active:bg-black/[0.04] ${
-                      o === value ? 'bg-[#C03D25]/5 text-[#C03D25] font-semibold' : 'text-[#3C3C43]'
-                    }`}>
-                    {o}
-                    {o === value && <Check size={13} className="shrink-0 text-[#C03D25]" />}
-                  </button>
-                ))
-              }
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
 
 // ── Helpers ───────────────────────────────────────────────────
 function toProperCase(str: string) {
@@ -291,6 +232,7 @@ export default function ClientRegistrationPage() {
   const [brokerSalesHead, setBrokerSalesHead]               = useState('');
   const [brokerBirName, setBrokerBirName]                   = useState('');
   const [brokerCascadeSource, setBrokerCascadeSource]       = useState<'bir' | 'associate' | 'officer' | 'sdh' | null>(null);
+  const [isMegawideEmployee, setIsMegawideEmployee]         = useState(false);
 
   // Signature state
   const [sigMode, setSigMode]         = useState<'idle' | 'draw' | 'upload'>('idle');
@@ -319,8 +261,10 @@ export default function ClientRegistrationPage() {
   }
 
   // Broker cascade — uses Brokers table (BIR → Associate → Officer → SDH → SH)
+  const bName = (b: BrokersTableRecord) => b.seller_name || b.full_name || '';
+
   function handleBrokerBirChange(name: string) {
-    const rec = name ? allBrokers.find(b => b.full_name === name) : null;
+    const rec = name ? allBrokers.find(b => bName(b) === name) : null;
     setBrokerBirName(name);
     setBrokerNetworkAssociate(rec?.broker_network_associate ?? '');
     setBrokerNetworkOfficer(rec?.broker_network_officer    ?? '');
@@ -332,7 +276,7 @@ export default function ClientRegistrationPage() {
   function handleBrokerAssociateChange(name: string) {
     const rec = name ? allBrokers.find(b => b.broker_network_associate === name) : null;
     setBrokerNetworkAssociate(name);
-    setBrokerBirName(rec?.full_name                    ?? '');
+    setBrokerBirName(rec ? bName(rec) : '');
     setBrokerNetworkOfficer(rec?.broker_network_officer ?? '');
     setBrokerDirectorHead(rec?.sales_director_head     ?? '');
     setBrokerSalesHead(rec?.sales_head                 ?? '');
@@ -354,10 +298,10 @@ export default function ClientRegistrationPage() {
     setBrokerCascadeSource(name ? 'sdh' : null);
   }
 
-  const birOptions = [...new Set(allBrokers.map(b => b.full_name).filter((v): v is string => !!v))];
+  const birOptions = [...new Set(allBrokers.map(bName).filter(Boolean))];
   const brokerAssociateOptions = [...new Set(
     (brokerBirName && brokerCascadeSource !== 'associate'
-      ? allBrokers.filter(b => b.full_name === brokerBirName)
+      ? allBrokers.filter(b => bName(b) === brokerBirName)
       : allBrokers
     ).map(b => b.broker_network_associate).filter((v): v is string => !!v)
   )];
@@ -408,6 +352,7 @@ export default function ClientRegistrationPage() {
     setSelectedClient(client);
     setForm(mapClientToForm(client));
     loadSellerFromClient(client);
+    setIsMegawideEmployee(client.is_megawide_employee ?? false);
     setEditMode(false);
     setErrors({});
     setSigMode('idle');
@@ -418,6 +363,7 @@ export default function ClientRegistrationPage() {
     setEditMode(false);
     setForm(mapClientToForm(selectedClient!));
     loadSellerFromClient(selectedClient!);
+    setIsMegawideEmployee(selectedClient!.is_megawide_employee ?? false);
     setErrors({});
     setSigMode('idle');
     setSigPreview(null);
@@ -450,6 +396,11 @@ export default function ClientRegistrationPage() {
     if (!form.reasonForBuying)        e.reasonForBuying        = 'Reason for buying is required';
     if (!form.sourceOfSale)           e.sourceOfSale           = 'Source of sale is required';
     if (!form.monthlyHouseholdIncome) e.monthlyHouseholdIncome = 'Monthly income is required';
+    if (form.sellerType === 'In House') {
+      if (isMegawideEmployee && !sellerDirector)    e.sellerDirector   = 'Sales Director is required';
+      if (!isMegawideEmployee && !sellerSpecialist) e.sellerSpecialist = 'Property Specialist is required';
+    }
+    if (form.sellerType === 'Broker' && !brokerBirName) e.brokerBirName = 'Broker Name is required';
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -484,6 +435,7 @@ export default function ClientRegistrationPage() {
         broker_director_head:     form.sellerType === 'Broker'   ? brokerDirectorHead     : undefined,
         broker_sales_head:        form.sellerType === 'Broker'   ? brokerSalesHead        : undefined,
         broker_bir_name:          form.sellerType === 'Broker'   ? brokerBirName          : undefined,
+        is_megawide_employee:     isMegawideEmployee,
       });
       const updated: ClientRecord = {
         ...selectedClient!,
@@ -512,6 +464,7 @@ export default function ClientRegistrationPage() {
         broker_director_head:     form.sellerType === 'Broker'   ? brokerDirectorHead     || null : null,
         broker_sales_head:        form.sellerType === 'Broker'   ? brokerSalesHead        || null : null,
         broker_bir_name:          form.sellerType === 'Broker'   ? brokerBirName          || null : null,
+        is_megawide_employee:     isMegawideEmployee,
       };
       triggerClientEmail(updated, 'on_client_updated').catch(e => console.error('[email-trigger]', e));
       setSelectedClient(updated);
@@ -875,9 +828,36 @@ export default function ClientRegistrationPage() {
                   </DarkInputRow>
                 </DarkSectionCard>
 
-                <DarkSectionCard title="Seller Information">
+                {/* Megawide Employee */}
+                <div className="rounded-3xl p-4" style={{ background: 'rgba(255,255,255,0.88)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 2px 16px rgba(0,0,0,0.08)' }}>
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 transition-all duration-300"
+                        style={{
+                          background: isMegawideEmployee ? 'linear-gradient(135deg, #E05A3A 0%, #A83020 100%)' : 'rgba(0,0,0,0.06)',
+                          boxShadow: isMegawideEmployee ? '0 4px 16px rgba(192,61,37,0.35)' : 'none',
+                        }}
+                      >
+                        <Building2 size={18} className={isMegawideEmployee ? 'text-white' : 'text-[#8E8E93]'} />
+                      </div>
+                      <p className="text-sm font-semibold text-[#1C1C1E]">Megawide Employee</p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!editMode}
+                      onClick={() => { if (!editMode) return; setIsMegawideEmployee(p => { if (!p) set('sellerType')('In House'); return !p; }); resetSellerSelections(); }}
+                      className="relative rounded-full shrink-0 transition-all duration-300 focus:outline-none disabled:opacity-50"
+                      style={{ width: 52, height: 28, background: isMegawideEmployee ? 'linear-gradient(90deg, #E05A3A 0%, #C03D25 100%)' : 'rgba(0,0,0,0.15)' }}
+                    >
+                      <span className="absolute bg-white rounded-full transition-all duration-300" style={{ width: 24, height: 24, top: 2, left: isMegawideEmployee ? 26 : 2, boxShadow: '0 1px 4px rgba(0,0,0,0.25)' }} />
+                    </button>
+                  </div>
+                </div>
+
+                <DarkSectionCard title="Seller Information" zIndex={2}>
                   <div className="grid grid-cols-2 gap-2">
-                    {(['In House', 'Broker'] as const).map(t => (
+                    {(['In House', ...(!isMegawideEmployee ? ['Broker'] : [])] as const).map(t => (
                       <button key={t} type="button"
                         onClick={() => { if (editMode) { set('sellerType')(t); resetSellerSelections(); } }}
                         className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-semibold transition-all ${
@@ -892,9 +872,23 @@ export default function ClientRegistrationPage() {
                     ))}
                   </div>
 
-                  {form.sellerType === 'In House' && (
+                  {/* In House — Megawide employee: SD only */}
+                  {form.sellerType === 'In House' && isMegawideEmployee && (
+                    <DarkInputRow label="Sales Director" icon={<UserCog size={11} />} error={errors.sellerDirector} required={editMode}>
+                      <SearchableCombobox
+                        value={sellerDirector}
+                        options={allSalespersons.filter(s => s.position_rank === 'SD').map(s => s.seller_name)}
+                        onChange={v => { if (editMode) setSellerDirector(v); }}
+                        placeholder="Search sales director…"
+                        disabled={!editMode}
+                      />
+                    </DarkInputRow>
+                  )}
+
+                  {/* In House — specialist-first, manager+director auto-fill */}
+                  {form.sellerType === 'In House' && !isMegawideEmployee && (
                     <>
-                      <DarkInputRow label="Property Specialist" icon={<User size={11} />}>
+                      <DarkInputRow label="Property Specialist" icon={<User size={11} />} error={errors.sellerSpecialist} required={editMode}>
                         <SearchableCombobox
                           value={sellerSpecialist}
                           options={specialists.map(s => s.seller_name)}
@@ -916,54 +910,49 @@ export default function ClientRegistrationPage() {
 
                   {form.sellerType === 'Broker' && (
                     <>
-                      <DarkInputRow label="Broker Name" icon={<User size={11} />}>
-                        <DarkSelectInput
+                      <DarkInputRow label="Broker Name" icon={<User size={11} />} error={errors.brokerBirName} required={editMode}>
+                        <SearchableCombobox
                           value={brokerBirName}
                           options={birOptions}
                           onChange={v => { if (editMode) handleBrokerBirChange(v); }}
-                          placeholder={allBrokers.length === 0 ? 'Loading…' : 'Select Broker'}
+                          placeholder={allBrokers.length === 0 ? 'Loading…' : 'Search broker…'}
                           disabled={!editMode || brokerCascadeSource === 'associate'}
-                          searchable
                         />
                       </DarkInputRow>
                       <DarkInputRow label="Broker Network Associate" icon={<User size={11} />}>
-                        <DarkSelectInput
+                        <SearchableCombobox
                           value={brokerNetworkAssociate}
                           options={brokerAssociateOptions}
                           onChange={v => { if (editMode) handleBrokerAssociateChange(v); }}
-                          placeholder="Select Associate"
+                          placeholder="Search associate…"
                           disabled={!editMode || brokerCascadeSource === 'bir'}
-                          searchable
                         />
                       </DarkInputRow>
                       <DarkInputRow label="Broker Network Officer" icon={<Users size={11} />}>
-                        <DarkSelectInput
+                        <SearchableCombobox
                           value={brokerNetworkOfficer}
                           options={brokerOfficerOptions}
                           onChange={v => { if (editMode) handleBrokerOfficerChange(v); }}
-                          placeholder="Select Network Officer"
+                          placeholder="Search network officer…"
                           disabled={!editMode || brokerCascadeSource === 'bir' || brokerCascadeSource === 'associate'}
-                          searchable
                         />
                       </DarkInputRow>
                       <DarkInputRow label="Sales Division Head" icon={<UserCog size={11} />}>
-                        <DarkSelectInput
+                        <SearchableCombobox
                           value={brokerDirectorHead}
                           options={brokerSdhOptions}
                           onChange={v => { if (editMode) handleBrokerSdhChange(v); }}
-                          placeholder="Select Division Head"
+                          placeholder="Search division head…"
                           disabled={!editMode || brokerCascadeSource === 'bir' || brokerCascadeSource === 'associate' || brokerCascadeSource === 'officer'}
-                          searchable
                         />
                       </DarkInputRow>
                       <DarkInputRow label="Sales Head" icon={<UserCog size={11} />}>
-                        <DarkSelectInput
+                        <SearchableCombobox
                           value={brokerSalesHead}
                           options={brokerShOptions}
                           onChange={v => { if (editMode) { setBrokerSalesHead(v); setBrokerCascadeSource(null); } }}
-                          placeholder="Select Sales Head"
+                          placeholder="Search sales head…"
                           disabled={!editMode || brokerCascadeSource !== null}
-                          searchable
                         />
                       </DarkInputRow>
                     </>

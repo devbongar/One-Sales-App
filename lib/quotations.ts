@@ -34,6 +34,7 @@ export interface QuotationSaveData {
   bankMonthly: number;
   hdmfMonthly: number;
   reservationFee: number;
+  clientId: string | null;
   clientLastName: string;
   clientFirstName: string;
   clientMiddleName: string;
@@ -76,6 +77,7 @@ export interface SavedQuotationRecord {
   bank_monthly: number;
   hdmf_monthly: number;
   reservation_fee: number;
+  client_id: string | null;
   client_last_name: string;
   client_first_name: string;
   client_middle_name: string;
@@ -140,6 +142,7 @@ export async function saveQuotation(data: QuotationSaveData): Promise<{ id: stri
       bank_monthly: data.bankMonthly,
       hdmf_monthly: data.hdmfMonthly,
       reservation_fee: data.reservationFee,
+      client_id: data.clientId,
       client_last_name: data.clientLastName,
       client_first_name: data.clientFirstName,
       client_middle_name: data.clientMiddleName,

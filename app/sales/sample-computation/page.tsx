@@ -907,6 +907,7 @@ export default function SampleComputationPage() {
           monthlyStretchedDP: c.monthlyStretchedDP,
           bankMonthly: c.bankMonthly, hdmfMonthly: c.hdmfMonthly,
           reservationFee: c.reservationFee,
+          clientId: selectedClientRecord?.client_id ?? null,
           clientLastName, clientFirstName, clientMiddleName, clientSuffix,
           clientMobile, clientEmail,
         });

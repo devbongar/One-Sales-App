@@ -16,6 +16,8 @@ import { generateReceivableLines } from '@/lib/receivables';
 import { updateInventoryUnitStatus } from '@/lib/inventory';
 import { markQuotationConverted } from '@/lib/quotations';
 import { triggerEmails } from '@/lib/email';
+import { addActivityLog } from '@/lib/activity-log';
+import { getSession } from '@/lib/auth';
 
 const MAX_FILES     = 5;
 const MAX_DOC_FILES = 3;
@@ -148,7 +150,9 @@ export default function ProofOfPaymentPage() {
   const [activeUploadTarget,  setActiveUploadTarget]  = useState<UploadTarget>('payment');
   const [showConfirm,         setShowConfirm]         = useState(false);
   const [saving,              setSaving]              = useState(false);
+  const [savingPhase,         setSavingPhase]         = useState<'saving' | 'generating'>('saving');
   const [saveError,           setSaveError]           = useState('');
+  const [actorName,           setActorName]           = useState('');
   const [lightboxUrl,         setLightboxUrl]         = useState<string | null>(null);
 
   // Paid-view actions
@@ -169,6 +173,7 @@ export default function ProofOfPaymentPage() {
   const isApproved  = reservation?.finance_status === 'rf-verified' || reservation?.finance_status === 'dp-verified';
 
   useEffect(() => {
+    getSession().then(s => setActorName(s?.full_name ?? s?.display_name ?? '')).catch(() => {});
     const id  = sessionStorage.getItem('currentReservationId');
     if (id) setReservationId(id);
     const raw = sessionStorage.getItem('selectedReservation');
@@ -418,10 +423,15 @@ export default function ProofOfPaymentPage() {
       if (inventoryCode) await updateInventoryUnitStatus(inventoryCode, 'Reserved');
 
       // Generate receivable lines (non-fatal)
+      setSavingPhase('generating');
       try {
         await generateReceivableLines(activeId, paymentDate);
-      } catch (e) {
+        addActivityLog(activeId, 'receivable-schedule-generated', actorName).catch(console.error);
+      } catch (e: any) {
         console.error('[receivables] Failed to generate lines:', e);
+        addActivityLog(activeId, 'receivable-schedule-failed', actorName, e?.message).catch(console.error);
+      } finally {
+        setSavingPhase('saving');
       }
 
       triggerEmails('on_reservation', activeId).catch(e => console.error('[email-trigger]', e));
@@ -1169,7 +1179,9 @@ export default function ProofOfPaymentPage() {
               <button type="button" disabled={saving} onClick={handleConfirmPayment}
                 className="w-full py-3.5 rounded-2xl bg-[#C03D25] text-white text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60 active:opacity-80">
                 {saving
-                  ? <><Loader2 size={15} className="animate-spin" /> Submitting...</>
+                  ? savingPhase === 'generating'
+                    ? <><Loader2 size={15} className="animate-spin" /> Generating schedule...</>
+                    : <><Loader2 size={15} className="animate-spin" /> Submitting...</>
                   : <><CheckCircle2 size={15} /> Yes, Submit for Verification</>
                 }
               </button>

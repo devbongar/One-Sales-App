@@ -7,6 +7,7 @@ import {
   X, Check, ChevronDown, Search, Loader2,
   Phone, Mail, Globe, User, Calendar,
   Heart, Briefcase, UserCog, Users, PenLine, Upload, RotateCcw,
+  Building2,
 } from 'lucide-react';
 import {
   COUNTRY_CODES, CITIZENSHIP_LIST,
@@ -16,7 +17,7 @@ import { saveClient, updateClientSignatureByClientId, fetchAllClients, checkEmai
 import { triggerClientEmail } from '@/lib/email';
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
 import { fetchAllBrokers, BrokerRecord as BrokersTableRecord } from '@/lib/brokers';
-import SearchableSelect from '@/components/ui/SearchableSelect';
+import SearchableCombobox from '@/components/ui/SearchableCombobox';
 
 const GENDER_OPTIONS    = ['Male', 'Female', 'Non-Binary'];
 const CIVIL_STATUS_OPTIONS = ['Single', 'Married', 'Widowed', 'Separated', 'Annulled'];
@@ -139,71 +140,6 @@ function SelectInput({ value, options, onChange, placeholder, searchable }: {
   );
 }
 
-function SearchableCombobox({ value, options, onChange, placeholder }: {
-  value: string; options: string[]; onChange: (v: string) => void; placeholder: string;
-}) {
-  const [query, setQuery] = useState('');
-  const [open, setOpen] = useState(false);
-
-  const filtered = query.trim()
-    ? options.filter(o => o.toLowerCase().includes(query.toLowerCase()))
-    : options;
-
-  function select(name: string) {
-    onChange(name);
-    setQuery('');
-    setOpen(false);
-  }
-
-  function clear(e: React.MouseEvent) {
-    e.stopPropagation();
-    onChange('');
-    setQuery('');
-    setOpen(false);
-  }
-
-  return (
-    <div className="relative">
-      <div className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/80">
-        <input
-          type="text"
-          value={open ? query : value}
-          placeholder={value || placeholder}
-          onFocus={() => { setOpen(true); setQuery(''); }}
-          onChange={e => setQuery(e.target.value)}
-          className="flex-1 bg-transparent outline-none text-sm text-[#1C1C1E] placeholder:text-[#C7C7CC] min-w-0"
-        />
-        {value && !open
-          ? <button type="button" onClick={clear}><X size={13} className="text-[#C7C7CC]" /></button>
-          : <ChevronDown size={14} className="text-[#C7C7CC] shrink-0" />
-        }
-      </div>
-
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => { setOpen(false); setQuery(''); }} />
-          <div className="absolute left-0 right-0 top-full z-50 mt-1 rounded-xl border border-black/[0.08] bg-white shadow-md overflow-hidden">
-            <div className="max-h-52 overflow-y-auto">
-              {filtered.length === 0
-                ? <p className="px-3 py-2.5 text-sm text-[#C7C7CC]">No results</p>
-                : filtered.map(o => (
-                  <button key={o} type="button"
-                    onMouseDown={e => { e.preventDefault(); select(o); }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 text-sm border-b border-black/[0.05] last:border-0 active:bg-gray-50 ${
-                      o === value ? 'bg-[#C03D25]/10 text-[#C03D25] font-semibold' : 'text-[#1C1C1E]'
-                    }`}>
-                    {o}
-                    {o === value && <Check size={13} className="shrink-0" />}
-                  </button>
-                ))
-              }
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
 
 function TextInput({ value, onChange, placeholder }: {
   value: string; onChange: (v: string) => void; placeholder?: string;
@@ -245,6 +181,9 @@ export default function NewClientPage() {
   const [brokerBirName, setBrokerBirName]                   = useState('');
   const [brokerCascadeSource, setBrokerCascadeSource] = useState<'bir' | 'associate' | 'officer' | 'sdh' | null>(null);
 
+  // Megawide employee
+  const [isMegawideEmployee, setIsMegawideEmployee] = useState(false);
+
   // Signature state
   const [sigMode, setSigMode]       = useState<'idle' | 'draw' | 'upload'>('idle');
   const [sigPreview, setSigPreview] = useState<string | null>(null);
@@ -272,8 +211,10 @@ export default function NewClientPage() {
   }
 
   // Broker cascade — uses Brokers table (BIR → Associate → Officer → SDH → SH)
+  const bName = (b: BrokersTableRecord) => b.seller_name || b.full_name || '';
+
   function handleBrokerBirChange(name: string) {
-    const rec = name ? allBrokers.find(b => b.full_name === name) : null;
+    const rec = name ? allBrokers.find(b => bName(b) === name) : null;
     setBrokerBirName(name);
     setBrokerNetworkAssociate(rec?.broker_network_associate ?? '');
     setBrokerNetworkOfficer(rec?.broker_network_officer    ?? '');
@@ -285,7 +226,7 @@ export default function NewClientPage() {
   function handleBrokerAssociateChange(name: string) {
     const rec = name ? allBrokers.find(b => b.broker_network_associate === name) : null;
     setBrokerNetworkAssociate(name);
-    setBrokerBirName(rec?.full_name                    ?? '');
+    setBrokerBirName(rec ? bName(rec) : '');
     setBrokerNetworkOfficer(rec?.broker_network_officer ?? '');
     setBrokerDirectorHead(rec?.sales_director_head     ?? '');
     setBrokerSalesHead(rec?.sales_head                 ?? '');
@@ -307,10 +248,10 @@ export default function NewClientPage() {
     setBrokerCascadeSource(name ? 'sdh' : null);
   }
 
-  const birOptions = [...new Set(allBrokers.map(b => b.full_name).filter((v): v is string => !!v))];
+  const birOptions = [...new Set(allBrokers.map(bName).filter(Boolean))];
   const brokerAssociateOptions = [...new Set(
     (brokerBirName && brokerCascadeSource !== 'associate'
-      ? allBrokers.filter(b => b.full_name === brokerBirName)
+      ? allBrokers.filter(b => bName(b) === brokerBirName)
       : allBrokers
     ).map(b => b.broker_network_associate).filter((v): v is string => !!v)
   )];
@@ -344,6 +285,8 @@ export default function NewClientPage() {
     const e: Record<string, string> = {};
     if (!form.lastName.trim())              e.lastName              = 'Last name is required';
     if (!form.firstName.trim())             e.firstName             = 'First name is required';
+    if (!form.gender)                       e.gender                = 'Gender is required';
+    if (!form.civilStatus)                  e.civilStatus           = 'Civil status is required';
     if (!form.dateOfBirth) {
       e.dateOfBirth = 'Date of birth is required';
     } else {
@@ -364,6 +307,12 @@ export default function NewClientPage() {
     if (!form.reasonForBuying)              e.reasonForBuying       = 'Reason for buying is required';
     if (!form.sourceOfSale)                 e.sourceOfSale          = 'Source of sale is required';
     if (!form.monthlyHouseholdIncome)       e.monthlyHouseholdIncome = 'Monthly income is required';
+    if (!sigPreview)                        e.signature              = 'Client signature is required';
+    if (form.sellerType === 'In House') {
+      if (isMegawideEmployee && !sellerDirector)   e.sellerDirector    = 'Sales Director is required';
+      if (!isMegawideEmployee && !sellerSpecialist) e.sellerSpecialist = 'Property Specialist is required';
+    }
+    if (form.sellerType === 'Broker' && !brokerBirName) e.brokerBirName = 'Broker Name is required';
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -401,6 +350,7 @@ export default function NewClientPage() {
         broker_director_head:     form.sellerType === 'Broker'   ? brokerDirectorHead       : undefined,
         broker_sales_head:        form.sellerType === 'Broker'   ? brokerSalesHead          : undefined,
         broker_bir_name:          form.sellerType === 'Broker'   ? brokerBirName            : undefined,
+        is_megawide_employee:     isMegawideEmployee,
       });
       if (sigPreview) {
         try { await updateClientSignatureByClientId(clientId, sigPreview); } catch {}
@@ -413,7 +363,7 @@ export default function NewClientPage() {
         country_code: form.countryCode || null, mobile_number: form.mobileNumber || null,
         landline_no: form.landlineNo || null, email: form.email || null,
         reason_for_buying: form.reasonForBuying || null, source_of_sale: form.sourceOfSale || null,
-        monthly_household_income: form.monthlyHouseholdIncome || null, is_megawide_employee: null,
+        monthly_household_income: form.monthlyHouseholdIncome || null, is_megawide_employee: isMegawideEmployee,
         seller_type: form.sellerType || null,
         sales_director: form.sellerType === 'In House' ? sellerDirector : null,
         sales_manager: form.sellerType === 'In House' ? sellerManager : null,
@@ -494,7 +444,7 @@ export default function NewClientPage() {
 
             <div className="flex flex-col gap-3 w-full max-w-xs mt-10">
               <button type="button"
-                onClick={() => { setForm(EMPTY_FORM); setErrors({}); setSavedClient(null); setSavedClientId(''); setShowSuccess(false); resetSellerSelections(); }}
+                onClick={() => { setForm(EMPTY_FORM); setErrors({}); setSavedClient(null); setSavedClientId(''); setShowSuccess(false); setSigPreview(null); setSigMode('idle'); setIsMegawideEmployee(false); resetSellerSelections(); }}
                 className="w-full py-3.5 rounded-2xl text-white text-sm font-bold active:opacity-80"
                 style={{ background: 'linear-gradient(135deg, #E05A3A 0%, #A83020 100%)' }}>
                 Register Another Client
@@ -592,7 +542,7 @@ export default function NewClientPage() {
 
         {/* Client Type */}
         <div className="rounded-3xl p-4 space-y-3" style={{ background: 'rgba(255,255,255,0.88)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 2px 16px rgba(0,0,0,0.08)' }}>
-          <p className="text-xs font-bold text-[#6C6C70] uppercase tracking-wider">Client Type</p>
+          <p className="text-xs font-bold text-[#6C6C70] uppercase tracking-wider">Client Type <span className="text-red-500 font-bold">*</span></p>
           <div className="grid grid-cols-2 gap-2">
             {(['Local', 'International'] as const).map(t => (
               <button key={t} type="button" onClick={() => set('clientType')(t)}
@@ -623,11 +573,11 @@ export default function NewClientPage() {
           <InputRow label="Suffix" icon={<User size={11} />}>
             <TextInput value={form.suffix} onChange={v => set('suffix')(toProperCase(v))} placeholder="e.g. Jr., Sr., III" />
           </InputRow>
-          <InputRow label="Gender" icon={<User size={11} />}>
+          <InputRow label="Gender" icon={<User size={11} />} error={errors.gender} required>
             <SelectInput value={form.gender} options={GENDER_OPTIONS}
               onChange={set('gender')} placeholder="Select gender" />
           </InputRow>
-          <InputRow label="Civil Status" icon={<Heart size={11} />}>
+          <InputRow label="Civil Status" icon={<Heart size={11} />} error={errors.civilStatus} required>
             <SelectInput value={form.civilStatus} options={CIVIL_STATUS_OPTIONS}
               onChange={set('civilStatus')} placeholder="Select civil status" />
           </InputRow>
@@ -742,13 +692,47 @@ export default function NewClientPage() {
           </InputRow>
         </div>
 
+        {/* Megawide Employee */}
+        <div className="rounded-3xl p-4" style={{ background: 'rgba(255,255,255,0.88)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 2px 16px rgba(0,0,0,0.08)' }}>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div
+                className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 transition-all duration-300"
+                style={{
+                  background: isMegawideEmployee
+                    ? 'linear-gradient(135deg, #E05A3A 0%, #A83020 100%)'
+                    : 'rgba(0,0,0,0.06)',
+                  boxShadow: isMegawideEmployee ? '0 4px 16px rgba(192,61,37,0.35)' : 'none',
+                }}
+              >
+                <Building2 size={18} className={isMegawideEmployee ? 'text-white' : 'text-[#8E8E93]'} />
+              </div>
+              <p className="text-sm font-semibold text-[#1C1C1E]">Megawide Employee</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => { setIsMegawideEmployee(p => { if (!p) set('sellerType')('In House'); return !p; }); resetSellerSelections(); }}
+              className="relative rounded-full shrink-0 transition-all duration-300 focus:outline-none"
+              style={{
+                width: 52, height: 28,
+                background: isMegawideEmployee ? 'linear-gradient(90deg, #E05A3A 0%, #C03D25 100%)' : 'rgba(0,0,0,0.15)',
+              }}
+            >
+              <span
+                className="absolute bg-white rounded-full transition-all duration-300"
+                style={{ width: 24, height: 24, top: 2, left: isMegawideEmployee ? 26 : 2, boxShadow: '0 1px 4px rgba(0,0,0,0.25)' }}
+              />
+            </button>
+          </div>
+        </div>
+
         {/* Seller Information */}
-        <div className="rounded-3xl p-4 space-y-3" style={{ background: 'rgba(255,255,255,0.88)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 2px 16px rgba(0,0,0,0.08)' }}>
+        <div className="rounded-3xl p-4 space-y-3" style={{ background: 'rgba(255,255,255,0.88)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 2px 16px rgba(0,0,0,0.08)', position: 'relative', zIndex: 2 }}>
           <p className="text-xs font-bold text-[#6C6C70] uppercase tracking-wider">Seller Information</p>
 
           {/* Seller Type toggle */}
           <div className="grid grid-cols-2 gap-2">
-            {(['In House', 'Broker'] as const).map(t => (
+            {(['In House', ...(!isMegawideEmployee ? ['Broker'] : [])] as const).map(t => (
               <button key={t} type="button"
                 onClick={() => { set('sellerType')(t); resetSellerSelections(); }}
                 className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-semibold transition-all ${
@@ -762,10 +746,22 @@ export default function NewClientPage() {
             ))}
           </div>
 
+          {/* In House — Megawide employee: SD only */}
+          {form.sellerType === 'In House' && isMegawideEmployee && (
+            <InputRow label="Sales Director" icon={<UserCog size={11} />} error={errors.sellerDirector} required>
+              <SearchableCombobox
+                value={sellerDirector}
+                options={allSalespersons.filter(s => s.position_rank === 'SD').map(s => s.seller_name)}
+                onChange={setSellerDirector}
+                placeholder="Search sales director…"
+              />
+            </InputRow>
+          )}
+
           {/* In House — specialist-first, manager+director auto-fill */}
-          {form.sellerType === 'In House' && (
+          {form.sellerType === 'In House' && !isMegawideEmployee && (
             <>
-              <InputRow label="Property Specialist" icon={<User size={11} />}>
+              <InputRow label="Property Specialist" icon={<User size={11} />} error={errors.sellerSpecialist} required>
                 <SearchableCombobox
                   value={sellerSpecialist}
                   options={specialists.map(s => s.seller_name)}
@@ -785,47 +781,47 @@ export default function NewClientPage() {
           {/* Broker — cascading searchable dropdowns (BIR → Associate → Officer → SDH → SH) */}
           {form.sellerType === 'Broker' && (
             <>
-              <InputRow label="Broker Name" icon={<User size={11} />}>
-                <SearchableSelect
+              <InputRow label="Broker Name" icon={<User size={11} />} error={errors.brokerBirName} required>
+                <SearchableCombobox
                   value={brokerBirName}
                   options={birOptions}
                   onChange={handleBrokerBirChange}
-                  placeholder={allBrokers.length === 0 ? 'Loading…' : 'All Brokers'}
+                  placeholder={allBrokers.length === 0 ? 'Loading…' : 'Search broker…'}
                 />
               </InputRow>
               <InputRow label="Broker Network Associate" icon={<User size={11} />}>
-                <SearchableSelect
+                <SearchableCombobox
                   value={brokerNetworkAssociate}
                   options={brokerAssociateOptions}
                   onChange={handleBrokerAssociateChange}
-                  placeholder="All Associates"
+                  placeholder="Search associate…"
                   disabled={brokerCascadeSource === 'bir'}
                 />
               </InputRow>
               <InputRow label="Broker Network Officer" icon={<Users size={11} />}>
-                <SearchableSelect
+                <SearchableCombobox
                   value={brokerNetworkOfficer}
                   options={brokerOfficerOptions}
                   onChange={handleBrokerOfficerChange}
-                  placeholder="All Network Officers"
+                  placeholder="Search network officer…"
                   disabled={brokerCascadeSource === 'bir' || brokerCascadeSource === 'associate'}
                 />
               </InputRow>
               <InputRow label="Sales Division Head" icon={<UserCog size={11} />}>
-                <SearchableSelect
+                <SearchableCombobox
                   value={brokerDirectorHead}
                   options={brokerSdhOptions}
                   onChange={handleBrokerSdhChange}
-                  placeholder="All Division Heads"
+                  placeholder="Search division head…"
                   disabled={brokerCascadeSource === 'bir' || brokerCascadeSource === 'associate' || brokerCascadeSource === 'officer'}
                 />
               </InputRow>
               <InputRow label="Sales Head" icon={<UserCog size={11} />}>
-                <SearchableSelect
+                <SearchableCombobox
                   value={brokerSalesHead}
                   options={brokerShOptions}
                   onChange={v => { setBrokerSalesHead(v); setBrokerCascadeSource(null); }}
-                  placeholder="All Sales Heads"
+                  placeholder="Search sales head…"
                   disabled={brokerCascadeSource !== null}
                 />
               </InputRow>
@@ -839,7 +835,8 @@ export default function NewClientPage() {
           WebkitBackdropFilter: 'blur(24px) saturate(160%)',
           border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 2px 16px rgba(0,0,0,0.08)',
         }}>
-          <p className="text-xs font-bold text-[#6C6C70] uppercase tracking-wider">Client Signature <span className="text-[#8E8E93] normal-case font-normal">(optional)</span></p>
+          <p className="text-xs font-bold text-[#6C6C70] uppercase tracking-wider">Client Signature <span className="text-red-500 font-bold">*</span></p>
+          {errors.signature && <p className="text-xs text-red-500 -mt-1">{errors.signature}</p>}
 
           {/* Preview */}
           {sigPreview && sigMode !== 'draw' && (

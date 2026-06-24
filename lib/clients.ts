@@ -17,6 +17,7 @@ export interface ClientPayload {
   reason_for_buying: string;
   source_of_sale: string;
   monthly_household_income: string;
+  is_megawide_employee?: boolean;
   // Seller fields
   seller_type?: string;
   sales_director?: string;
@@ -126,6 +127,7 @@ export async function saveClient(payload: ClientPayload): Promise<string> {
     p_broker_director_head:     payload.broker_director_head     || null,
     p_broker_sales_head:        payload.broker_sales_head        || null,
     p_broker_bir_name:          payload.broker_bir_name          || null,
+    p_is_megawide_employee:     payload.is_megawide_employee     ?? false,
   });
   if (error) throw error;
   return data as string;
@@ -159,6 +161,7 @@ export async function updateClient(id: string, payload: ClientPayload): Promise<
     p_broker_director_head:     payload.broker_director_head     || null,
     p_broker_sales_head:        payload.broker_sales_head        || null,
     p_broker_bir_name:          payload.broker_bir_name          || null,
+    p_is_megawide_employee:     payload.is_megawide_employee     ?? null,
   });
   if (error) throw error;
 }

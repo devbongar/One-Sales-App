@@ -204,8 +204,16 @@ export default function FinanceVerifyPage() {
       };
       triggerEmails('on_finance_verified', booking.reservation_id).catch(e => console.error('[email-trigger]', e));
       generateCommissionSchedule(booking.reservation_id).then(result => {
-        if (!result.ok && result.reason !== 'already-exists') setCommissionWarn(result);
-      }).catch(e => console.error('[commission] Failed to generate schedule:', e));
+        if (!result.ok && result.reason !== 'already-exists') {
+          setCommissionWarn(result);
+          addActivityLog(booking.reservation_id, 'commission-schedule-failed', displayName, result.reason).catch(console.error);
+        } else if (result.ok) {
+          addActivityLog(booking.reservation_id, 'commission-schedule-generated', displayName).catch(console.error);
+        }
+      }).catch(e => {
+        console.error('[commission] Failed to generate schedule:', e);
+        addActivityLog(booking.reservation_id, 'commission-schedule-failed', displayName, e?.message).catch(console.error);
+      });
       sessionStorage.setItem('financeBooking', JSON.stringify(updated));
       setBooking(updated);
       setDone('approved');
@@ -347,8 +355,16 @@ export default function FinanceVerifyPage() {
         triggerEmails('on_booked', booking.reservation_id).catch(e => console.error('[email-trigger]', e));
       }
       generateCommissionSchedule(booking.reservation_id).then(result => {
-        if (!result.ok && result.reason !== 'already-exists') setCommissionWarn(result);
-      }).catch(e => console.error('[commission] Failed to generate schedule:', e));
+        if (!result.ok && result.reason !== 'already-exists') {
+          setCommissionWarn(result);
+          addActivityLog(booking.reservation_id, 'commission-schedule-failed', displayName, result.reason).catch(console.error);
+        } else if (result.ok) {
+          addActivityLog(booking.reservation_id, 'commission-schedule-generated', displayName).catch(console.error);
+        }
+      }).catch(e => {
+        console.error('[commission] Failed to generate schedule:', e);
+        addActivityLog(booking.reservation_id, 'commission-schedule-failed', displayName, e?.message).catch(console.error);
+      });
 
       if (booking.inventory_code) {
         await updateInventoryUnitStatus(booking.inventory_code, 'Booked');

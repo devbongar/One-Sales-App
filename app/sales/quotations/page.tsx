@@ -100,6 +100,7 @@ export default function QuotationsPage() {
         bankMonthly:          q.bank_monthly,
         hdmfMonthly:          q.hdmf_monthly,
         reservationFee:       q.reservation_fee,
+        clientId:             q.client_id,
         clientLastName:       q.client_last_name,
         clientFirstName:      q.client_first_name,
         clientMiddleName:     q.client_middle_name,

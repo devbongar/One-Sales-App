@@ -381,6 +381,7 @@ export default function NewReservationPage() {
   const [isPickMode, setIsPickMode] = useState(false);
   const quotationPrefillRef = useRef<Record<string, any> | null>(null);
   const quotationAutoAddedRef = useRef(false);
+  const restoreClientIdRef = useRef<string | null>(null);
 
   // Client Info
   const [fullName,    setFullName]    = useState('');
@@ -559,6 +560,37 @@ export default function NewReservationPage() {
     fetchAllClients().then(setAllClients).catch(console.error);
   }, []);
 
+  // Restore selected client after snapshot restore (needs both clients + brokers loaded)
+  useEffect(() => {
+    if (!restoreClientIdRef.current || allClients.length === 0 || allBrokers.length === 0) return;
+    const match = allClients.find(c => c.client_id === restoreClientIdRef.current);
+    if (match) handleSelectClient(match);
+    restoreClientIdRef.current = null;
+  }, [allClients, allBrokers]);
+
+  // Restore reservation snapshot after returning from client registration
+  useEffect(() => {
+    const raw = sessionStorage.getItem('cr_reservation_snapshot');
+    if (!raw) return;
+    sessionStorage.removeItem('cr_reservation_snapshot');
+    try {
+      const snap = JSON.parse(raw);
+      setStep(snap.step ?? 3);
+      setIsPickMode(snap.isPickMode ?? true);
+      setComparisons(snap.comparisons ?? []);
+      setPaymentScheme(snap.paymentScheme ?? 'spot_cash');
+      setPaymentTerm(snap.paymentTerm ?? '12 months');
+      setDpRate(snap.dpRate ?? '15%');
+      setStretchedDpTerm(snap.stretchedDpTerm ?? '');
+      setUseHIC(snap.useHIC ?? false);
+      setProject(snap.project ?? '');
+      setTower(snap.tower ?? '');
+      setFloor(snap.floor ?? '');
+      setUnitType(snap.unitType ?? '');
+      if (snap.clientId) restoreClientIdRef.current = snap.clientId;
+    } catch {}
+  }, []);
+
   // Read quotation prefill from sessionStorage on mount
   useEffect(() => {
     const raw = sessionStorage.getItem('quotation_prefill');
@@ -573,6 +605,7 @@ export default function NewReservationPage() {
       setClientSuffix(pf.clientSuffix ?? '');
       setClientMobileRaw(pf.clientMobile ?? '');
       setClientEmailField(pf.clientEmail ?? '');
+      if (pf.clientId) restoreClientIdRef.current = pf.clientId;
       setProject(pf.project ?? '');
       setTower(pf.tower ?? '');
       setFloor(pf.floor ?? '');
@@ -2431,6 +2464,15 @@ export default function NewReservationPage() {
                     const incomplete = cr && (!cr.date_of_birth || !cr.citizenship || !cr.reason_for_buying || !cr.source_of_sale || !cr.monthly_household_income);
                     if (incomplete && cr?.client_id) {
                       sessionStorage.setItem('cr_prefill_client_id', cr.client_id);
+                      sessionStorage.setItem('cr_return_to', '/sales/reservation/new');
+                      sessionStorage.setItem('cr_reservation_snapshot', JSON.stringify({
+                        step: 3,
+                        isPickMode: true,
+                        comparisons,
+                        clientId: cr.client_id,
+                        paymentScheme, paymentTerm, dpRate, stretchedDpTerm,
+                        useHIC, project, tower, floor, unitType,
+                      }));
                       router.push('/sales/client-registration/existing');
                       return;
                     }
