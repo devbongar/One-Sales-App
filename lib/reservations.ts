@@ -54,6 +54,11 @@ export interface ReservationPayload {
   // Client & Seller IDs
   client_id: string | null;
   seller_id: string | null;
+  sales_manager_id?: string | null;
+  sales_director_id?: string | null;
+  sales_division_head_id?: string | null;
+  sales_head_id?: string | null;
+  broker_id?: string | null;
   created_by_uuid?: string | null;
   // Seller
   seller_name: string;

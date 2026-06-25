@@ -2928,6 +2928,9 @@ export default function NewReservationPage() {
               <button
                 type="button"
                 onClick={() => {
+                  const brokerRec = brokerClientInfo?.brokerId
+                    ? (allBrokerRecruits.find(b => b.broker_id === brokerClientInfo.brokerId) ?? null)
+                    : null;
                   sessionStorage.setItem('reservationData', JSON.stringify({
                     ...reservationTarget,
                     clientName: fullName,
@@ -2939,6 +2942,12 @@ export default function NewReservationPage() {
                     salesDivisionHead: sellerRecord?.sales_division_head ?? brokerClientInfo?.directorHead ?? '',
                     brokerSalesHead: brokerClientInfo?.salesHead ?? '',
                     isBrokerSale: !!brokerClientInfo,
+                    // Hierarchy IDs for seller-based filtering
+                    salesManagerId:       sellerRecord?.sales_manager_id       ?? brokerRec?.broker_network_associate_id ?? null,
+                    salesDirectorId:      sellerRecord?.sales_director_id      ?? brokerRec?.broker_network_officer_id   ?? null,
+                    salesDivisionHeadId:  sellerRecord?.sales_division_head_id ?? brokerRec?.sales_director_head_id      ?? null,
+                    salesHeadId:          sellerRecord?.sales_head_id          ?? brokerRec?.sales_head_id               ?? null,
+                    brokerSellerId:       brokerClientInfo?.brokerId ?? null,
                     firstPaymentAgreed,
                     quotationId: quotationPrefillRef.current?.quotationId ?? null,
                   }));

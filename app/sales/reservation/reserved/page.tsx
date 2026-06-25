@@ -68,8 +68,9 @@ export default function ReservedUnitsPage() {
   const [loading, setLoading]           = useState(true);
   const [search, setSearch]             = useState('');
   const [filterOpen, setFilterOpen]     = useState(false);
-  const [isSeller, setIsSeller]         = useState(false);
-  const [myUuid, setMyUuid]             = useState<string | null>(null);
+  const [sessionLoaded, setSessionLoaded] = useState(false);
+  const [userRole,      setUserRole]      = useState('');
+  const [userSellerId,  setUserSellerId]  = useState<string | null>(null);
 
   // Filter options (from DB)
   const [sellerOptions,  setSellerOptions]  = useState<string[]>([]);
@@ -83,29 +84,31 @@ export default function ReservedUnitsPage() {
 
   const activeFilterCount = [sellerFilter, statusFilter, projectFilter].filter(Boolean).length;
 
+  const SEE_ALL_ROLES = ['All Access', 'Account Management', 'Finance Verification'];
+
   // ── Load session once ──────────────────────────────────────
   useEffect(() => {
     getSession().then(s => {
-      const roleName = s?.role_name ?? null;
-      const privileged = roleName === 'All Access' || roleName === 'Sales Director' || roleName === 'Account Management';
-      setIsSeller(!privileged && !!s?.id);
-      setMyUuid(s?.id ?? null);
+      setUserRole(s?.role_name ?? '');
+      setUserSellerId(s?.seller_id ?? null);
+      setSessionLoaded(true);
     });
   }, []);
 
   // ── Load dropdown options (privileged users only) ──────────
   useEffect(() => {
-    if (isSeller) return;
+    if (!sessionLoaded) return;
+    if (!SEE_ALL_ROLES.includes(userRole)) return;
     supabase.from('reservations').select('seller_name, project').limit(5000).then(({ data }) => {
       if (!data) return;
       setSellerOptions([...new Set(data.map(r => r.seller_name).filter(Boolean))] as string[]);
       setProjectOptions([...new Set(data.map(r => r.project).filter(Boolean))] as string[]);
     });
-  }, [isSeller]);
+  }, [sessionLoaded, userRole]);
 
   // ── Load reservations when filters change ──────────────────
   useEffect(() => {
-    if (isSeller && !myUuid) return; // wait for session
+    if (!sessionLoaded) return;
     setLoading(true);
     let query = supabase
       .from('reservations')
@@ -116,22 +119,24 @@ export default function ReservedUnitsPage() {
       .order('created_at', { ascending: false })
       .limit(5000);
 
-    if (isSeller && myUuid) {
-      query = query.eq('created_by_uuid', myUuid);
+    if (userSellerId && !SEE_ALL_ROLES.includes(userRole)) {
+      query = query.or(
+        `seller_id.eq.${userSellerId},sales_manager_id.eq.${userSellerId},sales_director_id.eq.${userSellerId},sales_division_head_id.eq.${userSellerId},sales_head_id.eq.${userSellerId},broker_id.eq.${userSellerId}`
+      );
     } else {
       if (sellerFilter) query = query.eq('seller_name', sellerFilter);
     }
-    if (statusFilter === 'Pending Proof')        query = query.eq('status', 'Pending Proof');
+    if (statusFilter === 'Pending Proof')            query = query.eq('status', 'Pending Proof');
     else if (statusFilter === 'RF for Verification') query = query.eq('finance_status', 'proof-submitted');
-    else if (statusFilter === 'RF Rejected')     query = query.eq('finance_status', 'rf-rejected');
-    else if (statusFilter === 'RF Approved')     query = query.eq('finance_status', 'rf-verified');
+    else if (statusFilter === 'RF Rejected')         query = query.eq('finance_status', 'rf-rejected');
+    else if (statusFilter === 'RF Approved')         query = query.eq('finance_status', 'rf-verified');
     if (projectFilter) query = query.eq('project', projectFilter);
 
     query.then(({ data }) => {
       setReservations((data ?? []) as Reservation[]);
       setLoading(false);
     });
-  }, [isSeller, myUuid, sellerFilter, statusFilter, projectFilter]);
+  }, [sessionLoaded, userRole, userSellerId, sellerFilter, statusFilter, projectFilter]);
 
   // ── Client-side search filter ──────────────────────────────
   const filtered = search.trim()
@@ -321,7 +326,7 @@ export default function ReservedUnitsPage() {
             </div>
 
             {/* Seller */}
-            {!isSeller && (
+            {SEE_ALL_ROLES.includes(userRole) && (
               <div className="space-y-1.5">
                 <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Seller</p>
                 <SearchableSelect

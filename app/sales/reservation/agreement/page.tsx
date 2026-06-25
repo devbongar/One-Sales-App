@@ -32,6 +32,11 @@ interface ReservationData {
   salesManager: string;
   salesDirector: string;
   salesDivisionHead: string;
+  salesManagerId?: string | null;
+  salesDirectorId?: string | null;
+  salesDivisionHeadId?: string | null;
+  salesHeadId?: string | null;
+  brokerSellerId?: string | null;
   firstPaymentAgreed?: boolean;
   quotationId?: string | null;
 }
@@ -237,6 +242,11 @@ export default function ReservationAgreementPage() {
         hdmf_monthly:              data.hdmfMonthly,
         client_id:                 data.clientId ?? null,
         seller_id:                 data.sellerId ?? null,
+        sales_manager_id:          data.salesManagerId       ?? null,
+        sales_director_id:         data.salesDirectorId      ?? null,
+        sales_division_head_id:    data.salesDivisionHeadId  ?? null,
+        sales_head_id:             data.salesHeadId          ?? null,
+        broker_id:                 data.brokerSellerId        ?? null,
         created_by_uuid:           creatorUuid,
         seller_name:               data.sellerName,
         sales_manager:             data.salesManager,
