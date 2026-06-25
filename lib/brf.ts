@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { resolveDueDate, fetchTurnoverDate } from '@/lib/admin';
 import { regenerateCommissionSchedule } from '@/lib/commission';
+import { reapplyCollections } from '@/lib/collections';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -371,6 +372,11 @@ export async function processBRF(opts: BRFApprovalOptions): Promise<void> {
 
   // ── Regenerate payment schedule (uses updated TCP from reservation) ───────
   await regenerateReceivableLines(reservationId, newPaytermScheme, newTermMonths, remainingBalance, elapsedMonths, newDpPercent);
+
+  // ── Re-apply all existing collections against the new active lines ────────
+  // Fixes partial payments that were stranded on superseded lines.
+  // Old collection_applications (pointing to superseded lines) are preserved as audit trail.
+  await reapplyCollections(reservationId);
 
   // ── Regenerate commission schedule ────────────────────────────────────────
   await regenerateCommissionSchedule(reservationId);

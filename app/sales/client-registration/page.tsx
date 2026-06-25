@@ -940,8 +940,8 @@ export default function ClientRegistrationPage() {
                   </DarkInputRow>
                 </DarkSectionCard>
 
-                {/* Megawide Employee — Sales Director only */}
-                {user?.role_name === 'Sales Director' && <div className="rounded-3xl p-4" style={{ background: 'rgba(255,255,255,0.88)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 2px 16px rgba(0,0,0,0.08)' }}>
+                {/* Megawide Employee — Sales Director and All Access only */}
+                {(user?.role_name === 'Sales Director' || user?.role_name === 'All Access') && <div className="rounded-3xl p-4" style={{ background: 'rgba(255,255,255,0.88)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 2px 16px rgba(0,0,0,0.08)' }}>
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
                       <div

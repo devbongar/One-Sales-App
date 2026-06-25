@@ -349,10 +349,24 @@ export default function BookingDetailPage() {
       await addActivityLog(reservation.reservation_id, 'amd-approved', displayName).catch(e => console.error('[activity-log]', e));
       setProgress(prev => prev ? { ...prev, booking_review_status: 'amd-approved' } : prev);
       getActivityLog(reservation.reservation_id).then(setActivityLog).catch(e => console.error('[activity-log]', e));
+      // Refresh status + booked_at so the hero card shows Booked badge immediately
+      supabase
+        .from('reservations')
+        .select('status, booked_at')
+        .eq('reservation_id', reservation.reservation_id)
+        .single()
+        .then(({ data }) => {
+          if (data) {
+            setReservationStatus((data as any).status ?? null);
+            setBookedAt((data as any).booked_at ?? null);
+          }
+        })
+        .catch(e => console.error('[amd-approve] status refresh failed:', e));
     } catch (e) {
       console.error('[amd-approve] Failed:', e);
     } finally {
       setReviewing(false);
+      setShowAMDApproveConfirm(false);
     }
   }
 

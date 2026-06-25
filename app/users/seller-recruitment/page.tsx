@@ -7,6 +7,7 @@ import SearchInput from '@/components/ui/SearchInput';
 import { Loader2, Users, UserPlus, Plus, ChevronLeft, Edit2, Check, X, Briefcase, Mail, Calendar, Building2, Tag, User, ChevronDown, SlidersHorizontal, PenLine, Upload, RotateCcw, Shield, UserCheck, UserX, KeyRound, Search } from 'lucide-react';
 import { fetchAllSellerRecruits, fetchAllSalespersons, addSellerRecruit, updateSellerRecruit, fetchSellerSignature, updateSellerSignature, fetchAccessRoles, SellerRecruitRecord, AccessRole } from '@/lib/salesperson';
 import { fetchProjects } from '@/lib/inventory';
+import { fetchDropdownOptions } from '@/lib/admin';
 import { supabase } from '@/lib/supabase';
 
 async function fetchProfileEmails(): Promise<string[]> {
@@ -104,40 +105,31 @@ function ERow({ label, icon, children }: { label: string; icon?: React.ReactNode
 function ESelect({ value, options, onChange, disabled, upward: _upward }: {
   value: string; options: string[]; onChange: (v: string) => void; disabled?: boolean; upward?: boolean;
 }) {
-  const [open,  setOpen]  = useState(false);
-  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
 
-  function close() { setOpen(false); setQuery(''); }
+  function close() { setOpen(false); }
 
   if (disabled) return <div className={readCls}>{value || '—'}</div>;
 
-  const filtered = options.filter(o => !query.trim() || o.toLowerCase().includes(query.toLowerCase()));
-
   return (
     <div>
-      <button type="button" onClick={() => { if (open) close(); else setOpen(true); }}
-        className={`${inputCls} flex items-center justify-between ${open ? '!rounded-b-none' : ''}`}>
-        <span className={value ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}>{value || 'Select…'}</span>
-        <ChevronDown size={12} className={`text-[#8E8E93] transition-transform duration-200 shrink-0 ${open ? 'rotate-180' : ''}`} />
-      </button>
+      <div className="relative">
+        <button type="button" onClick={() => { if (open) close(); else setOpen(true); }}
+          className={`${inputCls} w-full flex items-center justify-between ${value ? 'pr-8' : ''} ${open ? '!rounded-b-none' : ''}`}>
+          <span className={value ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}>{value || 'Select…'}</span>
+          {!value && <ChevronDown size={12} className={`text-[#8E8E93] transition-transform duration-200 shrink-0 ${open ? 'rotate-180' : ''}`} />}
+        </button>
+        {value && (
+          <button type="button" onClick={() => { onChange(''); close(); }}
+            className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded-full hover:bg-black/[0.06] active:bg-black/[0.10] transition-colors">
+            <X size={12} className="text-[#8E8E93]" />
+          </button>
+        )}
+      </div>
       {open && (
         <div className="border border-t-0 border-black/[0.10] rounded-b-xl overflow-hidden bg-white/80">
-          <div className="flex items-center gap-2 px-3 py-2 border-b border-black/[0.06] bg-white/60">
-            <Search size={12} className="text-[#8E8E93] shrink-0" />
-            <input
-              autoFocus
-              type="text"
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder="Search…"
-              className="flex-1 text-sm text-[#1C1C1E] bg-transparent outline-none placeholder:text-[#C7C7CC]"
-            />
-            {query && <button type="button" onClick={() => setQuery('')}><X size={11} className="text-[#8E8E93]" /></button>}
-          </div>
           <div className="overflow-y-auto max-h-40">
-            {filtered.length === 0
-              ? <p className="text-xs text-[#8E8E93] text-center py-3">No matches</p>
-              : filtered.map(o => (
+            {options.map(o => (
                 <button key={o} type="button"
                   onClick={() => { onChange(o === value ? '' : o); close(); }}
                   className="w-full flex items-center justify-between px-3 py-2.5 text-sm border-b border-black/[0.05] last:border-0 active:bg-black/[0.04]"
@@ -240,6 +232,7 @@ function DetailSheet({ seller, onClose, onSaved }: {
 
   // Dropdown option lists
   const [projects,      setProjects]      = useState<string[]>([]);
+  const [businessUnits, setBusinessUnits] = useState<string[]>([]);
   const [allPeople,     setAllPeople]     = useState<import('@/lib/salesperson').SalespersonRecord[]>([]);
   const [smOptions,     setSmOptions]     = useState<string[]>([]);
   const [sdOptions,     setSdOptions]     = useState<string[]>([]);
@@ -259,6 +252,7 @@ function DetailSheet({ seller, onClose, onSaved }: {
 
   useEffect(() => {
     fetchProjects().then(setProjects).catch(() => {});
+    fetchDropdownOptions('business_unit').then(setBusinessUnits).catch(() => {});
     fetchAccessRoles().then(setRoles).catch(() => {});
     fetchAllSalespersons().then(people => {
       setAllPeople(people);
@@ -298,6 +292,7 @@ function DetailSheet({ seller, onClose, onSaved }: {
       sales_director:      name || null,
       sales_division_head: rec?.sales_division_head ?? null,
       sales_head:          rec?.sales_head          ?? f.sales_head,
+      sales_team:          rec?.sales_team          ?? null,
     }));
     setCascadeSource(name ? 'sd' : null);
   }
@@ -387,6 +382,18 @@ function DetailSheet({ seller, onClose, onSaved }: {
     setSaving(true);
     setError('');
     try {
+      if (form.email_address?.trim()) {
+        const { data: dup } = await supabase
+          .from('Salesperson')
+          .select('seller_name')
+          .ilike('"Email Address"', form.email_address.trim())
+          .neq('seller_name', seller.seller_name)
+          .limit(1);
+        if (dup && dup.length > 0) {
+          setError(`Email address is already used by ${(dup[0] as any).seller_name}.`);
+          return;
+        }
+      }
       const savedForm = form.seller_id ? form : { ...form, seller_id: generateSellerId() };
       await updateSellerRecruit(seller.seller_name, savedForm);
       if (sigPreview !== (seller.signature_base64 ?? null)) {
@@ -489,7 +496,7 @@ function DetailSheet({ seller, onClose, onSaved }: {
             </ERow>
             <ERow label="Business Units" icon={<Building2 size={10} />}>
               {editMode
-                ? <input className={inputCls} value={form.business_units ?? ''} onChange={e => set('business_units')(e.target.value)} />
+                ? <ESelect value={form.business_units ?? ''} options={businessUnits} onChange={set('business_units')} />
                 : <div className={readCls}>{fmt(form.business_units)}</div>}
             </ERow>
             <ERow label="Focus Project" icon={<Briefcase size={10} />}>
@@ -588,7 +595,7 @@ function DetailSheet({ seller, onClose, onSaved }: {
             </ERow>
             <ERow label="VAT Registration Type">
               {editMode
-                ? <input className={inputCls} value={form.vat_registration_type ?? ''} onChange={e => set('vat_registration_type')(e.target.value)} />
+                ? <ESelect value={form.vat_registration_type ?? ''} options={['VAT', 'Non-VAT']} onChange={set('vat_registration_type')} />
                 : <div className={readCls}>{fmt(form.vat_registration_type)}</div>}
             </ERow>
             <ERow label="Tax Identification No.">
@@ -744,6 +751,7 @@ function AddSheet({ onClose, onAdded }: {
   const sigFileRef   = useRef<HTMLInputElement>(null);
 
   const [projects,        setProjects]        = useState<string[]>([]);
+  const [businessUnits,   setBusinessUnits]   = useState<string[]>([]);
   const [allPeople,       setAllPeople]       = useState<import('@/lib/salesperson').SalespersonRecord[]>([]);
   const [smOptions,       setSmOptions]       = useState<string[]>([]);
   const [sdOptions,       setSdOptions]       = useState<string[]>([]);
@@ -755,6 +763,7 @@ function AddSheet({ onClose, onAdded }: {
 
   useEffect(() => {
     fetchProjects().then(setProjects).catch(() => {});
+    fetchDropdownOptions('business_unit').then(setBusinessUnits).catch(() => {});
     fetchAccessRoles().then(setRoles).catch(() => {});
     fetchAllSalespersons().then(people => {
       setAllPeople(people);
@@ -786,6 +795,7 @@ function AddSheet({ onClose, onAdded }: {
       sales_director:      name || null,
       sales_division_head: rec?.sales_division_head ?? null,
       sales_head:          rec?.sales_head          ?? f.sales_head,
+      sales_team:          rec?.sales_team          ?? null,
     }));
     setCascadeSource(name ? 'sd' : null);
   }
@@ -878,6 +888,15 @@ function AddSheet({ onClose, onAdded }: {
     setSaving(true);
     setError('');
     try {
+      const { data: dup } = await supabase
+        .from('Salesperson')
+        .select('seller_name')
+        .ilike('"Email Address"', form.email_address.trim())
+        .limit(1);
+      if (dup && dup.length > 0) {
+        setError(`Email address is already used by ${(dup[0] as any).seller_name}.`);
+        return;
+      }
       const formWithId = { ...form, seller_id: generateSellerId() };
       await addSellerRecruit(formWithId);
       try { await updateSellerSignature(formWithId.seller_name, sigPreview); } catch {}
@@ -953,7 +972,7 @@ function AddSheet({ onClose, onAdded }: {
             <input className={inputCls} type="date" max={new Date().toISOString().split('T')[0]} value={form.hired_date ?? ''} onChange={e => set('hired_date')(e.target.value)} />
           </ERow>
           <ERow label="Business Units" icon={<Building2 size={10} />}>
-            <input className={inputCls} value={form.business_units ?? ''} onChange={e => set('business_units')(e.target.value)} />
+            <ESelect value={form.business_units ?? ''} options={businessUnits} onChange={set('business_units')} />
           </ERow>
           <ERow label="Focus Project" icon={<Briefcase size={10} />}>
             <ESelect value={form.focus_project ?? ''} options={projects} onChange={set('focus_project')} />
@@ -1017,7 +1036,7 @@ function AddSheet({ onClose, onAdded }: {
             <input className={inputCls} value={form.payroll_account_number ?? ''} onChange={e => set('payroll_account_number')(e.target.value)} />
           </ERow>
           <ERow label="VAT Registration Type">
-            <input className={inputCls} value={form.vat_registration_type ?? ''} onChange={e => set('vat_registration_type')(e.target.value)} />
+            <ESelect value={form.vat_registration_type ?? ''} options={['VAT', 'Non-VAT']} onChange={set('vat_registration_type')} />
           </ERow>
           <ERow label="Tax Identification No.">
             <input className={inputCls} value={form.tin ?? ''} onChange={e => set('tin')(e.target.value)} />
