@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import {
   AlertTriangle, Building2, Check, CheckCircle2, ChevronLeft, ChevronRight,
-  Download, Loader2, Search, SlidersHorizontal, Upload, X,
+  Download, FileText, Loader2, Search, SlidersHorizontal, Upload, X,
 } from 'lucide-react';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
@@ -30,6 +30,7 @@ import { supabase } from '@/lib/supabase';
 
 interface ImportRow {
   reservation_id:             string;
+  client_id:                  string;
   client_name:                string;
   inventory_code:             string;
   total_outstanding:          number;
@@ -38,6 +39,7 @@ interface ImportRow {
   acknowledgement_receipt_no: string;
   sales_invoice_number:       string;
   posting_date:               string;
+  transaction_date:           string;
   check_no:                   string;
   check_date:                 string;
   _row:                       number;
@@ -102,23 +104,22 @@ const inputCls = 'w-full px-3 py-2.5 rounded-xl border border-black/[0.10] bg-wh
 // ─── Excel Export ─────────────────────────────────────────────────────────────
 
 function exportBatch(summaries: ReservationReceivableSummary[]) {
-  const toExport = summaries.filter(s => s.outstanding > 0);
-
-  if (toExport.length === 0) {
-    alert('No outstanding collections to export.');
+  if (summaries.length === 0) {
+    alert('No records to export.');
     return;
   }
 
-  const rows = toExport.map(s => ({
+  const rows = summaries.map(s => ({
     reservation_id:             s.reservation_id,
+    client_id:                  s.client_id ?? '',
     client_name:                s.client_name,
     inventory_code:             s.inventory_code,
-    total_outstanding:          s.outstanding.toFixed(2),
     amount_received:            '',
     mode_of_payment:            '',
     acknowledgement_receipt_no: '',
     sales_invoice_number:       '',
-    posting_date:               localToday(),
+    posting_date:               '',
+    transaction_date:           '',
     check_no:                   '',
     check_date:                 '',
   }));
@@ -126,53 +127,62 @@ function exportBatch(summaries: ReservationReceivableSummary[]) {
   const ws = XLSX.utils.json_to_sheet(rows);
   ws['!cols'] = [
     { wch: 28 }, // reservation_id
+    { wch: 16 }, // client_id
     { wch: 28 }, // client_name
     { wch: 16 }, // inventory_code
-    { wch: 18 }, // total_outstanding
-    { wch: 18 }, // amount_received
+    { wch: 16 }, // amount_received
     { wch: 18 }, // mode_of_payment
-    { wch: 24 }, // acknowledgement_receipt_no
+    { wch: 26 }, // acknowledgement_receipt_no
     { wch: 20 }, // sales_invoice_number
-    { wch: 12 }, // posting_date
+    { wch: 14 }, // posting_date
+    { wch: 16 }, // transaction_date
     { wch: 14 }, // check_no
     { wch: 12 }, // check_date
   ];
 
   const instructions = [
-    ['COLLECTION POSTING — IMPORT INSTRUCTIONS'],
+    ['COLLECTION POSTING — BATCH IMPORT INSTRUCTIONS'],
     [''],
-    ['HOW THIS WORKS:'],
-    ['Each row represents one payment received from a buyer.'],
-    ['The system will automatically allocate the amount to unpaid lines, oldest-first.'],
-    ['Finance never decides allocation — just enter the total amount received.'],
-    [''],
-    ['COLUMNS YOU MUST FILL IN:'],
-    ['amount_received',            'Required. Total amount received from the buyer (PHP)'],
-    ['mode_of_payment',            'Required. Must be one of the allowed values listed below.'],
+    ['COLUMNS TO FILL IN:'],
+    ['amount_received',            'Total amount received from the buyer (PHP)'],
+    ['mode_of_payment',            'See allowed values below'],
     ['acknowledgement_receipt_no', 'OR / Acknowledgement receipt number'],
     ['sales_invoice_number',       'Sales invoice number'],
-    ['posting_date',               'Date of posting (YYYY-MM-DD). Pre-filled with today.'],
-    ['check_no',                   'Required only when mode_of_payment = Check'],
-    ['check_date',                 'Required only when mode_of_payment = Check (YYYY-MM-DD)'],
+    ['posting_date',               'Date posted in the system (MM/DD/YYYY)'],
+    ['transaction_date',           'Actual date of payment by the buyer (MM/DD/YYYY)'],
+    ['check_no',                   'Required when mode_of_payment = Check'],
+    ['check_date',                 'Required when mode_of_payment = Check (MM/DD/YYYY)'],
     [''],
-    ['ALLOWED MODE OF PAYMENT VALUES:'],
+    ['ALLOWED VALUES — mode_of_payment:'],
     ...MODES_OF_PAYMENT.map((m, i) => [`  ${i + 1}. ${m}`]),
     [''],
-    ['LOCKED COLUMNS — DO NOT EDIT:'],
-    ['reservation_id',   'Unique reservation identifier used for matching'],
-    ['client_name',      'Read-only'],
-    ['inventory_code',   'Read-only'],
-    ['total_outstanding','Outstanding balance — used for validation. Do not edit.'],
-    [''],
-    ['NOTE: Rows where amount_received or mode_of_payment is left blank will be skipped on import.'],
+    ['NOTE: Rows where amount_received or mode_of_payment is blank will be skipped on import.'],
   ];
   const wsInstr = XLSX.utils.aoa_to_sheet(instructions);
-  wsInstr['!cols'] = [{ wch: 36 }, { wch: 64 }];
+  wsInstr['!cols'] = [{ wch: 30 }, { wch: 60 }];
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws,     'Collections');
+  XLSX.utils.book_append_sheet(wb, ws,      'Collections');
   XLSX.utils.book_append_sheet(wb, wsInstr, 'Instructions');
   XLSX.writeFile(wb, `collections-batch-${localToday()}.xlsx`);
+}
+
+// Converts MM/DD/YYYY or M/D/YYYY → YYYY-MM-DD; passes YYYY-MM-DD through unchanged.
+function normalizeDate(raw: unknown): string {
+  const s = String(raw ?? '').trim();
+  if (!s) return '';
+  // Already ISO
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // MM/DD/YYYY or M/D/YYYY
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) return `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
+  // Excel serial number (XLSX sometimes returns numeric dates)
+  const n = Number(s);
+  if (!isNaN(n) && n > 1000) {
+    const d = XLSX.SSF.parse_date_code(n);
+    if (d) return `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`;
+  }
+  return s;
 }
 
 // ─── Excel Import — Parse ─────────────────────────────────────────────────────
@@ -192,6 +202,7 @@ function parseImportFile(file: File): Promise<ImportRow[]> {
         const raw  = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
         const rows: ImportRow[] = raw.map((r, i) => ({
           reservation_id:             String(r['reservation_id']             ?? '').trim(),
+          client_id:                  String(r['client_id']                  ?? '').trim(),
           client_name:                String(r['client_name']                ?? '').trim(),
           inventory_code:             String(r['inventory_code']             ?? '').trim(),
           total_outstanding:          Number(r['total_outstanding']          ?? 0),
@@ -199,9 +210,10 @@ function parseImportFile(file: File): Promise<ImportRow[]> {
           mode_of_payment:            String(r['mode_of_payment']            ?? '').trim(),
           acknowledgement_receipt_no: String(r['acknowledgement_receipt_no'] ?? '').trim(),
           sales_invoice_number:       String(r['sales_invoice_number']       ?? '').trim(),
-          posting_date:               String(r['posting_date']               ?? '').trim(),
+          posting_date:               normalizeDate(r['posting_date']),
+          transaction_date:           normalizeDate(r['transaction_date']),
           check_no:                   String(r['check_no']                   ?? '').trim(),
-          check_date:                 String(r['check_date']                 ?? '').trim(),
+          check_date:                 normalizeDate(r['check_date']),
           _row:                       i + 2,
         }));
         resolve(rows);
@@ -226,6 +238,16 @@ async function validateImportRows(
   const blank:    ImportRow[]         = [];
 
   const summaryMap = new Map(dbSummaries.map(s => [s.reservation_id, s]));
+
+  // Pre-fetch existing collections for all reservation IDs in the file to detect duplicates
+  const reservationIds = [...new Set(rows.map(r => r.reservation_id).filter(Boolean))];
+  const { data: existingCollections } = await supabase
+    .from('collections')
+    .select('reservation_id, sales_invoice_number')
+    .in('reservation_id', reservationIds);
+  const postedKeys = new Set(
+    (existingCollections ?? []).map((c: any) => `${c.reservation_id}||${c.sales_invoice_number}`)
+  );
 
   for (const row of rows) {
     // Blank — neither amount nor MOP filled (row was not filled in at all)
@@ -262,6 +284,12 @@ async function validateImportRows(
       continue;
     }
 
+    // 1d-ii. Duplicate check — reservation ID + sales invoice number already posted
+    if (row.sales_invoice_number && postedKeys.has(`${row.reservation_id}||${row.sales_invoice_number}`)) {
+      problems.push({ row, reason: `Duplicate: Sales Invoice No. "${row.sales_invoice_number}" has already been posted for this reservation.` });
+      continue;
+    }
+
     // 1e. Posting date
     if (!row.posting_date) {
       problems.push({ row, reason: 'Posting date is required.' });
@@ -279,10 +307,14 @@ async function validateImportRows(
       continue;
     }
 
-    // 3. Reservation ID + client name + inventory code must match records
+    // 3. Reservation ID, client ID, client name, inventory code must match records
     const summary = summaryMap.get(row.reservation_id);
     if (!summary) {
-      problems.push({ row, reason: 'Reservation ID not found in records — it may have been edited.' });
+      problems.push({ row, reason: 'Reservation ID not found — it may have been edited or does not exist.' });
+      continue;
+    }
+    if (row.client_id && summary.client_id && row.client_id !== summary.client_id) {
+      problems.push({ row, reason: `Client ID does not match records. Expected "${summary.client_id}".` });
       continue;
     }
     if (summary.client_name.trim().toLowerCase() !== row.client_name.trim().toLowerCase()) {
@@ -291,12 +323,6 @@ async function validateImportRows(
     }
     if (summary.inventory_code.trim().toLowerCase() !== row.inventory_code.trim().toLowerCase()) {
       problems.push({ row, reason: `Inventory code does not match records. Expected "${summary.inventory_code}".` });
-      continue;
-    }
-
-    // No outstanding — nothing to collect
-    if (summary.outstanding <= 0) {
-      skipped.push(row);
       continue;
     }
 
@@ -343,6 +369,7 @@ function RowCard({ row, status, reason }: { row: ImportRow; status: RowStatus; r
             #{row._row}
           </span>
           <div className="min-w-0">
+            <p className="text-[10px] font-bold text-[#C03D25] truncate">{row.reservation_id}</p>
             <p className="text-xs font-semibold text-[#1C1C1E] truncate">{row.client_name}</p>
             <p className="text-[11px] text-[#6C6C70] truncate">{row.inventory_code}</p>
           </div>
@@ -411,10 +438,10 @@ function ImportValidationModal({
   const total       = result.valid.length + result.problems.length + result.skipped.length + result.blank.length;
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-end">
+    <div className="fixed inset-0 z-[70] flex items-end justify-center">
       <div className="absolute inset-0 bg-black/50" onClick={!posting ? onCancel : undefined} />
       <div
-        className="relative w-full bg-white rounded-t-3xl pt-5 pb-10 max-h-[82vh] flex flex-col"
+        className="relative w-full max-w-lg bg-white rounded-t-3xl pt-5 pb-10 max-h-[82vh] flex flex-col"
         style={{ animation: 'sheetSlideUp 0.28s cubic-bezier(0.32,0.72,0,1) both' }}
       >
         <style>{`@keyframes sheetSlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
@@ -532,10 +559,10 @@ function ImportResultModal({ posted, errored, onClose }: {
   posted: number; errored: number; onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-[70] flex items-end">
+    <div className="fixed inset-0 z-[70] flex items-end justify-center">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div
-        className="relative w-full bg-white rounded-t-3xl px-5 pt-6 pb-10 space-y-4"
+        className="relative w-full max-w-lg bg-white rounded-t-3xl px-5 pt-6 pb-10 space-y-4"
         style={{ animation: 'sheetSlideUp 0.28s cubic-bezier(0.32,0.72,0,1) both' }}
       >
         <style>{`@keyframes sheetSlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
@@ -591,9 +618,10 @@ function PostCollectionSheet({
   const [mop,       setMop]       = useState('');
   const [orNo,      setOrNo]      = useState('');
   const [siNo,      setSiNo]      = useState('');
-  const [postDate,  setPostDate]  = useState(localToday());
-  const [checkNo,   setCheckNo]   = useState('');
-  const [checkDate, setCheckDate] = useState('');
+  const [postDate,       setPostDate]       = useState(localToday());
+  const [transactionDate, setTransactionDate] = useState('');
+  const [checkNo,        setCheckNo]        = useState('');
+  const [checkDate,      setCheckDate]      = useState('');
   const [posting,   setPosting]   = useState(false);
   const [error,     setError]     = useState('');
 
@@ -627,8 +655,9 @@ function PostCollectionSheet({
         amount_received:            amount,
         mode_of_payment:            mop,
         acknowledgement_receipt_no: orNo.trim()  || undefined,
-        sales_invoice_number:       siNo.trim()  || undefined,
+        sales_invoice_number:       siNo.trim()       || undefined,
         posting_date:               postDate,
+        transaction_date:           transactionDate   || undefined,
         check_no:                   isCheck ? checkNo.trim() : undefined,
         check_date:                 isCheck ? checkDate      : undefined,
       });
@@ -781,6 +810,12 @@ function PostCollectionSheet({
               Posting Date <span className="text-[#C03D25]">*</span>
             </p>
             <input type="date" value={postDate} onChange={e => setPostDate(e.target.value)} className={inputCls} />
+          </div>
+
+          {/* Transaction Date */}
+          <div className="space-y-1.5">
+            <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-widest">Transaction Date</p>
+            <input type="date" value={transactionDate} onChange={e => setTransactionDate(e.target.value)} className={inputCls} />
           </div>
 
           {error && (
@@ -1376,6 +1411,7 @@ export default function CollectionPostingPage() {
   const [clientFilter, setClientFilter] = useState('');
   const [selected,     setSelected]     = useState<ReservationReceivableSummary | null>(null);
   const [exporting,    setExporting]    = useState(false);
+  const [reporting,    setReporting]    = useState(false);
   const [loadError,    setLoadError]    = useState('');
   const [backfilling,  setBackfilling]  = useState(false);
   const [backfillDone, setBackfillDone] = useState<{ generated: number; skipped: number } | null>(null);
@@ -1440,6 +1476,68 @@ export default function CollectionPostingPage() {
     }
   }
 
+  // ── Report ──────────────────────────────────────────────────────────────────
+
+  async function handleDownloadReport() {
+    setReporting(true);
+    try {
+      // Paginate through all rows — PostgREST caps at 1000 without .range()
+      const PAGE = 1000;
+      let from = 0;
+      const allRows: Record<string, unknown>[] = [];
+      while (true) {
+        const { data, error } = await supabase
+          .from('receivables_database')
+          .select('reservation_id, client_id, client_name, inventory_code, type_of_payment, due_date, total_amount_due, amount_paid, principal, hic, vat, other_charges, payment_status, mode_of_payment, acknowledgement_receipt_no, sales_invoice_number, posting_date, check_no, check_date')
+          .order('reservation_id', { ascending: true })
+          .order('due_date', { ascending: true })
+          .range(from, from + PAGE - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        allRows.push(...(data as Record<string, unknown>[]));
+        if (data.length < PAGE) break;
+        from += PAGE;
+      }
+
+      if (allRows.length === 0) {
+        alert('No receivables data found.');
+        return;
+      }
+
+      const ws = XLSX.utils.json_to_sheet(allRows);
+      ws['!cols'] = [
+        { wch: 28 }, // reservation_id
+        { wch: 16 }, // client_id
+        { wch: 28 }, // client_name
+        { wch: 16 }, // inventory_code
+        { wch: 28 }, // type_of_payment
+        { wch: 14 }, // due_date
+        { wch: 18 }, // total_amount_due
+        { wch: 14 }, // amount_paid
+        { wch: 14 }, // principal
+        { wch: 10 }, // hic
+        { wch: 10 }, // vat
+        { wch: 14 }, // other_charges
+        { wch: 14 }, // payment_status
+        { wch: 18 }, // mode_of_payment
+        { wch: 26 }, // acknowledgement_receipt_no
+        { wch: 22 }, // sales_invoice_number
+        { wch: 14 }, // posting_date
+        { wch: 12 }, // check_no
+        { wch: 12 }, // check_date
+      ];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Receivables');
+      XLSX.writeFile(wb, `receivables-report-${localToday()}.xlsx`);
+    } catch (e) {
+      console.error('Report export failed', e);
+      alert('Report export failed. Please try again.');
+    } finally {
+      setReporting(false);
+    }
+  }
+
   // ── Import ──────────────────────────────────────────────────────────────────
 
   async function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
@@ -1474,6 +1572,7 @@ export default function CollectionPostingPage() {
           acknowledgement_receipt_no: row.acknowledgement_receipt_no || undefined,
           sales_invoice_number:       row.sales_invoice_number       || undefined,
           posting_date:               row.posting_date,
+          transaction_date:           row.transaction_date           || undefined,
           check_no:                   isCheck ? row.check_no   : undefined,
           check_date:                 isCheck ? row.check_date : undefined,
         });
@@ -1580,7 +1679,7 @@ export default function CollectionPostingPage() {
             </button>
           </div>
 
-          {/* Export / Import */}
+          {/* Export / Import / Report */}
           <div className="flex gap-2">
             <button
               type="button"
@@ -1591,7 +1690,7 @@ export default function CollectionPostingPage() {
               {exporting
                 ? <Loader2 size={15} className="animate-spin text-[#C03D25]" />
                 : <Download size={15} className="text-[#C03D25]" />}
-              Export Batch
+              Export
             </button>
             <button
               type="button"
@@ -1602,7 +1701,18 @@ export default function CollectionPostingPage() {
               {importing
                 ? <Loader2 size={15} className="animate-spin text-[#C03D25]" />
                 : <Upload size={15} className="text-[#C03D25]" />}
-              Import Batch
+              Import
+            </button>
+            <button
+              type="button"
+              onClick={handleDownloadReport}
+              disabled={reporting}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-2xl bg-white/80 border border-black/[0.08] backdrop-blur-sm text-[#1C1C1E] text-sm font-semibold active:opacity-70 disabled:opacity-50 transition-opacity"
+            >
+              {reporting
+                ? <Loader2 size={15} className="animate-spin text-[#007AFF]" />
+                : <FileText size={15} className="text-[#007AFF]" />}
+              Report
             </button>
             <input
               ref={fileInputRef}

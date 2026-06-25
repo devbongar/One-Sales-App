@@ -1,23 +1,25 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import SearchInput from '@/components/ui/SearchInput';
 import {
   Loader2, Users, Plus, ChevronLeft, Check, X,
   Mail, Building2, Tag, User, ChevronDown, SlidersHorizontal, ShieldCheck, Search,
+  PenLine, Upload, RotateCcw,
 } from 'lucide-react';
 import {
   fetchAllBrokerRecruits, addBrokerRecruit, updateBrokerRecruit, BrokerRecruitRecord,
-  generateNextBrokerId,
+  generateNextBrokerId, fetchBrokerSignature, updateBrokerSignature,
 } from '@/lib/brokers';
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
+import { fetchDropdownOptions } from '@/lib/admin';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const BROKER_STATUS_OPTIONS   = ['Active', 'Inactive'];
-const BROKER_CATEGORY_OPTIONS = ['External Broker', 'Internal Broker'];
+const BROKER_CATEGORY_OPTIONS = ['International', 'Local'];
 const BROKER_TYPE_OPTIONS     = ['Individual', 'Corporate'];
 const VAT_TYPE_OPTIONS        = ['VAT', 'Non-VAT'];
 const EWT_RATE_OPTIONS        = ['5%', '10%', '15%'];
@@ -36,7 +38,7 @@ function fmt(val: string | null) {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
+function SectionCard({ title, required, children }: { title: string; required?: boolean; children: React.ReactNode }) {
   return (
     <div
       className="rounded-3xl p-4 space-y-4"
@@ -48,16 +50,20 @@ function SectionCard({ title, children }: { title: string; children: React.React
         boxShadow: '0 2px 16px rgba(0, 0, 0, 0.08)',
       }}
     >
-      <p className="text-xs font-bold text-[#6C6C70] uppercase tracking-wider">{title}</p>
+      <p className="text-xs font-bold text-[#6C6C70] uppercase tracking-wider">
+        {title}{required && <span className="text-[#C03D25] ml-0.5">*</span>}
+      </p>
       {children}
     </div>
   );
 }
 
-function ERow({ label, icon, children }: { label: string; icon?: React.ReactNode; children: React.ReactNode }) {
+function ERow({ label, icon, required, children }: { label: string; icon?: React.ReactNode; required?: boolean; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <p className="text-[10px] font-semibold text-[#6C6C70] uppercase tracking-wider flex items-center gap-1">{icon}{label}</p>
+      <p className="text-[10px] font-semibold text-[#6C6C70] uppercase tracking-wider flex items-center gap-1">
+        {icon}{label}{required && <span className="text-[#C03D25] ml-0.5">*</span>}
+      </p>
       {children}
     </div>
   );
@@ -122,15 +128,23 @@ function ESelect({ value, options, onChange, disabled }: {
 
 // ─── Detail Sheet ─────────────────────────────────────────────────────────────
 
-function DetailSheet({ broker, onClose, onSaved }: {
+function DetailSheet({ broker, onClose, onSaved, businessUnits }: {
   broker: BrokerRecruitRecord;
   onClose: () => void;
   onSaved: (updated: BrokerRecruitRecord) => void;
+  businessUnits: string[];
 }) {
   const [editMode, setEditMode] = useState(false);
   const [form,     setForm]     = useState<BrokerRecruitRecord>(broker);
   const [saving,   setSaving]   = useState(false);
   const [error,    setError]    = useState('');
+
+  const [sigMode,    setSigMode]    = useState<'idle' | 'draw' | 'upload'>('idle');
+  const [sigPreview, setSigPreview] = useState<string | null>(broker.signature_base64 ?? null);
+  const sigCanvasRef = useRef<HTMLCanvasElement>(null);
+  const sigDrawing   = useRef(false);
+  const sigLastPos   = useRef<{ x: number; y: number } | null>(null);
+  const sigFileRef   = useRef<HTMLInputElement>(null);
 
   const [allPeople,  setAllPeople]  = useState<SalespersonRecord[]>([]);
   const [smOptions,  setSmOptions]  = useState<string[]>([]);
@@ -151,7 +165,50 @@ function DetailSheet({ broker, onClose, onSaved }: {
       setSdhOptions(people.filter(p => p.position_rank === 'SDH').map(p => p.seller_name));
       setShOptions( people.filter(p => p.position_rank === 'SH' ).map(p => p.seller_name));
     }).catch(() => {});
-  }, []);
+    if (broker.broker_id) {
+      fetchBrokerSignature(broker.broker_id).then(sig => { if (sig) setSigPreview(sig); }).catch(() => {});
+    }
+  }, [broker.broker_id]);
+
+  useEffect(() => {
+    if (sigMode !== 'draw') return;
+    const canvas = sigCanvasRef.current; if (!canvas) return;
+    function getPos(e: TouchEvent | MouseEvent) {
+      const rect = canvas!.getBoundingClientRect();
+      const scaleX = canvas!.width / rect.width; const scaleY = canvas!.height / rect.height;
+      if ('touches' in e) return { x: (e.touches[0].clientX - rect.left) * scaleX, y: (e.touches[0].clientY - rect.top) * scaleY };
+      return { x: ((e as MouseEvent).clientX - rect.left) * scaleX, y: ((e as MouseEvent).clientY - rect.top) * scaleY };
+    }
+    function onStart(e: TouchEvent | MouseEvent) { sigDrawing.current = true; sigLastPos.current = getPos(e); }
+    function onMove(e: TouchEvent | MouseEvent) {
+      if (!sigDrawing.current) return; e.preventDefault();
+      const ctx = canvas!.getContext('2d'); if (!ctx) return;
+      const pos = getPos(e);
+      ctx.beginPath(); ctx.moveTo(sigLastPos.current!.x, sigLastPos.current!.y);
+      ctx.lineTo(pos.x, pos.y); ctx.strokeStyle = '#1C1C1E'; ctx.lineWidth = 2.5;
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke();
+      sigLastPos.current = pos;
+    }
+    function onStop() { sigDrawing.current = false; sigLastPos.current = null; }
+    canvas.addEventListener('mousedown', onStart); canvas.addEventListener('mousemove', onMove);
+    canvas.addEventListener('mouseup', onStop); canvas.addEventListener('mouseleave', onStop);
+    canvas.addEventListener('touchstart', onStart, { passive: false });
+    canvas.addEventListener('touchmove', onMove, { passive: false });
+    canvas.addEventListener('touchend', onStop);
+    return () => {
+      canvas.removeEventListener('mousedown', onStart); canvas.removeEventListener('mousemove', onMove);
+      canvas.removeEventListener('mouseup', onStop); canvas.removeEventListener('mouseleave', onStop);
+      canvas.removeEventListener('touchstart', onStart); canvas.removeEventListener('touchmove', onMove);
+      canvas.removeEventListener('touchend', onStop);
+    };
+  }, [sigMode]);
+
+  function handleSigFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => { setSigPreview(ev.target?.result as string); setSigMode('idle'); };
+    reader.readAsDataURL(file); e.target.value = '';
+  }
 
   function onAssociateChange(name: string) {
     const rec = name ? allPeople.find(p => p.seller_name === name) : null;
@@ -224,14 +281,33 @@ function DetailSheet({ broker, onClose, onSaved }: {
   }
 
   async function handleSave() {
+    const missing: string[] = [];
+    if (!form.business_unit)              missing.push('Business Unit');
+    if (!form.broker_status)              missing.push('Broker Status');
+    if (!form.broker_category)            missing.push('Broker Category');
+    if (!form.broker_type)                missing.push('Broker Type');
+    if (!form.last_name?.trim())          missing.push('Last Name');
+    if (!form.first_name?.trim())         missing.push('First Name');
+    if (!form.email_address?.trim())       missing.push('Email Address');
+    if (!form.bir_registered_name?.trim()) missing.push('BIR Registered Name');
+    if (!form.vat_registration_type)       missing.push('VAT Registration Type');
+    if (!form.tin?.trim())                 missing.push('Tax Identification No.');
+    if (!form.ewt_cwt_rate)                missing.push('EWT/CWT Rate');
+    if (!form.bir_cor_address?.trim())     missing.push('BIR COR Address');
+    if (!sigPreview)                        missing.push('Broker Signature');
+    if (missing.length > 0) { setError(`Required: ${missing.join(', ')}`); return; }
+
     const brokerId = form.broker_id ?? await generateNextBrokerId();
     const finalForm = { ...form, broker_id: brokerId };
     setSaving(true);
     setError('');
     try {
       await updateBrokerRecruit(finalForm);
+      if (finalForm.broker_id) {
+        try { await updateBrokerSignature(finalForm.broker_id, sigPreview); } catch {}
+      }
       setForm(finalForm);
-      onSaved(finalForm);
+      onSaved({ ...finalForm, signature_base64: sigPreview });
       setEditMode(false);
       setCascadeSource(
         finalForm.broker_network_associate ? 'associate' :
@@ -271,7 +347,7 @@ function DetailSheet({ broker, onClose, onSaved }: {
 
       {/* Scrollable content */}
       <div className="absolute inset-0 overflow-y-auto">
-        <div className="px-4 pt-[88px] pb-12">
+        <div className="px-4 pt-[88px] pb-12 max-w-lg mx-auto w-full">
 
           {/* Hero */}
           <div className="flex flex-col items-center pt-4 pb-8 gap-2">
@@ -301,26 +377,24 @@ function DetailSheet({ broker, onClose, onSaved }: {
 
             {/* Broker Information */}
             <SectionCard title="Broker Information">
-              <ERow label="Business Unit" icon={<Building2 size={10} />}>
-                {editMode
-                  ? <input className={inputCls} value={form.business_unit ?? ''} onChange={e => set('business_unit')(e.target.value)} />
-                  : <div className={readCls}>{fmt(form.business_unit)}</div>}
+              <ERow label="Business Unit" icon={<Building2 size={10} />} required>
+                <ESelect value={form.business_unit ?? ''} options={businessUnits} onChange={set('business_unit')} disabled={!editMode} />
               </ERow>
-              <ERow label="Broker Status" icon={<User size={10} />}>
+              <ERow label="Broker Status" icon={<User size={10} />} required>
                 <ESelect value={form.broker_status ?? ''} options={BROKER_STATUS_OPTIONS} onChange={set('broker_status')} disabled={!editMode} />
               </ERow>
-              <ERow label="Broker Category" icon={<Tag size={10} />}>
+              <ERow label="Broker Category" icon={<Tag size={10} />} required>
                 <ESelect value={form.broker_category ?? ''} options={BROKER_CATEGORY_OPTIONS} onChange={set('broker_category')} disabled={!editMode} />
               </ERow>
-              <ERow label="Broker Type" icon={<Tag size={10} />}>
+              <ERow label="Broker Type" icon={<Tag size={10} />} required>
                 <ESelect value={form.broker_type ?? ''} options={BROKER_TYPE_OPTIONS} onChange={set('broker_type')} disabled={!editMode} />
               </ERow>
-              <ERow label="Last Name" icon={<User size={10} />}>
+              <ERow label="Last Name" icon={<User size={10} />} required>
                 {editMode
                   ? <input className={inputCls} value={form.last_name ?? ''} onChange={e => set('last_name')(e.target.value)} />
                   : <div className={readCls}>{fmt(form.last_name)}</div>}
               </ERow>
-              <ERow label="First Name" icon={<User size={10} />}>
+              <ERow label="First Name" icon={<User size={10} />} required>
                 {editMode
                   ? <input className={inputCls} value={form.first_name ?? ''} onChange={e => set('first_name')(e.target.value)} />
                   : <div className={readCls}>{fmt(form.first_name)}</div>}
@@ -335,7 +409,7 @@ function DetailSheet({ broker, onClose, onSaved }: {
                   ? <input className={inputCls} value={form.suffix ?? ''} onChange={e => set('suffix')(e.target.value)} />
                   : <div className={readCls}>{fmt(form.suffix)}</div>}
               </ERow>
-              <ERow label="Email Address" icon={<Mail size={10} />}>
+              <ERow label="Email Address" icon={<Mail size={10} />} required>
                 {editMode
                   ? <input className={inputCls} type="email" inputMode="email" value={form.email_address ?? ''} onChange={e => set('email_address')(e.target.value)} />
                   : <div className={readCls}>{fmt(form.email_address)}</div>}
@@ -363,27 +437,88 @@ function DetailSheet({ broker, onClose, onSaved }: {
 
             {/* Broker BIR Information */}
             <SectionCard title="Broker BIR Information">
-              <ERow label="BIR Registered Name">
+              <ERow label="BIR Registered Name" required>
                 {editMode
                   ? <input className={inputCls} value={form.bir_registered_name ?? ''} onChange={e => set('bir_registered_name')(e.target.value)} />
                   : <div className={readCls}>{fmt(form.bir_registered_name)}</div>}
               </ERow>
-              <ERow label="VAT Registration Type">
+              <ERow label="VAT Registration Type" required>
                 <ESelect value={form.vat_registration_type ?? ''} options={VAT_TYPE_OPTIONS} onChange={set('vat_registration_type')} disabled={!editMode} />
               </ERow>
-              <ERow label="Tax Identification No.">
+              <ERow label="Tax Identification No." required>
                 {editMode
                   ? <input className={inputCls} value={form.tin ?? ''} onChange={e => set('tin')(e.target.value)} />
                   : <div className={readCls}>{fmt(form.tin)}</div>}
               </ERow>
-              <ERow label="EWT/CWT Rate">
+              <ERow label="EWT/CWT Rate" required>
                 <ESelect value={form.ewt_cwt_rate ?? ''} options={EWT_RATE_OPTIONS} onChange={set('ewt_cwt_rate')} disabled={!editMode} />
               </ERow>
-              <ERow label="BIR COR Address">
+              <ERow label="BIR COR Address" required>
                 {editMode
                   ? <textarea className={`${inputCls} resize-none`} rows={3} value={form.bir_cor_address ?? ''} onChange={e => set('bir_cor_address')(e.target.value)} />
                   : <div className={readCls}>{fmt(form.bir_cor_address)}</div>}
               </ERow>
+            </SectionCard>
+
+            {/* Broker Signature */}
+            <SectionCard title="Broker Signature" required>
+              {(() => {
+                if (sigMode === 'draw') return (
+                  <div className="space-y-2">
+                    <div className="relative rounded-2xl border-2 border-dashed border-[#C03D25]/40 overflow-hidden bg-white">
+                      <canvas ref={sigCanvasRef} width={600} height={200} className="w-full touch-none" style={{ height: '160px' }} />
+                    </div>
+                    <div className="flex gap-2">
+                      <button type="button"
+                        onClick={() => { const ctx = sigCanvasRef.current?.getContext('2d'); if (ctx && sigCanvasRef.current) ctx.clearRect(0, 0, sigCanvasRef.current.width, sigCanvasRef.current.height); }}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#1C1C1E] active:opacity-70">
+                        <RotateCcw size={13} /> Clear
+                      </button>
+                      <button type="button"
+                        onClick={() => { const b64 = sigCanvasRef.current?.toDataURL('image/png') ?? ''; setSigPreview(b64); setSigMode('idle'); }}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-[#1C1C1E] text-xs font-semibold text-white active:opacity-70">
+                        <Check size={13} /> Use Signature
+                      </button>
+                      <button type="button" onClick={() => setSigMode('idle')}
+                        className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#1C1C1E] active:opacity-70">
+                        <X size={13} />
+                      </button>
+                    </div>
+                  </div>
+                );
+                return (
+                  <div className="space-y-3">
+                    {sigPreview ? (
+                      <div className="rounded-2xl border border-black/[0.08] bg-white/60 p-3 flex items-center justify-center min-h-[100px]">
+                        <img src={sigPreview} alt="Signature" className="max-h-[90px] object-contain" />
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-black/[0.15] bg-white/40 p-4 flex items-center justify-center min-h-[72px]">
+                        <p className="text-xs text-[#C7C7CC]">No signature on file</p>
+                      </div>
+                    )}
+                    {editMode && (
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setSigMode('draw')}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#1C1C1E] active:opacity-70">
+                          <PenLine size={13} /> Draw
+                        </button>
+                        <button type="button" onClick={() => { setSigMode('upload'); sigFileRef.current?.click(); }}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#1C1C1E] active:opacity-70">
+                          <Upload size={13} /> Upload
+                        </button>
+                        {sigPreview && (
+                          <button type="button" onClick={() => setSigPreview(null)}
+                            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-red-200 bg-red-50 text-xs font-medium text-red-500 active:opacity-70">
+                            <RotateCcw size={13} />
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    <input ref={sigFileRef} type="file" accept="image/*" className="hidden" onChange={handleSigFile} />
+                  </div>
+                );
+              })()}
             </SectionCard>
 
           </div>
@@ -404,16 +539,24 @@ const EMPTY_BROKER: BrokerRecruitRecord = {
   broker_network_officer: null, broker_network_officer_id: null,
   broker_network_associate: null, broker_network_associate_id: null,
   bir_registered_name: null, vat_registration_type: null, tin: null,
-  ewt_cwt_rate: null, bir_cor_address: null,
+  ewt_cwt_rate: null, bir_cor_address: null, signature_base64: null,
 };
 
-function AddSheet({ onClose, onAdded }: {
+function AddSheet({ onClose, onAdded, businessUnits }: {
   onClose: () => void;
   onAdded: (rec: BrokerRecruitRecord) => void;
+  businessUnits: string[];
 }) {
   const [form,   setForm]   = useState<BrokerRecruitRecord>(EMPTY_BROKER);
   const [saving, setSaving] = useState(false);
   const [error,  setError]  = useState('');
+
+  const [sigMode,    setSigMode]    = useState<'idle' | 'draw' | 'upload'>('idle');
+  const [sigPreview, setSigPreview] = useState<string | null>(null);
+  const sigCanvasRef = useRef<HTMLCanvasElement>(null);
+  const sigDrawing   = useRef(false);
+  const sigLastPos   = useRef<{ x: number; y: number } | null>(null);
+  const sigFileRef   = useRef<HTMLInputElement>(null);
 
   const [allPeople,  setAllPeople]  = useState<SalespersonRecord[]>([]);
   const [smOptions,  setSmOptions]  = useState<string[]>([]);
@@ -432,6 +575,46 @@ function AddSheet({ onClose, onAdded }: {
     }).catch(() => {});
     generateNextBrokerId().then(id => setForm(f => ({ ...f, broker_id: id }))).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (sigMode !== 'draw') return;
+    const canvas = sigCanvasRef.current; if (!canvas) return;
+    function getPos(e: TouchEvent | MouseEvent) {
+      const rect = canvas!.getBoundingClientRect();
+      const scaleX = canvas!.width / rect.width; const scaleY = canvas!.height / rect.height;
+      if ('touches' in e) return { x: (e.touches[0].clientX - rect.left) * scaleX, y: (e.touches[0].clientY - rect.top) * scaleY };
+      return { x: ((e as MouseEvent).clientX - rect.left) * scaleX, y: ((e as MouseEvent).clientY - rect.top) * scaleY };
+    }
+    function onStart(e: TouchEvent | MouseEvent) { sigDrawing.current = true; sigLastPos.current = getPos(e); }
+    function onMove(e: TouchEvent | MouseEvent) {
+      if (!sigDrawing.current) return; e.preventDefault();
+      const ctx = canvas!.getContext('2d'); if (!ctx) return;
+      const pos = getPos(e);
+      ctx.beginPath(); ctx.moveTo(sigLastPos.current!.x, sigLastPos.current!.y);
+      ctx.lineTo(pos.x, pos.y); ctx.strokeStyle = '#1C1C1E'; ctx.lineWidth = 2.5;
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke();
+      sigLastPos.current = pos;
+    }
+    function onStop() { sigDrawing.current = false; sigLastPos.current = null; }
+    canvas.addEventListener('mousedown', onStart); canvas.addEventListener('mousemove', onMove);
+    canvas.addEventListener('mouseup', onStop); canvas.addEventListener('mouseleave', onStop);
+    canvas.addEventListener('touchstart', onStart, { passive: false });
+    canvas.addEventListener('touchmove', onMove, { passive: false });
+    canvas.addEventListener('touchend', onStop);
+    return () => {
+      canvas.removeEventListener('mousedown', onStart); canvas.removeEventListener('mousemove', onMove);
+      canvas.removeEventListener('mouseup', onStop); canvas.removeEventListener('mouseleave', onStop);
+      canvas.removeEventListener('touchstart', onStart); canvas.removeEventListener('touchmove', onMove);
+      canvas.removeEventListener('touchend', onStop);
+    };
+  }, [sigMode]);
+
+  function handleSigFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => { setSigPreview(ev.target?.result as string); setSigMode('idle'); };
+    reader.readAsDataURL(file); e.target.value = '';
+  }
 
   function onAssociateChange(name: string) {
     const rec = name ? allPeople.find(p => p.seller_name === name) : null;
@@ -492,10 +675,21 @@ function AddSheet({ onClose, onAdded }: {
   const initials = displayName.split(' ').filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
   async function handleSave() {
-    if (!form.first_name?.trim() && !form.last_name?.trim()) {
-      setError('At least First Name or Last Name is required.');
-      return;
-    }
+    const missing: string[] = [];
+    if (!form.business_unit)              missing.push('Business Unit');
+    if (!form.broker_status)              missing.push('Broker Status');
+    if (!form.broker_category)            missing.push('Broker Category');
+    if (!form.broker_type)                missing.push('Broker Type');
+    if (!form.last_name?.trim())          missing.push('Last Name');
+    if (!form.first_name?.trim())         missing.push('First Name');
+    if (!form.email_address?.trim())       missing.push('Email Address');
+    if (!form.bir_registered_name?.trim()) missing.push('BIR Registered Name');
+    if (!form.vat_registration_type)       missing.push('VAT Registration Type');
+    if (!form.tin?.trim())                 missing.push('Tax Identification No.');
+    if (!form.ewt_cwt_rate)                missing.push('EWT/CWT Rate');
+    if (!form.bir_cor_address?.trim())     missing.push('BIR COR Address');
+    if (missing.length > 0) { setError(`Required: ${missing.join(', ')}`); return; }
+
     const composed = [form.first_name, form.middle_name, form.last_name, form.suffix]
       .filter(Boolean).join(' ');
     const brokerId = form.broker_id ?? await generateNextBrokerId();
@@ -504,7 +698,10 @@ function AddSheet({ onClose, onAdded }: {
     setError('');
     try {
       await addBrokerRecruit(finalForm);
-      onAdded(finalForm);
+      if (finalForm.broker_id && sigPreview) {
+        try { await updateBrokerSignature(finalForm.broker_id, sigPreview); } catch {}
+      }
+      onAdded({ ...finalForm, signature_base64: sigPreview });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to save. Please try again.');
     } finally {
@@ -531,7 +728,7 @@ function AddSheet({ onClose, onAdded }: {
 
       {/* Scrollable content */}
       <div className="absolute inset-0 overflow-y-auto">
-        <div className="px-4 pt-[88px] pb-12">
+        <div className="px-4 pt-[88px] pb-12 max-w-lg mx-auto w-full">
 
           {/* Hero */}
           <div className="flex flex-col items-center pt-4 pb-8 gap-2">
@@ -556,22 +753,22 @@ function AddSheet({ onClose, onAdded }: {
 
             {/* Broker Information */}
             <SectionCard title="Broker Information">
-              <ERow label="Business Unit" icon={<Building2 size={10} />}>
-                <input className={inputCls} value={form.business_unit ?? ''} onChange={e => set('business_unit')(e.target.value)} />
+              <ERow label="Business Unit" icon={<Building2 size={10} />} required>
+                <ESelect value={form.business_unit ?? ''} options={businessUnits} onChange={set('business_unit')} />
               </ERow>
-              <ERow label="Broker Status" icon={<User size={10} />}>
+              <ERow label="Broker Status" icon={<User size={10} />} required>
                 <ESelect value={form.broker_status ?? ''} options={BROKER_STATUS_OPTIONS} onChange={set('broker_status')} />
               </ERow>
-              <ERow label="Broker Category" icon={<Tag size={10} />}>
+              <ERow label="Broker Category" icon={<Tag size={10} />} required>
                 <ESelect value={form.broker_category ?? ''} options={BROKER_CATEGORY_OPTIONS} onChange={set('broker_category')} />
               </ERow>
-              <ERow label="Broker Type" icon={<Tag size={10} />}>
+              <ERow label="Broker Type" icon={<Tag size={10} />} required>
                 <ESelect value={form.broker_type ?? ''} options={BROKER_TYPE_OPTIONS} onChange={set('broker_type')} />
               </ERow>
-              <ERow label="Last Name" icon={<User size={10} />}>
+              <ERow label="Last Name" icon={<User size={10} />} required>
                 <input className={inputCls} value={form.last_name ?? ''} onChange={e => set('last_name')(e.target.value)} />
               </ERow>
-              <ERow label="First Name" icon={<User size={10} />}>
+              <ERow label="First Name" icon={<User size={10} />} required>
                 <input className={inputCls} value={form.first_name ?? ''} onChange={e => set('first_name')(e.target.value)} />
               </ERow>
               <ERow label="Middle Name" icon={<User size={10} />}>
@@ -580,7 +777,7 @@ function AddSheet({ onClose, onAdded }: {
               <ERow label="Suffix" icon={<User size={10} />}>
                 <input className={inputCls} value={form.suffix ?? ''} onChange={e => set('suffix')(e.target.value)} />
               </ERow>
-              <ERow label="Email Address" icon={<Mail size={10} />}>
+              <ERow label="Email Address" icon={<Mail size={10} />} required>
                 <input className={inputCls} type="email" inputMode="email" value={form.email_address ?? ''} onChange={e => set('email_address')(e.target.value)} />
               </ERow>
             </SectionCard>
@@ -606,21 +803,77 @@ function AddSheet({ onClose, onAdded }: {
 
             {/* Broker BIR Information */}
             <SectionCard title="Broker BIR Information">
-              <ERow label="BIR Registered Name">
+              <ERow label="BIR Registered Name" required>
                 <input className={inputCls} value={form.bir_registered_name ?? ''} onChange={e => set('bir_registered_name')(e.target.value)} />
               </ERow>
-              <ERow label="VAT Registration Type">
+              <ERow label="VAT Registration Type" required>
                 <ESelect value={form.vat_registration_type ?? ''} options={VAT_TYPE_OPTIONS} onChange={set('vat_registration_type')} />
               </ERow>
-              <ERow label="Tax Identification No.">
+              <ERow label="Tax Identification No." required>
                 <input className={inputCls} value={form.tin ?? ''} onChange={e => set('tin')(e.target.value)} />
               </ERow>
-              <ERow label="EWT/CWT Rate">
+              <ERow label="EWT/CWT Rate" required>
                 <ESelect value={form.ewt_cwt_rate ?? ''} options={EWT_RATE_OPTIONS} onChange={set('ewt_cwt_rate')} />
               </ERow>
-              <ERow label="BIR COR Address">
+              <ERow label="BIR COR Address" required>
                 <textarea className={`${inputCls} resize-none`} rows={3} value={form.bir_cor_address ?? ''} onChange={e => set('bir_cor_address')(e.target.value)} />
               </ERow>
+            </SectionCard>
+
+            {/* Broker Signature */}
+            <SectionCard title="Broker Signature" required>
+              {sigMode === 'draw' ? (
+                <div className="space-y-2">
+                  <div className="relative rounded-2xl border-2 border-dashed border-[#C03D25]/40 overflow-hidden bg-white">
+                    <canvas ref={sigCanvasRef} width={600} height={200} className="w-full touch-none" style={{ height: '160px' }} />
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="button"
+                      onClick={() => { const ctx = sigCanvasRef.current?.getContext('2d'); if (ctx && sigCanvasRef.current) ctx.clearRect(0, 0, sigCanvasRef.current.width, sigCanvasRef.current.height); }}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#1C1C1E] active:opacity-70">
+                      <RotateCcw size={13} /> Clear
+                    </button>
+                    <button type="button"
+                      onClick={() => { const b64 = sigCanvasRef.current?.toDataURL('image/png') ?? ''; setSigPreview(b64); setSigMode('idle'); }}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-[#1C1C1E] text-xs font-semibold text-white active:opacity-70">
+                      <Check size={13} /> Use Signature
+                    </button>
+                    <button type="button" onClick={() => setSigMode('idle')}
+                      className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#1C1C1E] active:opacity-70">
+                      <X size={13} />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {sigPreview ? (
+                    <div className="rounded-2xl border border-black/[0.08] bg-white/60 p-3 flex items-center justify-center min-h-[100px]">
+                      <img src={sigPreview} alt="Signature" className="max-h-[90px] object-contain" />
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-black/[0.15] bg-white/40 p-4 flex items-center justify-center min-h-[72px]">
+                      <p className="text-xs text-[#C7C7CC]">No signature yet</p>
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setSigMode('draw')}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#1C1C1E] active:opacity-70">
+                      <PenLine size={13} /> Draw
+                    </button>
+                    <button type="button" onClick={() => { setSigMode('upload'); sigFileRef.current?.click(); }}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-black/[0.10] bg-white/60 text-xs font-medium text-[#1C1C1E] active:opacity-70">
+                      <Upload size={13} /> Upload
+                    </button>
+                    {sigPreview && (
+                      <button type="button" onClick={() => setSigPreview(null)}
+                        className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-red-200 bg-red-50 text-xs font-medium text-red-500 active:opacity-70">
+                        <RotateCcw size={13} />
+                      </button>
+                    )}
+                  </div>
+                  <input ref={sigFileRef} type="file" accept="image/*" className="hidden" onChange={handleSigFile} />
+                </div>
+              )}
             </SectionCard>
 
           </div>
@@ -633,18 +886,23 @@ function AddSheet({ onClose, onAdded }: {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function BrokerAccreditationPage() {
-  const [brokers,    setBrokers]    = useState<BrokerRecruitRecord[]>([]);
-  const [loading,    setLoading]    = useState(true);
-  const [search,     setSearch]     = useState('');
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [statusFilter, setStatusFilter] = useState('');
-  const [selected,   setSelected]   = useState<BrokerRecruitRecord | null>(null);
-  const [adding,     setAdding]     = useState(false);
+  const [brokers,       setBrokers]       = useState<BrokerRecruitRecord[]>([]);
+  const [businessUnits, setBusinessUnits] = useState<string[]>([]);
+  const [loading,       setLoading]       = useState(true);
+  const [search,        setSearch]        = useState('');
+  const [filterOpen,    setFilterOpen]    = useState(false);
+  const [statusFilter,  setStatusFilter]  = useState('');
+  const [selected,      setSelected]      = useState<BrokerRecruitRecord | null>(null);
+  const [adding,        setAdding]        = useState(false);
 
   useEffect(() => {
-    fetchAllBrokerRecruits()
-      .then(setBrokers)
-      .finally(() => setLoading(false));
+    Promise.all([
+      fetchAllBrokerRecruits(),
+      fetchDropdownOptions('business_unit'),
+    ]).then(([brokerData, buData]) => {
+      setBrokers(brokerData);
+      setBusinessUnits(buData);
+    }).finally(() => setLoading(false));
   }, []);
 
   const filtered = brokers.filter(b => {
@@ -737,6 +995,7 @@ export default function BrokerAccreditationPage() {
     {selected && (
       <DetailSheet
         broker={selected}
+        businessUnits={businessUnits}
         onClose={() => setSelected(null)}
         onSaved={(updated) => {
           setBrokers(prev => prev.map(b => b.full_name === selected.full_name ? updated : b));
@@ -748,6 +1007,7 @@ export default function BrokerAccreditationPage() {
     {/* Add Sheet */}
     {adding && (
       <AddSheet
+        businessUnits={businessUnits}
         onClose={() => setAdding(false)}
         onAdded={(rec) => {
           setBrokers(prev => [rec, ...prev]);

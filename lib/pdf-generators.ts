@@ -556,13 +556,14 @@ export async function generateReservationAgreement(reservationId: string | null,
   const L = 14, W = pageW - 28;
 
   let res: (ReservationDetail & { created_at?: string }) | null = null;
-  let clientSig: string | null = null;
-  let sellerSig: string | null = null;
+  let clientSig:  string | null = null;
+  let sellerSig:  string | null = null;
+  let sellerName: string | null = null;
 
   if (reservationId) {
     const { data: rd } = await supabase
       .from('reservations')
-      .select(`reservation_id, client_id, client_name, project, tower, inventory_code,
+      .select(`reservation_id, client_id, client_name, seller_name, project, tower, inventory_code,
                unit_no, unit_type, unit_area, scheme_name, dp_rate, term_months,
                total_contract_price, reservation_fee, created_at,
                net_list_price, vat, other_charges,
@@ -573,17 +574,18 @@ export async function generateReservationAgreement(reservationId: string | null,
                monthly_stretched_dp, bank_monthly, hdmf_monthly`)
       .eq('reservation_id', reservationId)
       .single();
-    if (rd) res = rd as (ReservationDetail & { created_at?: string });
+    if (rd) res = rd as (ReservationDetail & { created_at?: string; seller_name?: string | null });
+
+    sellerName = (res as any)?.seller_name ?? null;
+    if (sellerName) sellerSig = await fetchSellerSignature(sellerName);
 
     if (res?.client_id) {
       const { data: cr } = await supabase
         .from('clients')
-        .select('signature_base64, property_specialist')
+        .select('signature_base64')
         .eq('client_id', res.client_id)
         .maybeSingle();
       clientSig = (cr as any)?.signature_base64 ?? null;
-      const specialist = (cr as any)?.property_specialist ?? null;
-      if (specialist) sellerSig = await fetchSellerSignature(specialist);
     }
   }
 
@@ -698,28 +700,40 @@ export async function generateReservationAgreement(reservationId: string | null,
   const sigImgH = 12;
   const rightSigX = pageW - L - sigW;
 
-  if (clientSig) { const c = await compressImage(clientSig, 300, 50); doc.addImage(c, 'JPEG', L,         y - sigImgH, sigW, sigImgH); }
-  if (sellerSig) { const c = await compressImage(sellerSig, 300, 50); doc.addImage(c, 'JPEG', rightSigX, y - sigImgH, sigW, sigImgH); }
+  if (clientSig) { const c = await compressImage(clientSig, 600, 100, 0.92); doc.addImage(c, 'JPEG', L,         y - sigImgH, sigW, sigImgH); }
+  if (sellerSig) { const c = await compressImage(sellerSig, 600, 100, 0.92); doc.addImage(c, 'JPEG', rightSigX, y - sigImgH, sigW, sigImgH); }
+
+  // names above the line, below the signature image
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(28, 28, 30);
+  if (res?.client_name) doc.text(res.client_name, L, y + 3);
+  if (sellerName)       doc.text(sellerName,       rightSigX, y + 3);
 
   doc.setDrawColor(100, 100, 100);
   doc.setLineWidth(0.4);
-  doc.line(L, y, L + sigW, y);
-  doc.line(rightSigX, y, pageW - L, y);
+  doc.line(L, y + 6, L + sigW, y + 6);
+  doc.line(rightSigX, y + 6, pageW - L, y + 6);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.setTextColor(28, 28, 30);
-  doc.text(today, L + sigW, y - 1, { align: 'right' });
-  doc.text(today, pageW - L, y - 1, { align: 'right' });
+  doc.text(today, L + sigW, y + 5, { align: 'right' });
+  doc.text(today, pageW - L, y + 5, { align: 'right' });
   doc.setFontSize(7);
   doc.setTextColor(110, 110, 115);
-  doc.text('Buyer Signature over Printed Name', L, y + 4);
-  doc.text('Seller Signature over Printed Name', rightSigX, y + 4);
+  doc.text('Buyer Signature over Printed Name', L, y + 10);
+  doc.text('Seller Signature over Printed Name', rightSigX, y + 10);
 
   footerBlock(doc);
   const blobUrl1 = doc.output('bloburl') as unknown as string;
   if (!openInNewTab) return blobUrl1;
-  if (win) win.location.href = blobUrl1;
-  else doc.output('dataurlnewwindow');
+  const raFilename = res?.client_id && reservationId
+    ? `RA-${res.client_id}${reservationId}.pdf`
+    : 'reservation-agreement.pdf';
+  const raLink = document.createElement('a');
+  raLink.href = blobUrl1;
+  raLink.download = raFilename;
+  raLink.click();
 }
 
 // ── Buyer Information Form ────────────────────────────────────────────────────
@@ -1742,16 +1756,19 @@ export async function buildPDFBase64(
 ): Promise<{ base64: string; filename: string }> {
   let client: ClientRecord | null = clientOverride ?? null;
 
+  let reservationClientId: string | null = null;
+
   // Derive client from reservation when not provided explicitly
-  if (documentKey === 'client_registration' && !client && reservationId) {
+  if ((documentKey === 'client_registration' || documentKey === 'reservation_agreement') && reservationId) {
     const { data: res } = await supabase
       .from('reservations')
       .select('client_id')
       .eq('reservation_id', reservationId)
       .maybeSingle();
-    if ((res as any)?.client_id) {
+    reservationClientId = (res as any)?.client_id ?? null;
+    if (documentKey === 'client_registration' && !client && reservationClientId) {
       const all = await fetchAllClients();
-      client = all.find(c => c.client_id === (res as any).client_id) ?? null;
+      client = all.find(c => c.client_id === reservationClientId) ?? null;
     }
   }
 
@@ -1775,10 +1792,13 @@ export async function buildPDFBase64(
   const blob = await fetch(blobUrl).then(r => r.blob());
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onloadend = () => resolve({
-      base64:   (reader.result as string).split(',')[1],
-      filename: PDF_FILENAMES[documentKey] ?? 'document.pdf',
-    });
+    reader.onloadend = () => {
+      let filename = PDF_FILENAMES[documentKey] ?? 'document.pdf';
+      if (documentKey === 'reservation_agreement' && reservationClientId && reservationId) {
+        filename = `RA-${reservationClientId}${reservationId}.pdf`;
+      }
+      resolve({ base64: (reader.result as string).split(',')[1], filename });
+    };
     reader.onerror = () => reject(new Error('Failed to read PDF blob'));
     reader.readAsDataURL(blob);
   });

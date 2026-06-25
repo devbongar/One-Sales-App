@@ -528,6 +528,11 @@ export default function ClientRegistrationPage() {
         c.dial.includes(countrySearch))
     : COUNTRY_CODES;
 
+  const userSalesperson = user?.seller_id ? allSalespersons.find(s => s.seller_id === user.seller_id) ?? null : null;
+  const userBroker      = user?.seller_id && !userSalesperson ? allBrokerRecruits.find(b => b.broker_id === user.seller_id) ?? null : null;
+  const isInhousePS     = userSalesperson?.position_rank === 'PS';
+  const isBrokerUser    = !!userBroker;
+
   const SEE_ALL_ROLES = ['All Access', 'Account Management', 'Finance Verification'];
   const visibleClients = !user || SEE_ALL_ROLES.includes(user.role_name ?? '') || !user.seller_id
     ? allClients
@@ -935,8 +940,8 @@ export default function ClientRegistrationPage() {
                   </DarkInputRow>
                 </DarkSectionCard>
 
-                {/* Megawide Employee */}
-                <div className="rounded-3xl p-4" style={{ background: 'rgba(255,255,255,0.88)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 2px 16px rgba(0,0,0,0.08)' }}>
+                {/* Megawide Employee — Sales Director only */}
+                {user?.role_name === 'Sales Director' && <div className="rounded-3xl p-4" style={{ background: 'rgba(255,255,255,0.88)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)', border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 2px 16px rgba(0,0,0,0.08)' }}>
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
                       <div
@@ -960,11 +965,15 @@ export default function ClientRegistrationPage() {
                       <span className="absolute bg-white rounded-full transition-all duration-300" style={{ width: 24, height: 24, top: 2, left: isMegawideEmployee ? 26 : 2, boxShadow: '0 1px 4px rgba(0,0,0,0.25)' }} />
                     </button>
                   </div>
-                </div>
+                </div>}
 
                 <DarkSectionCard title="Seller Information" zIndex={2}>
                   <div className="grid grid-cols-2 gap-2">
-                    {(['In House', ...(!isMegawideEmployee ? ['Broker'] : [])] as const).map(t => (
+                    {(['In House', 'Broker'] as const).filter(t => {
+                    if (isBrokerUser) return t === 'Broker';
+                    if (isInhousePS || isMegawideEmployee) return t === 'In House';
+                    return true;
+                  }).map(t => (
                       <button key={t} type="button"
                         onClick={() => { if (editMode) { set('sellerType')(t); resetSellerSelections(); } }}
                         className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-semibold transition-all ${

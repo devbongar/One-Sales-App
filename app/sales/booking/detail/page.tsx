@@ -19,7 +19,7 @@ import {
   Building2, Tag, User, ChevronRight,
   Lock, Check, FileText, Loader2, UserCheck, ShieldCheck, ShieldAlert, Heart,
   CheckCircle2, XCircle, Send, Clock, AlertTriangle, Eye, Banknote,
-  RotateCcw, X, ThumbsUp, ThumbsDown,
+  RotateCcw, X, ThumbsUp, ThumbsDown, CalendarCheck,
 } from 'lucide-react';
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -185,6 +185,7 @@ export default function BookingDetailPage() {
   const [financeStatus,      setFinanceStatus]      = useState<string | null>(null);
   const [reservationStatus,  setReservationStatus]  = useState<string | null>(null);
   const [directorFilled,     setDirectorFilled]     = useState(false);
+  const [bookedAt,           setBookedAt]           = useState<string | null>(null);
   const [progress,        setProgress]        = useState<BookingProgress | null>(null);
   const [loading,         setLoading]         = useState(true);
   const [hasCoOwnership,  setHasCoOwnership]  = useState(false);
@@ -203,6 +204,7 @@ export default function BookingDetailPage() {
   const [logOpen,                setLogOpen]                = useState(false);
   const [showRejectSheet,        setShowRejectSheet]        = useState(false);
   const [rejectComment,          setRejectComment]          = useState('');
+  const [showAMDApproveConfirm,  setShowAMDApproveConfirm]  = useState(false);
   const [showAMDRejectSheet,     setShowAMDRejectSheet]     = useState(false);
   const [amdRejectComment,       setAmdRejectComment]       = useState('');
   const [reviewing,              setReviewing]              = useState(false);
@@ -237,13 +239,14 @@ export default function BookingDetailPage() {
       // Fetch finance_status, director_filled and check commission schedule if Booked
       supabase
         .from('reservations')
-        .select('status, finance_status, director_filled')
+        .select('status, finance_status, director_filled, booked_at')
         .eq('reservation_id', r.reservation_id)
         .single()
         .then(({ data }) => {
           setFinanceStatus((data as any)?.finance_status ?? null);
           setReservationStatus((data as any)?.status ?? null);
           setDirectorFilled((data as any)?.director_filled ?? false);
+          setBookedAt((data as any)?.booked_at ?? null);
           const fs = (data as any)?.finance_status ?? null;
           if (['rf-verified', 'dp-verified'].includes(fs) || data?.status === 'Booked') {
             supabase
@@ -560,6 +563,13 @@ export default function BookingDetailPage() {
               </div>
             )}
           </div>
+          {isBooked && bookedAt && (
+            <div className="border-t border-black/[0.06] px-4 py-2.5 flex items-center gap-1.5">
+              <CalendarCheck size={12} className="text-[#C7C7CC]" />
+              <span className="text-xs text-[#6C6C70]">Booked</span>
+              <span className="text-xs font-medium text-[#1C1C1E] ml-auto">{new Date(bookedAt).toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+            </div>
+          )}
         </GlassCard>
 
         {loading ? (
@@ -926,7 +936,7 @@ export default function BookingDetailPage() {
                 <button
                   type="button"
                   disabled={reviewing}
-                  onClick={handleAMDApprove}
+                  onClick={() => setShowAMDApproveConfirm(true)}
                   className="flex-1 py-4 rounded-2xl bg-green-500 text-white text-sm font-bold shadow-[0_4px_16px_rgba(34,197,94,0.3)] active:opacity-70 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {reviewing ? <Loader2 size={15} className="animate-spin" /> : <ThumbsUp size={15} />}
@@ -1156,6 +1166,52 @@ export default function BookingDetailPage() {
                 : 'Confirm Rejection'
               }
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* AMD Approve Confirmation Modal */}
+      {showAMDApproveConfirm && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center px-4 pb-8"
+          style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}>
+          <div className="w-full max-w-sm bg-white rounded-3xl overflow-hidden shadow-2xl">
+            <div className="flex flex-col items-center px-6 pt-7 pb-4 border-b border-black/[0.06]">
+              <div className="w-12 h-12 rounded-full bg-green-50 flex items-center justify-center mb-3">
+                <ThumbsUp size={24} className="text-green-500" />
+              </div>
+              <p className="text-base font-bold text-[#1C1C1E] text-center">Approve Booking?</p>
+              <p className="text-sm text-[#8E8E93] mt-1 text-center leading-relaxed">
+                This will AMD-approve the booking and forward it to Finance.
+              </p>
+            </div>
+            <div className="px-6 py-3 border-b border-black/[0.06] space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-[#8E8E93]">Reservation ID</span>
+                <span className="text-xs font-bold text-[#C03D25]">{reservation?.reservation_id}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-[#8E8E93]">Client</span>
+                <span className="text-xs font-semibold text-[#1C1C1E]">{reservation?.client_name}</span>
+              </div>
+            </div>
+            <div className="flex gap-3 px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setShowAMDApproveConfirm(false)}
+                className="flex-1 py-3 rounded-2xl bg-[#F2F2F7] text-[#3A3A3C] text-sm font-semibold active:opacity-70"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={reviewing}
+                onClick={() => { setShowAMDApproveConfirm(false); handleAMDApprove(); }}
+                className="flex-1 py-3 rounded-2xl bg-green-500 text-white text-sm font-bold shadow-[0_4px_12px_rgba(34,197,94,0.3)] active:opacity-80 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {reviewing ? <Loader2 size={14} className="animate-spin" /> : <ThumbsUp size={14} />}
+                Confirm
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -542,6 +542,7 @@ export interface ReceivableLine {
 
 export interface ReservationReceivableSummary {
   reservation_id:      string;
+  client_id:           string | null;
   client_name:         string;
   inventory_code:      string;
   payment_scheme:      string;
@@ -562,7 +563,7 @@ export async function fetchReceivableSummaries(): Promise<ReservationReceivableS
 
   const { data: lines, error: linesErr } = await supabase
     .from('receivables_database')
-    .select('reservation_id, client_name, inventory_code, due_date, total_amount_due, amount_paid, payment_status')
+    .select('reservation_id, client_id, client_name, inventory_code, due_date, total_amount_due, amount_paid, payment_status')
     .limit(10000);
   if (linesErr) throw linesErr;
   if (!lines || lines.length === 0) return [];
@@ -629,6 +630,7 @@ export async function fetchReceivableSummaries(): Promise<ReservationReceivableS
 
     summaries.push({
       reservation_id,
+      client_id:            first.client_id ?? null,
       client_name:          first.client_name,
       inventory_code:       first.inventory_code,
       payment_scheme:       schemeMap.get(reservation_id) ?? '',

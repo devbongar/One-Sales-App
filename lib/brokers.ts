@@ -53,6 +53,24 @@ export interface BrokerRecruitRecord {
   tin:                          string | null;
   ewt_cwt_rate:                 string | null;
   bir_cor_address:              string | null;
+  signature_base64?:            string | null;
+}
+
+export async function fetchBrokerSignature(brokerId: string): Promise<string | null> {
+  const { data } = await supabase
+    .from('Brokers')
+    .select('"Signature"')
+    .eq('"Broker ID"', brokerId)
+    .maybeSingle();
+  return (data as any)?.['Signature'] ?? null;
+}
+
+export async function updateBrokerSignature(brokerId: string, base64: string | null): Promise<void> {
+  const { error } = await supabase
+    .from('Brokers')
+    .update({ 'Signature': base64 })
+    .eq('"Broker ID"', brokerId);
+  if (error) throw error;
 }
 
 export async function fetchAllBrokerRecruits(): Promise<BrokerRecruitRecord[]> {

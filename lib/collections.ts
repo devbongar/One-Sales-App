@@ -8,6 +8,7 @@ export interface CollectionRecord {
   acknowledgement_receipt_no: string | null;
   sales_invoice_number:       string | null;
   posting_date:               string;
+  transaction_date:           string | null;
   check_no:                   string | null;
   check_date:                 string | null;
   created_at:                 string;
@@ -28,6 +29,7 @@ export interface PostCollectionPayload {
   acknowledgement_receipt_no?: string;
   sales_invoice_number?:       string;
   posting_date:                string;
+  transaction_date?:           string;
   check_no?:                   string;
   check_date?:                 string;
   created_by?:                 string;
@@ -61,6 +63,7 @@ export async function postCollection(
       acknowledgement_receipt_no: payload.acknowledgement_receipt_no ?? null,
       sales_invoice_number:       payload.sales_invoice_number       ?? null,
       posting_date:               payload.posting_date,
+      transaction_date:           payload.transaction_date           ?? null,
       check_no:                   payload.check_no   ?? null,
       check_date:                 payload.check_date ?? null,
       created_by:                 payload.created_by ?? null,

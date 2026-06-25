@@ -852,6 +852,10 @@ function DropdownSettingsOverlay({ onClose }: { onClose: () => void }) {
   const [civilRows, setCivilRows] = useState<OptionRow[]>([]);
   const [deletedCivilKeys, setDeletedCivilKeys] = useState<string[]>([]);
 
+  /* — Business unit state — */
+  const [buRows, setBuRows] = useState<OptionRow[]>([]);
+  const [deletedBuKeys, setDeletedBuKeys] = useState<string[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState(false);
@@ -862,11 +866,12 @@ function DropdownSettingsOverlay({ onClose }: { onClose: () => void }) {
     setLoading(true);
     setLoadError('');
     try {
-      const [fees, positions, genders, civils] = await Promise.all([
+      const [fees, positions, genders, civils, bus] = await Promise.all([
         fetchReservationFees(),
         fetchSalesPositions(),
         fetchDropdownOptions('gender'),
         fetchDropdownOptions('civil_status'),
+        fetchDropdownOptions('business_unit'),
       ]);
       setFeeRows(fees.map((r) => ({
         key: r.unit_type,
@@ -888,6 +893,8 @@ function DropdownSettingsOverlay({ onClose }: { onClose: () => void }) {
       setDeletedGenderKeys([]);
       setCivilRows(civils.map((v) => ({ key: v, originalValue: v, value: v, isNew: false })));
       setDeletedCivilKeys([]);
+      setBuRows(bus.map((v) => ({ key: v, originalValue: v, value: v, isNew: false })));
+      setDeletedBuKeys([]);
     } catch (e: any) {
       console.error('[dropdown-settings] load error:', e);
       setLoadError(e?.message ?? 'Failed to load dropdown settings.');
@@ -940,6 +947,13 @@ function DropdownSettingsOverlay({ onClose }: { onClose: () => void }) {
         .map((r) => r.originalValue);
       await deleteDropdownOptions('civil_status', [...deletedCivilKeys, ...renamedCivilKeys]);
       await saveDropdownOptions('civil_status', civilRows.filter((r) => r.value.trim() !== '').map((r) => r.value.trim()));
+
+      // Save business unit (handle renames)
+      const renamedBuKeys = buRows
+        .filter((r) => !r.isNew && r.originalValue !== r.value.trim())
+        .map((r) => r.originalValue);
+      await deleteDropdownOptions('business_unit', [...deletedBuKeys, ...renamedBuKeys]);
+      await saveDropdownOptions('business_unit', buRows.filter((r) => r.value.trim() !== '').map((r) => r.value.trim()));
 
       await load();
       setSavedMsg(true);
@@ -1010,6 +1024,7 @@ function DropdownSettingsOverlay({ onClose }: { onClose: () => void }) {
 
   const gender = makeOptionHelpers(setGenderRows, setDeletedGenderKeys, 'gender');
   const civil  = makeOptionHelpers(setCivilRows,  setDeletedCivilKeys,  'civil');
+  const bu     = makeOptionHelpers(setBuRows,      setDeletedBuKeys,     'bu');
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#F2F2F7]" style={{ animation: 'overlaySlideUp 0.32s cubic-bezier(0.32,0.72,0,1) both' }}>
@@ -1249,6 +1264,51 @@ function DropdownSettingsOverlay({ onClose }: { onClose: () => void }) {
                   </button>
                 </div>
 
+              </div>
+            </div>
+
+            {/* ── Business Unit section ── */}
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest text-[#8E8E93] px-1 mb-2">
+                Business Unit
+              </p>
+              <div className="rounded-3xl overflow-hidden" style={cardStyle}>
+                <div className="flex items-center px-4 py-3 border-b border-black/[0.06] bg-[#F9FAFB]">
+                  <span className="flex-1 text-xs font-bold uppercase tracking-widest text-[#8E8E93]">
+                    Business Unit
+                  </span>
+                </div>
+                {buRows.map((row) => (
+                  <div key={row.key} className="flex items-center px-4 py-3 gap-3 border-b border-black/[0.06]">
+                    <input
+                      type="text"
+                      value={row.value}
+                      onChange={(e) =>
+                        setBuRows((prev) => prev.map((r) =>
+                          r.key === row.key ? { ...r, value: e.target.value } : r
+                        ))
+                      }
+                      placeholder="e.g. PH1 World Developers, Inc."
+                      className={overlayInputCls + ' flex-1'}
+                    />
+                    <button
+                      onClick={() => bu.deleteRow(row)}
+                      className="p-2 rounded-xl text-[#FF3B30] bg-[#FF3B30]/10 active:bg-[#FF3B30]/20 transition-colors shrink-0"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                ))}
+                {buRows.length === 0 && (
+                  <p className="text-xs text-[#8E8E93] text-center py-4 px-4">No business units configured yet.</p>
+                )}
+                <button
+                  onClick={bu.addRow}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 text-[#C03D25] text-sm font-semibold active:bg-black/[0.03] transition-colors"
+                >
+                  <Plus size={16} />
+                  Add Business Unit
+                </button>
               </div>
             </div>
           </>

@@ -11,7 +11,7 @@ import { generateReservationAgreement, generateBuyerInformationForm, generateTer
 import {
   Building2, Tag, User, FileText,
   CheckCircle2, XCircle, AlertTriangle,
-  ChevronRight, Loader2, X,
+  ChevronRight, Loader2, X, ThumbsUp,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -261,7 +261,8 @@ function BuyerInfoPreviewCard({ b, onPdf }: { b: ReviewBooking; onPdf: (url: str
 export default function DirectorReviewPage() {
   const router = useRouter();
   const [booking,     setBooking]     = useState<ReviewBooking | null>(null);
-  const [rejecting,   setRejecting]   = useState(false);
+  const [rejecting,         setRejecting]         = useState(false);
+  const [showApproveConfirm, setShowApproveConfirm] = useState(false);
   const [rejectNotes, setRejectNotes] = useState('');
   const [saving,      setSaving]      = useState(false);
   const [done,        setDone]        = useState<'approved' | 'rejected' | null>(null);
@@ -480,9 +481,9 @@ export default function DirectorReviewPage() {
                   className="flex-1 py-4 rounded-2xl bg-red-50 text-red-600 text-sm font-bold border border-red-200 active:opacity-70">
                   Reject
                 </button>
-                <button type="button" onClick={handleApprove} disabled={saving}
+                <button type="button" onClick={() => setShowApproveConfirm(true)} disabled={saving}
                   className="flex-1 py-4 rounded-2xl bg-green-500 text-white text-sm font-bold shadow-[0_4px_16px_rgba(34,197,94,0.3)] active:opacity-80 disabled:opacity-40">
-                  {saving ? 'Approving…' : 'Approve'}
+                  Approve
                 </button>
               </div>
             )}
@@ -493,6 +494,52 @@ export default function DirectorReviewPage() {
     </PageShell>
 
     {fileUrl && <FileOverlay url={fileUrl} title={fileTitle} isBlob={fileIsBlob} onClose={closeFile} />}
+
+    {/* AMD Approve Confirmation Modal */}
+    {showApproveConfirm && booking && (
+      <div className="fixed inset-0 z-50 flex items-end justify-center px-4 pb-8"
+        style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}>
+        <div className="w-full max-w-sm bg-white rounded-3xl overflow-hidden shadow-2xl">
+          <div className="flex flex-col items-center px-6 pt-7 pb-4 border-b border-black/[0.06]">
+            <div className="w-12 h-12 rounded-full bg-green-50 flex items-center justify-center mb-3">
+              <ThumbsUp size={24} className="text-green-500" />
+            </div>
+            <p className="text-base font-bold text-[#1C1C1E] text-center">Approve Booking?</p>
+            <p className="text-sm text-[#8E8E93] mt-1 text-center leading-relaxed">
+              This will AMD-approve the booking and forward it to Finance.
+            </p>
+          </div>
+          <div className="px-6 py-3 border-b border-black/[0.06] space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-[#8E8E93]">Reservation ID</span>
+              <span className="text-xs font-bold text-[#C03D25]">{booking.reservation_id}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-[#8E8E93]">Client</span>
+              <span className="text-xs font-semibold text-[#1C1C1E]">{booking.client_name}</span>
+            </div>
+          </div>
+          <div className="flex gap-3 px-6 py-4">
+            <button
+              type="button"
+              onClick={() => setShowApproveConfirm(false)}
+              className="flex-1 py-3 rounded-2xl bg-[#F2F2F7] text-[#3A3A3C] text-sm font-semibold active:opacity-70"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => { setShowApproveConfirm(false); handleApprove(); }}
+              className="flex-1 py-3 rounded-2xl bg-green-500 text-white text-sm font-bold shadow-[0_4px_12px_rgba(34,197,94,0.3)] active:opacity-80 disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {saving ? <Loader2 size={14} className="animate-spin" /> : <ThumbsUp size={14} />}
+              Confirm
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     </>
   );
 }
