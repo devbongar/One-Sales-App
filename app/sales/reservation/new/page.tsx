@@ -433,6 +433,7 @@ export default function NewReservationPage() {
   const [useHIC,          setUseHIC]          = useState(false);
   const [userRole,           setUserRole]           = useState('');
   const [userSellerId,       setUserSellerId]       = useState<string | null>(null);
+  const [sessionLoaded,      setSessionLoaded]      = useState(false);
   const [userSalesperson,    setUserSalesperson]    = useState<SalespersonRecord | null>(null);
   const [userBroker,         setUserBroker]         = useState<BrokerRecruitRecord | null>(null);
   const [allBrokerRecruits,  setAllBrokerRecruits]  = useState<BrokerRecruitRecord[]>([]);
@@ -499,7 +500,10 @@ export default function NewReservationPage() {
 
   // Read user role from session
   useEffect(() => {
-    getSession().then(s => { setUserRole(s?.role_name ?? ''); setUserSellerId(s?.seller_id ?? null); }).catch(() => {});
+    getSession()
+      .then(s => { setUserRole(s?.role_name ?? ''); setUserSellerId(s?.seller_id ?? null); })
+      .catch(() => {})
+      .finally(() => setSessionLoaded(true));
   }, []);
 
   // Resolve logged-in user's salesperson or broker record once lists are loaded
@@ -603,13 +607,13 @@ export default function NewReservationPage() {
     fetchAllClients().then(setAllClients).catch(console.error);
   }, []);
 
-  // Restore selected client after snapshot restore (needs both clients + brokers loaded)
+  // Restore selected client after snapshot restore (needs session + clients + brokers loaded)
   useEffect(() => {
-    if (!restoreClientIdRef.current || allClients.length === 0 || allBrokers.length === 0) return;
+    if (!sessionLoaded || !restoreClientIdRef.current || allClients.length === 0 || allBrokers.length === 0) return;
     const match = allClients.find(c => c.client_id === restoreClientIdRef.current);
     if (match) handleSelectClient(match);
     restoreClientIdRef.current = null;
-  }, [allClients, allBrokers]);
+  }, [sessionLoaded, allClients, allBrokers]);
 
   // Restore reservation snapshot after returning from client registration
   useEffect(() => {
@@ -782,6 +786,7 @@ export default function NewReservationPage() {
     setContact(digits ? `${cc}${digits}` : '');
     setEmail(c.email ?? '');
     setErrors(prev => ({ ...prev, fullName: '', contact: '', email: '' }));
+    setIsMegawide(c.is_megawide_employee ?? false);
 
     // Auto-populate seller from client record
     if (c.seller_type === 'Broker') {
@@ -1362,20 +1367,16 @@ export default function NewReservationPage() {
               </>
             )}
 
-            {/* Megawide Employee */}
+            {/* Megawide Employee — read-only, driven by client record */}
             {(userRole === 'All Access' || userRole === 'Sales Director') && (
-              <button
-                type="button"
-                onClick={() => setIsMegawide(p => !p)}
-                className="w-full flex items-center gap-3 py-3 px-1 active:bg-[#F2F2F7]"
-              >
-                <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
+              <div className="w-full flex items-center gap-3 py-3 px-1 opacity-70">
+                <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 ${
                   isMegawide ? 'border-[#166534] bg-[#166534]' : 'border-[#C7C7CC]'
                 }`}>
                   {isMegawide && <Check size={12} className="text-white" />}
                 </div>
                 <span className={`text-sm font-medium ${isMegawide ? 'text-[#166534]' : 'text-[#1C1C1E]'}`}>Megawide Employee</span>
-              </button>
+              </div>
             )}
           </GlassCard>
 

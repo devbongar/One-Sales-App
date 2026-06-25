@@ -13,8 +13,8 @@ import { getSession } from '@/lib/auth';
 import { triggerEmails } from '@/lib/email';
 import {
   FileText, FolderOpen, CheckCircle2, XCircle,
-  Hash, User, Building2, Tag,
-  Receipt, FileDigit, CalendarDays, AlertTriangle, Loader2,
+  Hash, User, Building2, Tag, LayoutGrid,
+  Receipt, FileDigit, CalendarDays, AlertTriangle, Loader2, Landmark, Clock, BadgeCheck,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -55,9 +55,32 @@ interface FinanceBooking {
   ada_bank:                     string | null;
   first_payment_agreed:         boolean | null;
   proof_of_fdp_urls:            string | null;
+  end_user_financing:           string | null;
+  dp_amount:                    number | null;
+  monthly_deferred:             number | null;
+  monthly_stretched_dp:         number | null;
+  created_at:                   string | null;
+  payment_date:                 string | null;
+  fdp_payment_date:             string | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function daysElapsedLabel(createdAt: string | null): string {
+  if (!createdAt) return '';
+  const days = Math.floor((Date.now() - new Date(createdAt).getTime()) / 86_400_000);
+  if (days === 0) return 'Reserved today';
+  if (days === 1) return '1 day reserved';
+  if (days < 7)  return `${days} days reserved`;
+  if (days < 30) { const w = Math.floor(days / 7); return `${w} wk${w > 1 ? 's' : ''} reserved`; }
+  if (days < 365) { const m = Math.floor(days / 30); return `${m} mo reserved`; }
+  const y = Math.floor(days / 365); return `${y} yr${y > 1 ? 's' : ''} reserved`;
+}
+
+function peso(n: number | null | undefined): string {
+  if (n == null) return '—';
+  return '₱' + n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 
 function parseJson(s: string | null): string[] {
   try { return JSON.parse(s ?? '[]') as string[]; } catch { return []; }
@@ -99,11 +122,11 @@ function FileTile({ url }: { url: string }) {
 // ─── Input field sub-component ────────────────────────────────────────────────
 
 function VerifyInput({
-  icon, label, value, onChange, readOnly, placeholder, type = 'text',
+  icon, label, value, onChange, readOnly, placeholder, type = 'text', max,
 }: {
   icon: React.ReactNode; label: string; value: string;
   onChange: (v: string) => void; readOnly: boolean;
-  placeholder?: string; type?: string;
+  placeholder?: string; type?: string; max?: string;
 }) {
   return (
     <>
@@ -117,6 +140,7 @@ function VerifyInput({
           <input
             type="date"
             value={value}
+            max={max}
             onChange={e => !readOnly && onChange(e.target.value)}
             readOnly={readOnly}
             className={`text-sm text-[#1C1C1E] bg-transparent outline-none text-right ${readOnly ? 'pointer-events-none' : ''}`}
@@ -152,7 +176,7 @@ export default function FinanceVerifyPage() {
   // RF fields
   const [ackReceiptNo,   setAckReceiptNo]   = useState('');
   const [salesInvoiceNo, setSalesInvoiceNo] = useState('');
-  const [dateOfResFee,   setDateOfResFee]   = useState(todayIso());
+  const [dateOfResFee,   setDateOfResFee]   = useState('');
 
   // DP fields
   const [dpAckReceiptNo,   setDpAckReceiptNo]   = useState('');
@@ -160,6 +184,8 @@ export default function FinanceVerifyPage() {
   const [dpDate,           setDpDate]           = useState(todayIso());
 
   const [displayName, setDisplayName] = useState<string | null>(null);
+  const [dpStartDate, setDpStartDate] = useState<string | null>(null);
+  const [dpEndDate,   setDpEndDate]   = useState<string | null>(null);
 
   // Modal states
   const [showApproveConfirm, setShowApproveConfirm] = useState(false);
@@ -177,14 +203,30 @@ export default function FinanceVerifyPage() {
     if (!raw) { router.replace('/finance/buyers-payment'); return; }
     const b = JSON.parse(raw) as FinanceBooking;
     setBooking(b);
-    // RF fields
+    // RF fields — date pre-filled from seller's proof submission
     if (b.acknowledgement_receipt_no) setAckReceiptNo(b.acknowledgement_receipt_no);
     if (b.sales_invoice_no)           setSalesInvoiceNo(b.sales_invoice_no);
     if (b.date_of_reservation_fee)    setDateOfResFee(b.date_of_reservation_fee);
-    // DP fields
+    else if (b.payment_date)          setDateOfResFee(b.payment_date);
+    // DP fields — date pre-filled from seller's proof submission
     if (b.dp_acknowledgement_receipt_no) setDpAckReceiptNo(b.dp_acknowledgement_receipt_no);
     if (b.dp_sales_invoice_no)           setDpSalesInvoiceNo(b.dp_sales_invoice_no);
     if (b.date_of_1st_dp)               setDpDate(b.date_of_1st_dp);
+    else if (b.fdp_payment_date)         setDpDate(b.fdp_payment_date);
+
+    // Fetch DP start/end from receivables
+    supabase
+      .from('receivables_database')
+      .select('due_date')
+      .eq('reservation_id', b.reservation_id)
+      .or('type_of_payment.like.Monthly Deferred%,type_of_payment.like.Monthly DP%')
+      .order('due_date', { ascending: true })
+      .then(({ data: rcv }) => {
+        if (rcv && rcv.length > 0) {
+          setDpStartDate(rcv[0].due_date);
+          setDpEndDate(rcv[rcv.length - 1].due_date);
+        }
+      });
   }, []);
 
 
@@ -511,7 +553,7 @@ export default function FinanceVerifyPage() {
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 rounded-full bg-[rgba(192,61,37,0.1)] flex items-center justify-center shrink-0">
               {dpVerified
-                ? <CheckCircle2 size={24} className="text-green-600" />
+                ? <BadgeCheck size={24} className="text-green-600" />
                 : <Receipt size={24} className="text-[#C03D25]" />
               }
             </div>
@@ -519,41 +561,84 @@ export default function FinanceVerifyPage() {
               <p className="text-[10px] text-[#8E8E93] uppercase tracking-wider font-semibold">Reservation ID</p>
               <p className="text-base font-bold text-[#C03D25] tracking-wider">{booking.reservation_id}</p>
             </div>
-            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider shrink-0 ${
-              dpVerified            ? 'bg-green-100 text-green-700'
-              : rfVerified          ? 'bg-green-100 text-green-700'
-              : isDPPending         ? 'bg-purple-100 text-purple-700'
+            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
+              dpVerified   ? 'bg-green-100 text-green-700'
+              : rfVerified ? 'bg-teal-100 text-teal-700'
+              : isDPPending ? 'bg-purple-100 text-purple-700'
               : 'bg-amber-100 text-amber-700'
             }`}>
               {dpVerified    ? '1st DP Verified'
                : rfVerified  ? 'RF Verified'
                : isDPPending ? '1st DP Pending'
-               : 'RF Verification'}
+               : 'Pending Verification'}
             </span>
           </div>
 
-          <div className="space-y-1.5 pt-1 border-t border-black/[0.06]">
+          <div className="space-y-1 pt-2 border-t border-black/[0.06]">
+            {/* Client name */}
             <div className="flex items-center gap-2">
               <User size={11} className="text-[#C7C7CC] shrink-0" />
               <span className="text-sm font-semibold text-[#1C1C1E]">{booking.client_name}</span>
             </div>
-            <div className="flex items-center gap-2">
-              <Building2 size={11} className="text-[#C7C7CC] shrink-0" />
-              <span className="text-xs text-[#6C6C70]">{booking.project}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Tag size={11} className="text-[#C7C7CC] shrink-0" />
-              <span className="text-xs text-[#6C6C70]">
-                {[booking.tower, booking.floor, booking.unit_no, booking.inventory_code].filter(Boolean).join(' · ') || '—'}
-              </span>
-            </div>
-            {booking.seller_name && (
-              <div className="flex items-center gap-2">
-                <User size={11} className="text-[#C7C7CC] shrink-0" />
-                <span className="text-xs text-[#6C6C70]">{booking.seller_name}</span>
+            {/* Project · Unit code · Unit type */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1.5">
+                <Building2 size={11} className="text-[#C7C7CC] shrink-0" />
+                <span className="text-xs text-[#6C6C70]">{booking.project}</span>
               </div>
-            )}
+              <span className="text-[#C7C7CC] text-[10px]">·</span>
+              <div className="flex items-center gap-1.5">
+                <Tag size={11} className="text-[#C7C7CC] shrink-0" />
+                <span className="text-xs text-[#6C6C70]">{booking.inventory_code ?? '—'}</span>
+              </div>
+              {booking.unit_type && (
+                <>
+                  <span className="text-[#C7C7CC] text-[10px]">·</span>
+                  <div className="flex items-center gap-1.5">
+                    <LayoutGrid size={11} className="text-[#C7C7CC] shrink-0" />
+                    <span className="text-xs text-[#6C6C70]">{booking.unit_type}</span>
+                  </div>
+                </>
+              )}
+            </div>
+            {/* Seller · Days elapsed */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {booking.seller_name && (
+                <div className="flex items-center gap-1.5">
+                  <User size={11} className="text-[#C7C7CC] shrink-0" />
+                  <span className="text-xs text-[#6C6C70]">{booking.seller_name}</span>
+                </div>
+              )}
+              {booking.seller_name && booking.created_at && (
+                <span className="text-[#C7C7CC] text-[10px]">·</span>
+              )}
+              {booking.created_at && (
+                <div className="flex items-center gap-1.5">
+                  <Clock size={11} className="text-[#C7C7CC] shrink-0" />
+                  <span className="text-xs text-[#8E8E93]">{daysElapsedLabel(booking.created_at)}</span>
+                </div>
+              )}
+            </div>
           </div>
+
+          {/* Financial summary */}
+          {booking.total_contract_price != null && (
+            <div className="pt-3 border-t border-black/[0.06] space-y-2">
+              {[
+                { label: 'Total Contract Price', value: peso(booking.total_contract_price) },
+                { label: 'DP Amount',            value: peso(booking.dp_amount) },
+                { label: 'Monthly Amount Due',   value: (booking.monthly_deferred || booking.monthly_stretched_dp) ? `${peso(booking.monthly_deferred || booking.monthly_stretched_dp)}/mo` : '—' },
+                { label: 'Payterm Scheme',       value: booking.scheme_name ?? '—' },
+                { label: 'DP Start Date',        value: dpStartDate ?? '—' },
+                { label: 'DP End Date',          value: dpEndDate   ?? '—' },
+              ].map(({ label, value }) => (
+                <div key={label} className="flex items-center justify-between gap-4">
+                  <span className="text-[11px] text-[#8E8E93]">{label}</span>
+                  <span className="text-[11px] font-semibold text-[#1C1C1E] text-right">{value}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </GlassCard>
 
         {/* ── Reservation Fee Section (always shown) ── */}
@@ -624,7 +709,7 @@ export default function FinanceVerifyPage() {
         )}
 
         {/* Payment Mode Info */}
-        {(booking.rf_payment_mode || booking.subsequent_mode) && (
+        {(booking.rf_payment_mode || booking.subsequent_mode || booking.end_user_financing) && (
           <GlassCard className="px-4 py-1">
             <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider py-2.5 border-b border-black/[0.06]">
               Mode of Payment
@@ -637,17 +722,24 @@ export default function FinanceVerifyPage() {
               </div>
             )}
             {booking.subsequent_mode && (
-              <div className="flex items-center gap-3 py-2.5 border-b border-black/[0.06] last:border-0">
+              <div className={`flex items-center gap-3 py-2.5 ${booking.ada_bank || booking.end_user_financing ? 'border-b border-black/[0.06]' : ''}`}>
                 <CalendarDays size={15} className="text-[#C03D25] shrink-0" />
                 <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Subsequent Payment</span>
                 <span className="text-xs text-right text-[#6C6C70]">{booking.subsequent_mode}</span>
               </div>
             )}
             {booking.ada_bank && (
-              <div className="flex items-center gap-3 py-2.5">
+              <div className={`flex items-center gap-3 py-2.5 ${booking.end_user_financing ? 'border-b border-black/[0.06]' : ''}`}>
                 <Building2 size={15} className="text-[#C03D25] shrink-0" />
                 <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Preferred Bank</span>
                 <span className="text-xs text-right text-[#6C6C70]">{booking.ada_bank}</span>
+              </div>
+            )}
+            {booking.end_user_financing && (
+              <div className="flex items-center gap-3 py-2.5">
+                <Landmark size={15} className="text-[#C03D25] shrink-0" />
+                <span className="flex-1 text-sm font-medium text-[#1C1C1E]">End User Financing</span>
+                <span className="text-xs text-right text-[#6C6C70]">{booking.end_user_financing}</span>
               </div>
             )}
           </GlassCard>
@@ -675,11 +767,12 @@ export default function FinanceVerifyPage() {
           />
           <VerifyInput
             icon={<CalendarDays size={15}/>}
-            label="Date of Reservation Fee"
+            label="RF Payment Date"
             value={dateOfResFee}
             onChange={setDateOfResFee}
             readOnly={rfVerified || isDPPending}
             type="date"
+            max={todayIso()}
           />
         </GlassCard>
 
@@ -708,7 +801,7 @@ export default function FinanceVerifyPage() {
               />
               <VerifyInput
                 icon={<CalendarDays size={15}/>}
-                label="Date of 1st Down Payment"
+                label="1st DP Payment Date"
                 value={dpDate}
                 onChange={setDpDate}
                 readOnly={dpVerified}
@@ -806,7 +899,7 @@ export default function FinanceVerifyPage() {
                     <span className="text-xs font-semibold text-[#1C1C1E]">{salesInvoiceNo}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-[#8E8E93]">Date of RF</span>
+                    <span className="text-xs text-[#8E8E93]">RF Payment Date</span>
                     <span className="text-xs font-semibold text-[#1C1C1E]">{fmtDate(dateOfResFee)}</span>
                   </div>
                   <div className="flex items-center justify-between">
@@ -818,7 +911,7 @@ export default function FinanceVerifyPage() {
                     <span className="text-xs font-semibold text-[#1C1C1E]">{dpSalesInvoiceNo}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-[#8E8E93]">Date of 1st DP</span>
+                    <span className="text-xs text-[#8E8E93]">1st DP Payment Date</span>
                     <span className="text-xs font-semibold text-[#1C1C1E]">{fmtDate(dpDate)}</span>
                   </div>
                 </>
@@ -833,7 +926,7 @@ export default function FinanceVerifyPage() {
                     <span className="text-xs font-semibold text-[#1C1C1E]">{dpSalesInvoiceNo}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-[#8E8E93]">Date of 1st DP</span>
+                    <span className="text-xs text-[#8E8E93]">1st DP Payment Date</span>
                     <span className="text-xs font-semibold text-[#1C1C1E]">{fmtDate(dpDate)}</span>
                   </div>
                 </>
@@ -848,7 +941,7 @@ export default function FinanceVerifyPage() {
                     <span className="text-xs font-semibold text-[#1C1C1E]">{salesInvoiceNo}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-[#8E8E93]">Date of RF</span>
+                    <span className="text-xs text-[#8E8E93]">RF Payment Date</span>
                     <span className="text-xs font-semibold text-[#1C1C1E]">{fmtDate(dateOfResFee)}</span>
                   </div>
                 </>

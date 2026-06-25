@@ -8,7 +8,7 @@ import {
   Receipt, CalendarDays, Upload, Camera, ScanLine,
   ImagePlus, X, AlertTriangle, Loader2, Check, CheckCircle2,
   User, Building2, Tag, LayoutGrid, BadgeCheck, FileText,
-  ChevronDown, CreditCard, ShieldCheck, Clock,
+  ChevronDown, CreditCard, ShieldCheck, Clock, Landmark,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { generateReservationId, saveReservation, uploadPaymentProof, uploadDocumentFile, updateReservationPayment, updateReservationStatus } from '@/lib/reservations';
@@ -18,6 +18,7 @@ import { markQuotationConverted } from '@/lib/quotations';
 import { triggerEmails } from '@/lib/email';
 import { addActivityLog } from '@/lib/activity-log';
 import { getSession } from '@/lib/auth';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 
 const MAX_FILES     = 5;
 const MAX_DOC_FILES = 3;
@@ -54,6 +55,11 @@ interface SelectedReservation {
   seller_name: string | null;
   payment_proof_url: string | null;
   created_at: string | null;
+}
+
+function peso(n: number | null | undefined): string {
+  if (n == null) return '—';
+  return '₱' + n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function daysElapsedLabel(createdAt: string | null): string {
@@ -121,7 +127,7 @@ export default function ProofOfPaymentPage() {
   const [reservationId, setReservationId] = useState('');
   const [reservation,   setReservation]   = useState<SelectedReservation | null>(null);
   const [fromList,      setFromList]      = useState(false);
-  const [paymentDate,   setPaymentDate]   = useState(today());
+  const [paymentDate,   setPaymentDate]   = useState('');
 
   // New-blob uploads
   const [files,       setFiles]       = useState<UploadedFile[]>([]);
@@ -146,6 +152,16 @@ export default function ProofOfPaymentPage() {
   const [adaBank,             setAdaBank]             = useState('');
   const [modeDropdownOpen,    setModeDropdownOpen]    = useState(false);
   const [adaBankDropdownOpen, setAdaBankDropdownOpen] = useState(false);
+  const [endUserFinancing,    setEndUserFinancing]    = useState('');
+  const [fdpPaymentDate,      setFdpPaymentDate]      = useState('');
+
+  // Financial summary (loaded from DB or pendingPayload)
+  const [totalContractPrice, setTotalContractPrice] = useState<number | null>(null);
+  const [dpAmount,           setDpAmount]           = useState<number | null>(null);
+  const [monthlyAmountDue,   setMonthlyAmountDue]   = useState<number | null>(null);
+  const [paytermScheme,      setPaytermScheme]      = useState<string | null>(null);
+  const [dpStartDate,        setDpStartDate]        = useState<string | null>(null);
+  const [dpEndDate,          setDpEndDate]          = useState<string | null>(null);
   const [showOptions,         setShowOptions]         = useState(false);
   const [activeUploadTarget,  setActiveUploadTarget]  = useState<UploadTarget>('payment');
   const [showConfirm,         setShowConfirm]         = useState(false);
@@ -199,6 +215,10 @@ export default function ProofOfPaymentPage() {
         try {
           const payload = JSON.parse(pending);
           setFirstPaymentAgreed(payload.first_payment_agreed ?? false);
+          setTotalContractPrice(payload.total_contract_price ?? null);
+          setDpAmount(payload.dp_amount ?? null);
+          setMonthlyAmountDue(payload.monthly_deferred || payload.monthly_stretched_dp || null);
+          setPaytermScheme(payload.scheme_name ?? null);
         } catch {}
       }
     }
@@ -208,7 +228,7 @@ export default function ProofOfPaymentPage() {
   async function loadExistingData(id: string) {
     const { data, error } = await supabase
       .from('reservations')
-      .select('subsequent_mode, ada_bank, payment_proof_url, proof_of_billing_urls, proof_of_income_urls, proof_of_valid_id_urls, payment_date, rf_payment_mode, proof_of_fdp_urls, finance_rejection_reason')
+      .select('subsequent_mode, ada_bank, payment_proof_url, proof_of_billing_urls, proof_of_income_urls, proof_of_valid_id_urls, payment_date, rf_payment_mode, proof_of_fdp_urls, fdp_payment_date, finance_rejection_reason, total_contract_price, dp_amount, monthly_deferred, monthly_stretched_dp, scheme_name, end_user_financing')
       .eq('reservation_id', id)
       .single();
     if (error) throw error;
@@ -226,6 +246,24 @@ export default function ProofOfPaymentPage() {
     setPreservedIncomeUrls(parse(data.proof_of_income_urls));
     setExistingValidIdUrls(parse(data.proof_of_valid_id_urls));
     setExistingFdpUrls(parse(data.proof_of_fdp_urls));
+    setTotalContractPrice(data.total_contract_price ?? null);
+    setDpAmount(data.dp_amount ?? null);
+    setMonthlyAmountDue(data.monthly_deferred || data.monthly_stretched_dp || null);
+    setPaytermScheme(data.scheme_name ?? null);
+    if (data.end_user_financing) setEndUserFinancing(data.end_user_financing);
+    if (data.fdp_payment_date)   setFdpPaymentDate(data.fdp_payment_date);
+
+    // Fetch DP start/end dates from receivables (both naming patterns)
+    const { data: rcv } = await supabase
+      .from('receivables_database')
+      .select('due_date')
+      .eq('reservation_id', id)
+      .or('type_of_payment.like.Monthly Deferred%,type_of_payment.like.Monthly DP%')
+      .order('due_date', { ascending: true });
+    if (rcv && rcv.length > 0) {
+      setDpStartDate(rcv[0].due_date);
+      setDpEndDate(rcv[rcv.length - 1].due_date);
+    }
   }
 
   // ── Auto-fetch when viewing a paid / pending-review / booked reservation ──
@@ -414,8 +452,10 @@ export default function ProofOfPaymentPage() {
 
       await supabase.from('reservations')
         .update({
-          rf_payment_mode:   reservationPaymentMode || null,
-          proof_of_fdp_urls: firstPaymentAgreed ? JSON.stringify(mergedFdp) : null,
+          rf_payment_mode:    reservationPaymentMode || null,
+          proof_of_fdp_urls:  firstPaymentAgreed ? JSON.stringify(mergedFdp) : null,
+          fdp_payment_date:   firstPaymentAgreed ? fdpPaymentDate || null : null,
+          end_user_financing: endUserFinancing || null,
         })
         .eq('reservation_id', activeId);
 
@@ -452,9 +492,12 @@ export default function ProofOfPaymentPage() {
   const totalPaymentFiles = existingPaymentUrls.length + files.length;
   const totalValidIdFiles = existingValidIdUrls.length + validIdFiles.length;
 
+  const totalFdpFiles = existingFdpUrls.length + fdpFiles.length;
+
   const canConfirm = totalPaymentFiles > 0 && !!paymentDate
-    && !!subsequentMode && (!adaSelected || !!adaBank)
-    && totalValidIdFiles > 0;
+    && !!reservationPaymentMode && !!subsequentMode && (!adaSelected || !!adaBank)
+    && totalValidIdFiles > 0 && !!endUserFinancing
+    && (!firstPaymentAgreed || (totalFdpFiles > 0 && !!fdpPaymentDate));
 
   // Doc section helper
   const docSections = [
@@ -469,7 +512,7 @@ export default function ProofOfPaymentPage() {
   ];
 
   return (
-    <PageShell title="Proof of Reservation Payment" backButton={fromList} onBack={fromList ? () => router.back() : undefined}>
+    <PageShell title="Proof of Reservation Payment" backButton onBack={() => router.back()}>
 
       {/* Hero card */}
       <GlassCard className="p-5 space-y-4">
@@ -503,37 +546,66 @@ export default function ProofOfPaymentPage() {
         </div>
 
         {reservation && (
-          <div className="space-y-1.5 pt-1 border-t border-black/[0.06]">
+          <div className="space-y-1 pt-2 border-t border-black/[0.06]">
+            {/* Client name */}
             <div className="flex items-center gap-2">
               <User size={11} className="text-[#C7C7CC] shrink-0" />
               <span className="text-sm font-semibold text-[#1C1C1E]">{reservation.client_name}</span>
             </div>
-            <div className="flex items-center gap-2">
-              <Building2 size={11} className="text-[#C7C7CC] shrink-0" />
-              <span className="text-xs text-[#6C6C70]">{reservation.project}</span>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
+            {/* Project · Unit code · Unit type */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1.5">
+                <Building2 size={11} className="text-[#C7C7CC] shrink-0" />
+                <span className="text-xs text-[#6C6C70]">{reservation.project}</span>
+              </div>
+              <span className="text-[#C7C7CC] text-[10px]">·</span>
+              <div className="flex items-center gap-1.5">
                 <Tag size={11} className="text-[#C7C7CC] shrink-0" />
                 <span className="text-xs text-[#6C6C70]">{reservation.inventory_code ?? '—'}</span>
               </div>
-              <div className="flex items-center gap-2">
+              <span className="text-[#C7C7CC] text-[10px]">·</span>
+              <div className="flex items-center gap-1.5">
                 <LayoutGrid size={11} className="text-[#C7C7CC] shrink-0" />
                 <span className="text-xs text-[#6C6C70]">{reservation.unit_type}</span>
               </div>
             </div>
-            {reservation.seller_name && (
-              <div className="flex items-center gap-2">
-                <User size={11} className="text-[#C7C7CC] shrink-0" />
-                <span className="text-xs text-[#6C6C70]">{reservation.seller_name}</span>
+            {/* Seller · Days elapsed */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {reservation.seller_name && (
+                <div className="flex items-center gap-1.5">
+                  <User size={11} className="text-[#C7C7CC] shrink-0" />
+                  <span className="text-xs text-[#6C6C70]">{reservation.seller_name}</span>
+                </div>
+              )}
+              {reservation.seller_name && reservation.created_at && (
+                <span className="text-[#C7C7CC] text-[10px]">·</span>
+              )}
+              {reservation.created_at && (
+                <div className="flex items-center gap-1.5">
+                  <Clock size={11} className="text-[#C7C7CC] shrink-0" />
+                  <span className="text-xs text-[#8E8E93]">{daysElapsedLabel(reservation.created_at)}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Financial summary */}
+        {(totalContractPrice != null || paytermScheme) && (
+          <div className="pt-3 border-t border-black/[0.06] space-y-2">
+            {[
+              { label: 'Total Contract Price', value: peso(totalContractPrice) },
+              { label: 'DP Amount',             value: peso(dpAmount) },
+              { label: 'Monthly Amount Due',    value: monthlyAmountDue ? `${peso(monthlyAmountDue)}/mo` : '—' },
+              { label: 'Payterm Scheme',        value: paytermScheme ?? '—' },
+              { label: 'DP Start Date',         value: dpStartDate ?? '—' },
+              { label: 'DP End Date',           value: dpEndDate   ?? '—' },
+            ].map(({ label, value }) => (
+              <div key={label} className="flex items-center justify-between gap-4">
+                <span className="text-[11px] text-[#8E8E93]">{label}</span>
+                <span className="text-[11px] font-semibold text-[#1C1C1E] text-right">{value}</span>
               </div>
-            )}
-            {reservation.created_at && (
-              <div className="flex items-center gap-2">
-                <Clock size={11} className="text-[#C7C7CC] shrink-0" />
-                <span className="text-xs text-[#8E8E93]">{daysElapsedLabel(reservation.created_at)}</span>
-              </div>
-            )}
+            ))}
           </div>
         )}
 
@@ -613,15 +685,15 @@ export default function ProofOfPaymentPage() {
               )}
             </div>
 
-            {/* Payment Date */}
+            {/* RF Payment Date */}
             <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
               <CalendarDays size={16} className="text-[#C03D25] shrink-0" />
-              <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Payment Date</span>
+              <span className="flex-1 text-sm font-medium text-[#1C1C1E]">RF Payment Date</span>
               <span className="text-sm text-[#6C6C70]">{paymentDate || '—'}</span>
             </div>
 
             {/* Proof of Payment */}
-            <div className={`py-3 px-1 space-y-2 ${firstPaymentAgreed ? 'border-b border-black/[0.06]' : ''}`}>
+            <div className="py-3 px-1 space-y-2">
               <div className="flex items-center gap-3">
                 <Receipt size={16} className="text-[#C03D25] shrink-0" />
                 <span className="text-sm font-medium text-[#1C1C1E] flex-1">Proof of Payment</span>
@@ -652,8 +724,16 @@ export default function ProofOfPaymentPage() {
               )}
             </div>
 
-            {/* Proof of First Downpayment */}
-            {firstPaymentAgreed && (
+          </GlassCard>
+
+          {/* FDP read-only card */}
+          {firstPaymentAgreed && (
+            <GlassCard className="px-4 py-1">
+              <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
+                <CalendarDays size={16} className="text-[#C03D25] shrink-0" />
+                <span className="flex-1 text-sm font-medium text-[#1C1C1E]">1st DP Payment Date</span>
+                <span className="text-sm text-[#6C6C70]">{fdpPaymentDate || '—'}</span>
+              </div>
               <div className="py-3 px-1 space-y-2">
                 <div className="flex items-center gap-3">
                   <Receipt size={16} className="text-[#C03D25] shrink-0" />
@@ -684,40 +764,52 @@ export default function ProofOfPaymentPage() {
                   <p className="text-xs text-[#C7C7CC] px-1">No files uploaded</p>
                 )}
               </div>
-            )}
+            </GlassCard>
+          )}
 
-          </GlassCard>
-
-          {/* Card 2: Subsequent Mode + ADA Bank */}
-          {subsequentMode && (
+          {/* Card 2: Subsequent Mode + ADA Bank + End User Financing */}
+          {(subsequentMode || endUserFinancing) && (
             <GlassCard className="px-4 py-1">
-              <div className={`py-3 px-1 space-y-2 ${adaBank ? 'border-b border-black/[0.06]' : ''}`}>
-                <p className="text-xs font-semibold text-[#8E8E93] flex items-center gap-1.5">
-                  <CreditCard size={11} className="text-[#8E8E93]" />
-                  Subsequent Mode of Payment
-                </p>
-                <div className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.06] bg-white">
-                  <span className="text-sm text-[#1C1C1E]">{subsequentMode}</span>
+              {subsequentMode && (
+                <div className={`py-3 px-1 space-y-2 ${adaBank || endUserFinancing ? 'border-b border-black/[0.06]' : ''}`}>
+                  <p className="text-xs font-semibold text-[#8E8E93] flex items-center gap-1.5">
+                    <CreditCard size={11} className="text-[#8E8E93]" />
+                    Subsequent Mode of Payment
+                  </p>
+                  <div className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.06] bg-white">
+                    <span className="text-sm text-[#1C1C1E]">{subsequentMode}</span>
+                  </div>
+                  {subsequentMode === 'Straight Cash or Check Payment' && (
+                    <p className="text-[11px] text-[#8E8E93] bg-[#F2F2F7] rounded-xl px-3 py-2">
+                      Please make a check payable to the company.
+                    </p>
+                  )}
+                  {subsequentMode === 'Post-Dated Checks (PDC)' && (
+                    <p className="text-[11px] text-[#8E8E93] bg-[#F2F2F7] rounded-xl px-3 py-2">
+                      Please submit all the PDC payable to the company.
+                    </p>
+                  )}
                 </div>
-                {subsequentMode === 'Straight Cash or Check Payment' && (
-                  <p className="text-[11px] text-[#8E8E93] bg-[#F2F2F7] rounded-xl px-3 py-2">
-                    Please make a check payable to the company.
-                  </p>
-                )}
-                {subsequentMode === 'Post-Dated Checks (PDC)' && (
-                  <p className="text-[11px] text-[#8E8E93] bg-[#F2F2F7] rounded-xl px-3 py-2">
-                    Please submit all the PDC payable to the company.
-                  </p>
-                )}
-              </div>
+              )}
               {adaBank && (
-                <div className="py-3 px-1 space-y-2">
+                <div className={`py-3 px-1 space-y-2 ${endUserFinancing ? 'border-b border-black/[0.06]' : ''}`}>
                   <p className="text-xs font-semibold text-[#8E8E93] flex items-center gap-1.5">
                     <Building2 size={11} className="text-[#8E8E93]" />
                     Preferred Bank
                   </p>
                   <div className="w-full flex items-center px-3 py-2.5 rounded-xl border border-black/[0.06] bg-white">
                     <span className="text-sm text-[#1C1C1E]">{adaBank}</span>
+                  </div>
+                </div>
+              )}
+              {endUserFinancing && (
+                <div className="py-3 px-1 space-y-2">
+                  <p className="text-xs font-semibold text-[#8E8E93] flex items-center gap-1.5">
+                    <Landmark size={11} className="text-[#8E8E93]" />
+                    End User Financing
+                  </p>
+                  <div className="w-full flex items-center px-3 py-2.5 rounded-xl border border-black/[0.06] bg-white">
+                    <span className="text-sm text-[#1C1C1E]">{endUserFinancing}</span>
                   </div>
                 </div>
               )}
@@ -735,6 +827,7 @@ export default function ProofOfPaymentPage() {
             <p className="text-xs font-semibold text-[#8E8E93] flex items-center gap-1.5">
               <CreditCard size={11} className="text-[#8E8E93]" />
               Reservation Mode of Payment
+              <span className="text-[#C03D25] text-xs leading-none">*</span>
             </p>
             <button
               type="button"
@@ -859,88 +952,123 @@ export default function ProofOfPaymentPage() {
             );
           })}
 
-          {/* Payment Date */}
+          {/* RF Payment Date */}
           <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
             <CalendarDays size={16} className="text-[#C03D25] shrink-0" />
-            <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Payment Date</span>
+            <div className="flex-1 flex items-center gap-1.5">
+              <span className="text-sm font-medium text-[#1C1C1E] flex items-center gap-0.5">
+                RF Payment Date
+                <span className="text-[#C03D25] text-xs leading-none">*</span>
+              </span>
+              <span className="text-[10px] text-[#C7C7CC]">Choose a date</span>
+            </div>
             <input
               type="date"
               value={paymentDate}
+              max={today()}
               onChange={e => setPaymentDate(e.target.value)}
               className="text-sm text-[#1C1C1E] bg-transparent outline-none text-right"
             />
           </div>
 
-          {/* Existing + new proof thumbnails */}
-          {(existingPaymentUrls.length > 0 || files.length > 0) && (
-            <div className="px-1 pt-3 pb-2 grid grid-cols-3 gap-2">
-              {existingPaymentUrls.map((url, i) => (
-                <ExistingThumb key={`ex-${i}`} url={url}
-                  onRemove={() => setExistingPaymentUrls(prev => prev.filter((_, j) => j !== i))} />
-              ))}
-              {files.map((f, i) => (
-                <div key={`new-${i}`} className="relative aspect-square rounded-xl overflow-hidden border border-black/[0.08]">
-                  <img src={f.preview} alt={f.name} className="w-full h-full object-cover" />
-                  <button type="button" onClick={() => removeNewFile('payment', i)}
-                    className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center">
-                    <X size={10} className="text-white" />
-                  </button>
-                </div>
-              ))}
+          {/* Proof of Payment */}
+          <div className="border-b border-black/[0.06] py-3 px-1 space-y-2">
+            <div className="flex items-center gap-3">
+              <Receipt size={16} className="text-[#C03D25] shrink-0" />
+              <span className="text-sm font-medium text-[#1C1C1E] flex-1 flex items-center gap-0.5">
+                Proof of Payment
+                <span className="text-[#C03D25] text-xs leading-none">*</span>
+              </span>
+              {totalPaymentFiles > 0 && <span className="text-xs text-[#8E8E93]">{totalPaymentFiles}/{MAX_FILES}</span>}
             </div>
-          )}
-
-          {/* Upload button */}
-          {totalPaymentFiles < MAX_FILES ? (
-            <div className="py-3 px-1 border-b border-black/[0.06]">
-              <button type="button" onClick={() => openUpload('payment')}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-dashed border-[#C03D25]/40 text-[#C03D25] text-sm font-semibold active:bg-[#C03D25]/5">
-                <Upload size={16} />
-                {totalPaymentFiles === 0 ? 'Upload Proof of Payment' : `Add More (${totalPaymentFiles}/${MAX_FILES})`}
-              </button>
-            </div>
-          ) : (
-            <p className="text-center text-xs text-[#8E8E93] py-3 border-b border-black/[0.06]">Maximum {MAX_FILES} files uploaded</p>
-          )}
-
-          {/* Proof of First Downpayment — only if first_payment_agreed */}
-          {firstPaymentAgreed && (() => {
-            const totalFdp = existingFdpUrls.length + fdpFiles.length;
-            const canAddFdp = totalFdp < MAX_FILES;
-            return (
-              <div className="py-3 px-1 space-y-2">
-                <div className="flex items-center gap-2">
-                  <Receipt size={13} className="text-[#C03D25] shrink-0" />
-                  <span className="text-xs font-semibold text-[#8E8E93] flex-1">Proof of First Downpayment</span>
-                  {totalFdp > 0 && <span className="text-xs text-[#8E8E93]">{totalFdp}/{MAX_FILES}</span>}
-                </div>
-                {totalFdp > 0 && (
-                  <div className="grid grid-cols-3 gap-2">
-                    {existingFdpUrls.map((url, i) => (
-                      <ExistingThumb key={`ex-fdp-${i}`} url={url}
-                        onRemove={() => setExistingFdpUrls(prev => prev.filter((_, j) => j !== i))} />
-                    ))}
-                    {fdpFiles.map((f, i) => (
-                      <div key={`new-fdp-${i}`} className="relative aspect-square rounded-xl overflow-hidden border border-black/[0.08]">
-                        <img src={f.preview} alt={f.name} className="w-full h-full object-cover" />
-                        <button type="button" onClick={() => removeNewFile('fdp', i)}
-                          className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center">
-                          <X size={10} className="text-white" />
-                        </button>
-                      </div>
-                    ))}
+            {(existingPaymentUrls.length > 0 || files.length > 0) && (
+              <div className="grid grid-cols-3 gap-2">
+                {existingPaymentUrls.map((url, i) => (
+                  <ExistingThumb key={`ex-${i}`} url={url}
+                    onRemove={() => setExistingPaymentUrls(prev => prev.filter((_, j) => j !== i))} />
+                ))}
+                {files.map((f, i) => (
+                  <div key={`new-${i}`} className="relative aspect-square rounded-xl overflow-hidden border border-black/[0.08]">
+                    <img src={f.preview} alt={f.name} className="w-full h-full object-cover" />
+                    <button type="button" onClick={() => removeNewFile('payment', i)}
+                      className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center">
+                      <X size={10} className="text-white" />
+                    </button>
                   </div>
-                )}
-                {canAddFdp && (
-                  <button type="button" onClick={() => openUpload('fdp')}
-                    className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-dashed border-[#C03D25]/40 text-[#C03D25] text-sm font-semibold active:bg-[#C03D25]/5">
-                    <Upload size={16} />
-                    {totalFdp === 0 ? 'Upload Proof of First Downpayment' : `Add More (${totalFdp}/${MAX_FILES})`}
-                  </button>
-                )}
+                ))}
               </div>
-            );
-          })()}
+            )}
+            {totalPaymentFiles < MAX_FILES ? (
+              <button type="button" onClick={() => openUpload('payment')}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl border-2 border-dashed border-[#C03D25]/40 text-[#C03D25] text-xs font-semibold active:bg-[#C03D25]/5">
+                <Upload size={13} />
+                {totalPaymentFiles === 0 ? 'Upload Proof of Payment' : 'Add More'}
+              </button>
+            ) : (
+              <p className="text-center text-xs text-[#8E8E93]">Maximum {MAX_FILES} files uploaded</p>
+            )}
+          </div>
+
+        </GlassCard>
+      )}
+
+      {/* Proof of First Downpayment — separate card */}
+      {firstPaymentAgreed && (!alreadyPaid || editMode || (alreadyPaid && !reservation?.finance_status)) && !isApproved && (
+        <GlassCard className="px-4 py-1">
+          {/* 1st DP Payment Date */}
+          <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
+            <CalendarDays size={16} className="text-[#C03D25] shrink-0" />
+            <div className="flex-1 flex items-center gap-1.5">
+              <span className="text-sm font-medium text-[#1C1C1E] flex items-center gap-0.5">
+                1st DP Payment Date
+                <span className="text-[#C03D25] text-xs leading-none">*</span>
+              </span>
+              <span className="text-[10px] text-[#C7C7CC]">Choose a date</span>
+            </div>
+            <input
+              type="date"
+              value={fdpPaymentDate}
+              max={today()}
+              onChange={e => setFdpPaymentDate(e.target.value)}
+              className="text-sm text-[#1C1C1E] bg-transparent outline-none text-right"
+            />
+          </div>
+
+          {/* Proof of First Downpayment upload */}
+          <div className="py-3 px-1 space-y-2">
+            <div className="flex items-center gap-3">
+              <Receipt size={16} className="text-[#C03D25] shrink-0" />
+              <span className="text-sm font-medium text-[#1C1C1E] flex-1 flex items-center gap-0.5">
+                Proof of First Downpayment
+                <span className="text-[#C03D25] text-xs leading-none">*</span>
+              </span>
+              {totalFdpFiles > 0 && <span className="text-xs text-[#8E8E93]">{totalFdpFiles}/{MAX_FILES}</span>}
+            </div>
+            {totalFdpFiles > 0 && (
+              <div className="grid grid-cols-3 gap-2">
+                {existingFdpUrls.map((url, i) => (
+                  <ExistingThumb key={`ex-fdp-${i}`} url={url}
+                    onRemove={() => setExistingFdpUrls(prev => prev.filter((_, j) => j !== i))} />
+                ))}
+                {fdpFiles.map((f, i) => (
+                  <div key={`new-fdp-${i}`} className="relative aspect-square rounded-xl overflow-hidden border border-black/[0.08]">
+                    <img src={f.preview} alt={f.name} className="w-full h-full object-cover" />
+                    <button type="button" onClick={() => removeNewFile('fdp', i)}
+                      className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center">
+                      <X size={10} className="text-white" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {totalFdpFiles < MAX_FILES && (
+              <button type="button" onClick={() => openUpload('fdp')}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl border-2 border-dashed border-[#C03D25]/40 text-[#C03D25] text-xs font-semibold active:bg-[#C03D25]/5">
+                <Upload size={13} />
+                {totalFdpFiles === 0 ? 'Upload Proof of First Downpayment' : 'Add More'}
+              </button>
+            )}
+          </div>
         </GlassCard>
       )}
 
@@ -1043,6 +1171,20 @@ export default function ProofOfPaymentPage() {
           <p className="text-[11px] text-[#8E8E93] leading-relaxed text-center px-2">
             Please ensure that you have selected the correct mode of payment for the reservation and subsequent payments, including the corresponding preferred bank of the client. All required documents must be uploaded before proceeding with the payment.
           </p>
+          <GlassCard className="px-4 py-3 space-y-2">
+            <div className="flex items-center gap-1.5">
+              <Landmark size={13} className="text-[#8E8E93] shrink-0" />
+              <span className="text-xs font-semibold text-[#8E8E93]">End User Financing</span>
+              <span className="text-[#C03D25] text-xs leading-none">*</span>
+            </div>
+            <SearchableSelect
+              value={endUserFinancing}
+              onChange={setEndUserFinancing}
+              options={['Bank', 'HDMF']}
+              placeholder="Select financing type"
+              dropUp
+            />
+          </GlassCard>
           <button
             type="button"
             disabled={!canConfirm}

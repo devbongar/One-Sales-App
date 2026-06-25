@@ -20,10 +20,11 @@ type SearchableSelectProps = (SingleProps | MultiProps) & {
   placeholder?: string;
   disabled?:    boolean;
   align?:       'left' | 'right';
+  dropUp?:      boolean;
 };
 
 export default function SearchableSelect(props: SearchableSelectProps) {
-  const { options, placeholder = 'All', disabled = false, align = 'left' } = props;
+  const { options, placeholder = 'All', disabled = false, align = 'left', dropUp = false } = props;
   const [open,  setOpen]  = useState(false);
   const [query, setQuery] = useState('');
 
@@ -108,7 +109,7 @@ export default function SearchableSelect(props: SearchableSelectProps) {
         <div
           className="absolute z-50 rounded-xl overflow-hidden bg-white"
           style={{
-            top: 'calc(100% + 4px)',
+            ...(dropUp ? { bottom: 'calc(100% + 4px)' } : { top: 'calc(100% + 4px)' }),
             ...(align === 'right' ? { right: 0 } : { left: 0 }),
             minWidth: '100%',
             width: 'max-content',

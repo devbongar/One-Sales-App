@@ -513,33 +513,37 @@ const RESERVATION_TERMS = [
   {
     title: 'RESERVATION PROVISION',
     items: [
-      `1. As proof of my interest to purchase the Property, I hereby tender the sum of: PHP {{RESERVATION_FEE}} as Reservation Fee, exclusive of VAT, in order to reserve the Property for our intended purchase which shall be effective for a period of thirty (30) days from delivery of the Reservation Fee. I understand and acknowledge that the Reservation Fee is non-refundable. Should I decide to cancel my reservation; fail to submit all the documentary requirements, including this Reservation Agreement; or fail to pay the amounts due on the prescribed due dates, for any reason whatsoever, I agree that my reservation shall lapse and my Reservation Fee shall be forfeited in favor of the Company.`,
-      `2. I acknowledge that the Company reserves the right to accept or deny this request for reservation and that it is non-transferable. Subject to a written request by me, the Company, at its sole discretion, may extend this reservation for a period of more than fifteen (15) days within which to make the down payment, provided that I shall incur a penalty charge of three percent (3%) per month, or a fraction thereof.`,
-      `3. In the event the Property is found unavailable for sale for any reason whatsoever, I agree to hold the Company free and harmless from any liability and it shall have the option of exchanging the Property with another similar unit/lot/property, as applicable, or otherwise cancel this Reservation Agreement.`,
+      `1. As proof of my interest to purchase the Property, I hereby tender the sum of: PHP {{RESERVATION_FEE}} as Reservation Fee, exclusive of VAT, in order to reserve the Property for our intended purchase which shall be effective for a period of thirty (30) days from delivery of the Reservation Fee. I understand and acknowledge that the Reservation Fee is non-refundable. Should I decide to cancel my reservation, fail to submit all the documentary requirements, including this Reservation Agreement; or fail to pay the amounts due on the due dates prescribed, for any reason whatsoever, I agree that my reservation shall lapse and my Reservation Fee shall be forfeited in favor of the Company. I will hold the Company free and harmless for thereafter releasing and offering the Property to other interested buyers.`,
+      `2. I acknowledge that the Company reserves the right to accept or deny this request for reservation and is non-transferable. Likewise, subject to a written request by me, the Company, at its sole discretion, may extend this reservation for a period of more than fifteen (15) days within which to make the down payment provided, however, that I shall incur a penalty charge of three percent (3%) per month, or a fraction thereof.`,
+      `3. In the event the Property is found unavailable for sale for any reason whatsoever, I agree to hold the Company free and harmless from any liability whatsoever and it shall have the option of exchanging the Property with another similar unit/lot/property as applicable or otherwise cancel this Reservation Agreement. Should there be no substitution or should the substituted Property be unacceptable to me, I shall hold the Company free and harmless from any liability for canceling the Reservation Agreement, subject to reimbursement to me of all payments made, without interest.`,
     ],
   },
   {
     title: 'PAYMENT AND PAYMENT MODES',
     items: [
-      `4. I acknowledge that in the event my application to purchase the Property is accepted, the Reservation Fee shall automatically form part of the required down payment. Upon being notified of the acceptance of my offer to purchase the Property, I shall remit, within the period required by the Company, the down payment and/or balance, and the complete post-dated checks, in accordance with the Terms of Payment, without need of further demand.`,
-      `5. All payments shall be made on or before their respective due dates without need of demand or legal action. In the event that I avail of bank financing, I shall be solely responsible for filing the loan application and all necessary requirements so that the loan may be processed and proceeds released to the Company on or before the due date.`,
+      `4. Should my application to purchase the Property be accepted, the Reservation Fee shall automatically form part of the required down payment. Upon being notified of the acceptance of my offer to purchase the Property, I shall remit, within the period required by the Company, the down payment and/or balance, and the complete post-dated checks, in accordance with the Terms of Payment (inclusive of VAT and Other Charges), attached hereto as ANNEX A, without need of further demand. Any and all payments made to any individual, realtor, broker, employee, or to a party, other than the Company for safekeeping in favor of or for transmittal to the Company shall be at my sole and exclusive risk and responsibility, and shall not bind nor make the former answerable in any way, therefore unless and until actually received, receipted and validated by the Company's Cashier or officer duly authorized by the Company. All checks for payment shall be crossed and shall be made payable only to the Company under its corporate name: PH1 WORLD DEVELOPERS, INC.`,
+      `5. In case I am permitted to issue checks of foreign currencies, or if payments are made through foreign remittances in the manner authorized by the Company, such checks or remittances shall be credited only after conversion to Philippine currency (Peso) based on the prevailing buying rate of the company's designated bank upon clearing of funds. In case of underpayment, payment shall be made on the last installment or last payment due (for balloon payments). In case of overpayment, the last installment or last payment due (for balloon payments) shall be adjusted accordingly. I shall shoulder all bank fees, charges and taxes upon remittances or conversion of foreign currencies.`,
+      `6. All payments shall be made on or before their respective due dates without the necessity of demand or any legal or judicial action. In the event that I avail of bank financing, I shall solely responsible for filing the loan application prescribed by the bank, together with all necessary requirements, in order that the loan be processed and the proceeds released to the Company on or before the due date provided herein.`,
     ],
   },
   {
-    title: 'SALES DOCUMENT AND OTHER BUYER REQUIREMENTS',
+    title: 'SALES DOCUMENT AND OTHER REQUIREMENTS',
     items: [
-      `6. Should I fail to pay any of the amounts due in relation to my purchase of the Property, or fail to submit the required documents, the Company shall have the sole option to cancel the sale and forfeit in its favor all payments made, including the Reservation Fee, as liquidated damages; and/or impose penalty charges at the rate of three percent (3%) per month of the unpaid amount.`,
-      `7. Unless otherwise provided, my Contract to Sell shall be prepared only after I have submitted all necessary documents and post-dated checks. The Contract to Sell shall be executed by me within thirty (30) days from receipt; otherwise, this Reservation Agreement shall be cancelled.`,
-      `8. I understand that this Agreement only gives me the right to purchase the Property subject to fulfillment of all stated conditions. No other right, title, or ownership is vested upon me until the Property is fully paid.`,
+      `7. Should I fail to pay any of the amounts due in relation to my purchase of the Property, or fail to submit the required documents and execute the relevant contract to sell and deed of absolute sale for the Property, or fail to comply with any of the terms of my purchase, the Company shall have the sole option to (i) cancel the sale and forfeit in its favor all payments made, including the Reservation Fee to be credited to liquidated damages; and (ii) impose penalty charges at the rate of three percent (3%) per month (or fraction thereof). Late payments will only be accepted upon payment of interest and penalty charges. Should there be a cancellation of this reservation, the same shall automatically vest upon the Company full authority to sell and dispose of the Property subject to this Reservation Agreement.`,
+      `8. Unless otherwise provided, my Contract to Sell for the Property shall be prepared only after I have submitted to the Company all necessary documents and post-dated checks in such amounts and on such dates as are in accordance with the Schedule or Payment. The Contract to Sell shall be executed by me within thirty (30) days from date of receipt of the Contract to Sell. Should I fail to submit the duly signed Contract to Sell within the said period, this Reservation Agreement shall be cancelled.`,
+      `9. I understand and agree that this Agreement only gives me the right to purchase the Property subject to the fulfillment of the conditions herein stated. No other right, title or ownership is vested upon me by the execution of this Agreement. The Company retains title and ownership of the Property until I have fully paid all amounts due to the Company for the purchase of the Property.`,
+      `10. I agree and understand that my purchase of the Property is subject to the covenants and restrictions specified in the Project's Deed of Restrictions (for subdivision and townhouse developments) or Master Deed with Declaration of Restrictions for condominium developments, as applicable, which shall bind the Property upon its transfer to me as a buyer, all of which covenants and restrictions I undertake to faithfully and strictly comply with. My undertaking and confirmation herein constitute an essential consideration of the sale by the Company of the Property to me.`,
     ],
   },
   {
     title: 'AGREEMENTS AND OTHER PROVISIONS',
     items: [
-      `9. I confirm that I have personally inspected the plans and specifications of the Property and find the same acceptable. I acknowledge that I have independently evaluated all material and technical information related to the Property and am satisfied with what was explained to me.`,
-      `10. I warrant the truthfulness of all information provided and shall personally inform the Company in writing of any changes to my personal data.`,
-      `11. This document constitutes the entire agreement on my reservation of the Property. Any stipulations or agreements not in writing and signed by the Company's authorized representative shall not be binding.`,
-      `12. If there are two (2) or more buyers signing, we understand that our obligations hereunder are joint and solidary.`,
+      `11. I confirm that I have personally inspected the plans and specifications of the Property, studied and verified the Project site and its proximate location and layout of my requested property and I find the same to be acceptable and satisfactory. I acknowledge that I have independently ascertained and evaluated all material facts and technical information related to the purchase of the Property and that I am satisfied with what was explained to me. I further understand and agree that numbering, sizes and conditions of residential and parking units are subject to adjustments in accordance with the approved building plan or amendments thereon and I agree that the developer reserves the right to revise architectural and floor plans without my consent.`,
+      `12. I hereby authorize the developer of the Project to organize the Project's governing Homeowner's Association or Condominium Corporation, as applicable.`,
+      `13. I warrant the truthfulness and accuracy of all information I have provided which I certify to be true and correct as of the date hereof and agree to directly and personally inform the Company in writing of any changes in my personal data such as but not limited to name, address and/or status.`,
+      `14. Further, I agree that the address stated herein shall be the official address to which all communications/notices must be sent, unless a change of address is communicated in writing to the Company. Similarly, the Company, its officers, employees may rely on the information provided to it and shall not be held responsible for any error, non-communication, or miscommunication of the personal information I have given. I also warrant that the funds used and to be used in purchasing the Property will be obtained through legitimate means and do not and will not constitute all or part of the proceeds of any unlawful activity under applicable laws. I hereby authorize the Company to provide to any government body or agency any information pertaining to this sale and purchase, if so warranted and required under existing laws, and hereby hold the Company free and harmless from any incident, claim, action, or liability arising from the breach of my warranties herein.`,
+      `15. This document represents the entire agreement of my reservation of the Property. Any and all stipulations, reservations, agreements, or promises, orally or otherwise, not contained herein or not reduced in writing and signed by the Company's duly authorized representative shall not be binding upon the Company.`,
+      `16. If there are two (2) or more of us signing as buyers, I understand that our obligations under this Agreement shall be deemed contracted by us in a solidarity matter.`,
     ],
   },
 ];
@@ -668,23 +672,23 @@ export async function generateReservationAgreement(reservationId: string | null,
     : '0.00';
 
   RESERVATION_TERMS.forEach((section, idx) => {
-    y = checkBreak(12, y);
-    if (idx === 0) y += 5;
+    y = checkBreak(10, y);
+    if (idx === 0) y += 3;
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
+    doc.setFontSize(7.5);
     doc.setTextColor(140, 30, 30);
     doc.text(section.title, L, y);
-    y += 6;
+    y += 5;
     section.items.forEach(item => {
       const text = item.replace('{{RESERVATION_FEE}}', rfFormatted);
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
+      doc.setFontSize(6.5);
       doc.setTextColor(50, 50, 55);
       const lines = doc.splitTextToSize(text, W);
-      lines.forEach((line: string) => { y = checkBreak(5, y); doc.text(line, L, y); y += 4.5; });
-      y += 3;
+      lines.forEach((line: string) => { y = checkBreak(4, y); doc.text(line, L, y); y += 3.8; });
+      y += 2;
     });
-    y += 2;
+    y += 1.5;
   });
 
   y = checkBreak(30, y);
