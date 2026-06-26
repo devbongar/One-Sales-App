@@ -8,8 +8,9 @@ import { supabase } from '@/lib/supabase';
 import { getSession } from '@/lib/auth';
 import { Search, X, ListChecks } from 'lucide-react';
 import { RequestCard, RequestDetailSheet, type RequestRecord } from '../page';
+import { isBrfType } from '@/lib/brf';
 
-const SELECT_FIELDS = 'id, reservation_id, client_id, client_name, project_name, inventory_code, type_of_request, sub_type, request_category, turnaround_days, description, status, submitted_at, approval_status, resolution_status, approved_by, date_approved, new_inventory_code, new_payterm_code, new_payterm_scheme, new_term_months, remaining_balance, requested_by';
+const SELECT_FIELDS = 'id, ticket_id, reservation_id, client_id, client_name, project_name, inventory_code, type_of_request, sub_type, request_category, turnaround_days, description, status, submitted_at, approval_status, resolution_status, approved_by, date_approved, new_inventory_code, new_payterm_code, new_payterm_scheme, new_term_months, remaining_balance, requested_by, requested_by_name';
 
 export default function AllRequestsPage() {
   const router = useRouter();
@@ -22,7 +23,7 @@ export default function AllRequestsPage() {
   useEffect(() => {
     async function load() {
       const session = await getSession();
-      setIsAM(session?.role_name === 'Account Management');
+      setIsAM(session?.role_name === 'Account Management' || session?.role_name === 'All Access');
 
       const { data } = await supabase
         .from('requests_and_inquiries')
@@ -46,6 +47,7 @@ export default function AllRequestsPage() {
     const q = query.trim().toLowerCase();
     if (!q) return requests;
     return requests.filter(r =>
+      r.ticket_id?.toLowerCase().includes(q) ||
       r.client_name?.toLowerCase().includes(q) ||
       r.reservation_id?.toLowerCase().includes(q) ||
       r.project_name?.toLowerCase().includes(q) ||
@@ -98,7 +100,13 @@ export default function AllRequestsPage() {
         ) : (
           <div className="space-y-2">
             {filtered.map(r => (
-              <RequestCard key={r.id} r={r} onClick={() => setSelected(r)} />
+              <RequestCard key={r.id} r={r} onClick={() => {
+                if (isAM && r.approval_status === 'Approved' && isBrfType(r.type_of_request)) {
+                  router.push(`/account/request-inquiry/approve?id=${r.id}`);
+                } else {
+                  setSelected(r);
+                }
+              }} />
             ))}
           </div>
         )}
@@ -110,14 +118,30 @@ export default function AllRequestsPage() {
           r={selected}
           onClose={() => setSelected(null)}
           isAM={isAM}
-          onApprove={r => {
+          onApprove={async r => {
+            await supabase
+              .from('requests_and_inquiries')
+              .update({ approval_status: 'Approved', status: 'open' })
+              .eq('id', r.id);
             setSelected(null);
-            router.push(`/account/request-inquiry/approve?id=${r.id}`);
+            reload();
           }}
           onReject={async r => {
             await supabase
               .from('requests_and_inquiries')
-              .update({ approval_status: 'Disapproved', resolution_status: 'Rejected', status: 'closed' })
+              .update({ approval_status: 'Rejected', status: 'closed' })
+              .eq('id', r.id);
+            setSelected(null);
+            reload();
+          }}
+          onExecute={r => {
+            setSelected(null);
+            router.push(`/account/request-inquiry/approve?id=${r.id}`);
+          }}
+          onMarkResolved={async r => {
+            await supabase
+              .from('requests_and_inquiries')
+              .update({ approval_status: 'Resolved', status: 'closed' })
               .eq('id', r.id);
             setSelected(null);
             reload();

@@ -7,16 +7,19 @@ import GlassCard from '@/components/ui/GlassCard';
 import { supabase } from '@/lib/supabase';
 import { getSession } from '@/lib/auth';
 import { isBrfType } from '@/lib/brf';
+import { fetchAllPayterms } from '@/lib/paytems';
+import CalcCard from '@/components/ui/CalcCard';
 import {
   FilePlus, ChevronRight, Building2, Hash, User, Tag,
-  Clock, ListChecks, Layers, FileText, GitBranch, AlignLeft, X,
-  CircleDot, CheckCircle2, AlertTriangle, ArrowRightLeft,
+  Clock, Calendar, ListChecks, Layers, FileText, GitBranch, AlignLeft, X,
+  CircleDot, CheckCircle2, AlertTriangle, ArrowRight, Loader2,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface RequestRecord {
   id:                 string;
+  ticket_id:          string | null;
   reservation_id:     string | null;
   client_id:          string | null;
   client_name:        string | null;
@@ -39,9 +42,10 @@ export interface RequestRecord {
   new_term_months:    number | null;
   remaining_balance:  number | null;
   requested_by:       string | null;
+  requested_by_name:  string | null;
 }
 
-const SELECT_FIELDS = 'id, reservation_id, client_id, client_name, project_name, inventory_code, type_of_request, sub_type, request_category, turnaround_days, description, status, submitted_at, approval_status, resolution_status, approved_by, date_approved, new_inventory_code, new_payterm_code, new_payterm_scheme, new_term_months, remaining_balance, requested_by';
+const SELECT_FIELDS = 'id, ticket_id, reservation_id, client_id, client_name, project_name, inventory_code, type_of_request, sub_type, request_category, turnaround_days, description, status, submitted_at, approval_status, resolution_status, approved_by, date_approved, new_inventory_code, new_payterm_code, new_payterm_scheme, new_term_months, remaining_balance, requested_by, requested_by_name';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -59,10 +63,11 @@ function categoryStyle(cat: string) {
 }
 
 export function statusStyle(status: string, approvalStatus?: string | null) {
-  if (approvalStatus === 'Pending')     return { bg: 'rgba(255,159,10,0.12)', text: '#A05A00',  label: 'Pending Approval', Icon: AlertTriangle };
-  if (approvalStatus === 'Approved')    return { bg: 'rgba(52,199,89,0.12)',   text: '#1A7F37',  label: 'Approved',         Icon: CheckCircle2 };
-  if (approvalStatus === 'Disapproved') return { bg: 'rgba(255,59,48,0.10)',   text: '#C0392B',  label: 'Disapproved',      Icon: X };
-  if (status === 'open')   return { bg: 'rgba(52,199,89,0.12)',   text: '#1A7F37', label: 'Open',   Icon: CircleDot };
+  if (approvalStatus === 'Pending')  return { bg: 'rgba(255,159,10,0.12)', text: '#A05A00', label: 'Pending',  Icon: AlertTriangle };
+  if (approvalStatus === 'Approved') return { bg: 'rgba(0,122,255,0.10)',  text: '#0055CC', label: 'Approved', Icon: CheckCircle2  };
+  if (approvalStatus === 'Rejected') return { bg: 'rgba(255,59,48,0.10)',  text: '#C0392B', label: 'Rejected', Icon: X             };
+  if (approvalStatus === 'Resolved') return { bg: 'rgba(52,199,89,0.12)',  text: '#1A7F37', label: 'Resolved', Icon: CheckCircle2  };
+  if (status === 'open')   return { bg: 'rgba(52,199,89,0.12)',   text: '#1A7F37', label: 'Open',   Icon: CircleDot   };
   if (status === 'closed') return { bg: 'rgba(142,142,147,0.12)', text: '#6C6C70', label: 'Closed', Icon: CheckCircle2 };
   return { bg: 'rgba(142,142,147,0.12)', text: '#6C6C70', label: status, Icon: CircleDot };
 }
@@ -100,7 +105,7 @@ export function RequestCard({ r, onClick }: { r: RequestRecord; onClick: () => v
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-2">
-          <p className="text-sm font-bold text-[#1C1C1E] truncate">{r.reservation_id ?? '—'}</p>
+          <p className="text-sm font-bold font-mono text-[#1C1C1E] truncate">{r.ticket_id ?? '—'}</p>
           <span
             className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0"
             style={{ background: st.bg, color: st.text }}
@@ -110,7 +115,9 @@ export function RequestCard({ r, onClick }: { r: RequestRecord; onClick: () => v
         </div>
         <p className="text-xs text-[#8E8E93] mt-0.5 truncate">{r.client_name ?? '—'}</p>
         <div className="flex items-center gap-1.5 mt-0.5">
-          <Building2 size={10} className="text-[#C7C7CC] shrink-0" />
+          <Hash size={10} className="text-[#C7C7CC] shrink-0" />
+          <span className="text-xs text-[#6C6C70] truncate">{r.reservation_id ?? '—'}</span>
+          <span className="text-[#D1D1D6]">·</span>
           <span className="text-xs text-[#6C6C70] truncate">{r.type_of_request}</span>
           {r.sub_type && (
             <>
@@ -130,19 +137,233 @@ export function RequestCard({ r, onClick }: { r: RequestRecord; onClick: () => v
 
 // ─── Detail Sheet ─────────────────────────────────────────────────────────────
 
+interface ResFin {
+  listPrice: number; promoAmt: number; promoRate: number;
+  employeeAmt: number; employeeRate: number;
+  paytermDiscPct: number; hicAmt: number;
+  nlp: number; vat: number; oc: number; tcp: number;
+  resFee: number; retFee: number; unitArea: number;
+  schemeName: string; dpRate: string; termMonths: number;
+  hasVat: boolean; project: string; tower: string;
+}
+interface NewUnitFin { listPrice: number; unitArea: number; hic: boolean; }
+interface SheetNewPayterm { discPct: number; dpRate: string; termMonths: number; schemeName: string; }
+
+function ComparisonCards({ r, resFin, newUnitFin, newPayterm, isChangeOfUnit }: {
+  r: RequestRecord; resFin: ResFin; newUnitFin: NewUnitFin | null;
+  newPayterm: SheetNewPayterm | null; isChangeOfUnit: boolean;
+}) {
+  const couNew = (() => {
+    if (!isChangeOfUnit || !newUnitFin || newUnitFin.listPrice === 0) return null;
+    const newLP    = newUnitFin.listPrice;
+    const promoAmt = Math.round(newLP * resFin.promoRate / 100);
+    const empAmt   = Math.round(newLP * resFin.employeeRate / 100);
+    const ptAmt    = Math.round(newLP * resFin.paytermDiscPct / 100);
+    const hicAmt   = newUnitFin.hic ? resFin.hicAmt : 0;
+    const nlp      = newLP - promoAmt - empAmt - ptAmt - hicAmt;
+    const vat      = resFin.hasVat ? Math.round(nlp * 0.12) : 0;
+    const oc       = Math.round(nlp * 0.07);
+    const tcp      = nlp + vat + oc + hicAmt;
+    return { newLP, promoAmt, empAmt, ptAmt, hicAmt, nlp, vat, oc, tcp };
+  })();
+
+  const rsNew = (() => {
+    if (isChangeOfUnit || !newPayterm) return null;
+    const lp    = resFin.listPrice;
+    const ptAmt = Math.round(lp * newPayterm.discPct / 100);
+    const nlp   = lp - resFin.promoAmt - resFin.employeeAmt - ptAmt - resFin.hicAmt;
+    const vat   = resFin.hasVat ? Math.round(nlp * 0.12) : 0;
+    const oc    = Math.round(nlp * 0.07);
+    const tcp   = nlp + vat + oc + resFin.hicAmt;
+    return { ptAmt, nlp, vat, oc, tcp };
+  })();
+
+  const showNew = isChangeOfUnit ? !!couNew : !!rsNew;
+
+  return (
+    <div className="grid grid-cols-2 [grid-template-rows:auto_1fr] gap-2 overflow-x-auto -mx-5 px-5">
+      <CalcCard
+        title="Current"
+        unitCode={r.inventory_code}
+        unitArea={resFin.unitArea}
+        schemeName={resFin.schemeName}
+        dpRate={resFin.dpRate || undefined}
+        termMonths={resFin.termMonths || undefined}
+        listPrice={resFin.listPrice}
+        promoAmt={resFin.promoAmt}
+        promoPct={resFin.promoRate}
+        employeeAmt={resFin.employeeAmt}
+        employeePct={resFin.employeeRate}
+        paytermAmt={Math.round(resFin.listPrice * resFin.paytermDiscPct / 100)}
+        paytermPct={resFin.paytermDiscPct}
+        hicAmt={resFin.hicAmt}
+        nlp={resFin.nlp}
+        vat={resFin.vat}
+        otherCharges={resFin.oc}
+        tcp={resFin.tcp}
+        reservationFee={resFin.resFee}
+        retentionFee={resFin.retFee}
+      />
+      {showNew && isChangeOfUnit && couNew ? (
+        <CalcCard
+          title="New Unit"
+          unitCode={r.new_inventory_code}
+          unitArea={newUnitFin?.unitArea}
+          schemeName={resFin.schemeName}
+          dpRate={resFin.dpRate || undefined}
+          termMonths={resFin.termMonths || undefined}
+          listPrice={couNew.newLP}
+          promoAmt={couNew.promoAmt}
+          promoPct={resFin.promoRate}
+          employeeAmt={couNew.empAmt}
+          employeePct={resFin.employeeRate}
+          paytermAmt={couNew.ptAmt}
+          paytermPct={resFin.paytermDiscPct}
+          hicAmt={couNew.hicAmt}
+          nlp={couNew.nlp}
+          vat={couNew.vat}
+          otherCharges={couNew.oc}
+          tcp={couNew.tcp}
+          reservationFee={resFin.resFee}
+          retentionFee={resFin.retFee}
+          highlight
+        />
+      ) : showNew && !isChangeOfUnit && rsNew && newPayterm ? (
+        <CalcCard
+          title="New Terms"
+          unitCode={r.inventory_code}
+          unitArea={resFin.unitArea}
+          schemeName={newPayterm.schemeName}
+          dpRate={newPayterm.dpRate || undefined}
+          termMonths={newPayterm.termMonths || undefined}
+          listPrice={resFin.listPrice}
+          promoAmt={resFin.promoAmt}
+          promoPct={resFin.promoRate}
+          employeeAmt={resFin.employeeAmt}
+          employeePct={resFin.employeeRate}
+          paytermAmt={rsNew.ptAmt}
+          paytermPct={newPayterm.discPct}
+          hicAmt={resFin.hicAmt}
+          nlp={rsNew.nlp}
+          vat={rsNew.vat}
+          otherCharges={rsNew.oc}
+          tcp={rsNew.tcp}
+          reservationFee={resFin.resFee}
+          retentionFee={resFin.retFee}
+          highlight
+        />
+      ) : (
+        <div className="row-span-2 rounded-2xl border border-dashed border-black/[0.10] flex items-center justify-center p-4">
+          <p className="text-xs text-[#8E8E93] text-center">New {isChangeOfUnit ? 'unit' : 'payterm'} data unavailable</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function RequestDetailSheet({
-  r, onClose, isAM, onApprove, onReject,
+  r, onClose, isAM, onApprove, onReject, onExecute, onMarkResolved,
 }: {
   r: RequestRecord;
-  onClose: () => void;
-  isAM: boolean;
-  onApprove: (r: RequestRecord) => void;
-  onReject:  (r: RequestRecord) => void;
+  onClose:        () => void;
+  isAM:           boolean;
+  onApprove:      (r: RequestRecord) => void;
+  onReject:       (r: RequestRecord) => void;
+  onExecute:      (r: RequestRecord) => void;
+  onMarkResolved: (r: RequestRecord) => void;
 }) {
   const cat = categoryStyle(r.request_category);
   const st  = statusStyle(r.status, r.approval_status);
-  const isPending = r.approval_status === 'Pending';
-  const isBrf = isBrfType(r.type_of_request);
+  const isPending  = r.approval_status === 'Pending';
+  const isApproved = r.approval_status === 'Approved';
+  const isBrf      = isBrfType(r.type_of_request);
+  const [resolveConfirm, setResolveConfirm] = useState(false);
+
+  const isChangeOfUnit  = r.type_of_request === 'Change of Unit';
+  const isRestructuring = r.type_of_request === 'Payment Schedule Restructuring';
+
+  const [resFin,       setResFin]       = useState<ResFin | null>(null);
+  const [newUnitFin,   setNewUnitFin]   = useState<NewUnitFin | null>(null);
+  const [newPayterm,   setNewPayterm]   = useState<SheetNewPayterm | null>(null);
+  const [calcLoading,  setCalcLoading]  = useState(false);
+
+  useEffect(() => {
+    if (!r.reservation_id || (!isChangeOfUnit && !isRestructuring)) return;
+    setCalcLoading(true);
+    setResFin(null); setNewUnitFin(null); setNewPayterm(null);
+
+    async function fetchCalc() {
+      const { data: res } = await supabase
+        .from('reservations')
+        .select('list_price, promo_discount_amount, employee_discount_amount, hic_discount, payterm_discount_pct, net_list_price, vat, other_charges, total_contract_price, reservation_fee, retention_fee, unit_area, scheme_name, term_months, dp_rate, project, tower')
+        .eq('reservation_id', r.reservation_id)
+        .single();
+
+      if (!res) { setCalcLoading(false); return; }
+
+      const lp  = Number(res.list_price) || 0;
+      const vat = Number(res.vat) || 0;
+      const fin: ResFin = {
+        listPrice: lp,
+        promoAmt: Number(res.promo_discount_amount) || 0,
+        promoRate: lp > 0 ? (Number(res.promo_discount_amount) || 0) / lp * 100 : 0,
+        employeeAmt: Number(res.employee_discount_amount) || 0,
+        employeeRate: lp > 0 ? (Number(res.employee_discount_amount) || 0) / lp * 100 : 0,
+        paytermDiscPct: Number(res.payterm_discount_pct) || 0,
+        hicAmt: Number(res.hic_discount) || 0,
+        nlp: Number(res.net_list_price) || 0,
+        vat,
+        oc: Number(res.other_charges) || 0,
+        tcp: Number(res.total_contract_price) || 0,
+        resFee: Number(res.reservation_fee) || 0,
+        retFee: Number(res.retention_fee) || 0,
+        unitArea: Number(res.unit_area) || 0,
+        schemeName: res.scheme_name ?? '',
+        dpRate: (res.dp_rate ?? '').replace('%', ''),
+        termMonths: Number(res.term_months) || 0,
+        hasVat: vat > 0,
+        project: res.project ?? '',
+        tower: res.tower ?? '',
+      };
+      setResFin(fin);
+
+      if (isChangeOfUnit && r.new_inventory_code) {
+        const code = r.new_inventory_code.trim();
+        const { data: unit } = await supabase
+          .from('Inventory')
+          .select('"Inventory Code", "Total List Price", "Unit Area", HIC')
+          .eq('"Inventory Code"', code)
+          .maybeSingle();
+        if (unit) {
+          const raw = unit as Record<string, unknown>;
+          const lp = parseFloat(String(raw['Total List Price'] ?? '0').replace(/,/g, '')) || 0;
+          setNewUnitFin({ listPrice: lp, unitArea: Number(raw['Unit Area']) || 0, hic: !!raw['HIC'] });
+        }
+      }
+
+      if (isRestructuring && fin.project && fin.tower) {
+        const all = await fetchAllPayterms();
+        const match = all.find(p => p.payterm_code === r.new_payterm_code)
+          ?? all.filter(p => p.project === fin.project && p.tower === fin.tower)
+               .find(p => {
+                 if (p.payterm_scheme !== r.new_payterm_scheme) return false;
+                 if (r.new_term_months && p.term && Number(p.term) !== r.new_term_months) return false;
+                 return true;
+               });
+        if (match) {
+          setNewPayterm({
+            discPct: Number(match.discount) || 0,
+            dpRate: match.dp_percent ?? '',
+            termMonths: Number(match.term) || r.new_term_months || 0,
+            schemeName: match.payterm_scheme ?? r.new_payterm_scheme ?? '',
+          });
+        }
+      }
+
+      setCalcLoading(false);
+    }
+    fetchCalc();
+  }, [r.id]);
 
   return (
     <div
@@ -167,7 +388,11 @@ export function RequestDetailSheet({
               </div>
               <div>
                 <p className="text-sm font-bold text-[#1C1C1E]">{r.client_name ?? '—'}</p>
-                <p className="text-xs text-[#8E8E93]">{r.reservation_id ?? '—'}</p>
+                <p className="text-xs text-[#8E8E93] mt-0.5">{r.ticket_id ?? r.reservation_id ?? '—'}</p>
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#F2F2F7] text-[#6C6C70]">{r.type_of_request}</span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: st.bg, color: st.text }}>{st.label}</span>
+                </div>
               </div>
             </div>
             <button type="button" onClick={onClose} className="w-8 h-8 rounded-full bg-[#F2F2F7] flex items-center justify-center active:opacity-60">
@@ -185,7 +410,6 @@ export function RequestDetailSheet({
             <div className="bg-[#F2F2F7] rounded-2xl px-3 py-1 space-y-0">
               {([
                 [<Hash size={13} key="ci" />,      'Client ID',      r.client_id      ?? '—'],
-                [<User size={13} key="cn" />,      'Client Name',    r.client_name    ?? '—'],
                 [<Hash size={13} key="ri" />,      'Reservation ID', r.reservation_id ?? '—'],
                 [<Building2 size={13} key="pn" />, 'Project',        r.project_name   ?? '—'],
                 [<Tag size={13} key="ic" />,       'Inventory Code', r.inventory_code ?? '—'],
@@ -203,10 +427,10 @@ export function RequestDetailSheet({
           <div>
             <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider mb-2">Request Details</p>
             <div className="bg-[#F2F2F7] rounded-2xl px-3 py-1 space-y-0">
-              <div className="flex items-start gap-3 py-2.5 border-b border-black/[0.06]">
-                <FileText size={13} className="text-[#C03D25] shrink-0 mt-0.5" />
-                <span className="flex-1 text-xs font-medium text-[#1C1C1E]">Type of Request</span>
-                <span className="text-xs text-[#6C6C70] text-right max-w-[55%]">{r.type_of_request}</span>
+              <div className="flex items-center gap-3 py-2.5 border-b border-black/[0.06] bg-black/[0.015] -mx-3 px-3">
+                <FileText size={13} className="text-[#C03D25] shrink-0" />
+                <span className="flex-1 text-xs font-bold text-[#1C1C1E]">Type of Request</span>
+                <span className="text-xs font-bold text-[#C03D25] text-right max-w-[55%]">{r.type_of_request}</span>
               </div>
               {r.sub_type && (
                 <div className="flex items-center gap-3 py-2.5 border-b border-black/[0.06]">
@@ -217,9 +441,13 @@ export function RequestDetailSheet({
               )}
               {r.new_inventory_code && (
                 <div className="flex items-center gap-3 py-2.5 border-b border-black/[0.06]">
-                  <ArrowRightLeft size={13} className="text-[#C03D25] shrink-0" />
-                  <span className="flex-1 text-xs font-medium text-[#1C1C1E]">New Unit</span>
-                  <span className="text-xs font-semibold text-[#C03D25] text-right">{r.new_inventory_code}</span>
+                  <ArrowRight size={13} className="text-[#C03D25] shrink-0" />
+                  <span className="flex-1 text-xs font-medium text-[#1C1C1E]">Unit Change</span>
+                  <div className="flex items-center gap-1 text-xs font-semibold text-right">
+                    <span className="text-[#6C6C70]">{r.inventory_code ?? '—'}</span>
+                    <ArrowRight size={11} className="text-[#C7C7CC]" />
+                    <span className="text-[#C03D25]">{r.new_inventory_code}</span>
+                  </div>
                 </div>
               )}
               <div className="flex items-center gap-3 py-2.5 border-b border-black/[0.06]">
@@ -242,15 +470,18 @@ export function RequestDetailSheet({
                 <span className="text-xs font-semibold text-[#1C1C1E]">{r.turnaround_days} days</span>
               </div>
               <div className="flex items-center gap-3 py-2.5 border-b border-black/[0.06]">
-                <Clock size={13} className="text-[#C03D25] shrink-0" />
+                <Calendar size={13} className="text-[#C03D25] shrink-0" />
                 <span className="flex-1 text-xs font-medium text-[#1C1C1E]">Submitted</span>
                 <span className="text-xs text-[#6C6C70]">{formatDate(r.submitted_at)}</span>
               </div>
-              {r.requested_by && (
-                <div className="flex items-center gap-3 py-2.5 border-b border-black/[0.06]">
+              {(r.requested_by || r.requested_by_name) && (
+                <div className={`flex items-center gap-3 py-2.5 ${r.approved_by ? 'border-b border-black/[0.06]' : ''}`}>
                   <User size={13} className="text-[#C03D25] shrink-0" />
                   <span className="flex-1 text-xs font-medium text-[#1C1C1E]">Requested By</span>
-                  <span className="text-xs text-[#6C6C70] text-right max-w-[55%] truncate">{r.requested_by}</span>
+                  <div className="flex flex-col items-end max-w-[55%]">
+                    {r.requested_by_name && <span className="text-xs font-semibold text-[#1C1C1E] truncate">{r.requested_by_name}</span>}
+                    {r.requested_by && <span className="text-[10px] text-[#8E8E93] truncate">{r.requested_by}</span>}
+                  </div>
                 </div>
               )}
               {r.approved_by && (
@@ -274,10 +505,28 @@ export function RequestDetailSheet({
             </div>
           )}
 
+          {/* Payment Comparison — Change of Unit or Restructuring */}
+          {(isChangeOfUnit || isRestructuring) && (
+            <div>
+              <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider mb-2">Payment Comparison</p>
+              {calcLoading ? (
+                <div className="flex items-center justify-center gap-2 py-6">
+                  <Loader2 size={15} className="animate-spin text-[#C03D25]" />
+                  <span className="text-xs text-[#8E8E93]">Loading…</span>
+                </div>
+              ) : resFin ? (
+                <ComparisonCards
+                  r={r} resFin={resFin} newUnitFin={newUnitFin} newPayterm={newPayterm}
+                  isChangeOfUnit={isChangeOfUnit}
+                />
+              ) : null}
+            </div>
+          )}
+
         </div>
 
-        {/* Approve / Reject — Account Management only, BRF types pending */}
-        {isAM && isBrf && isPending && (
+        {/* Action bar — AMD / All Access only */}
+        {isAM && isPending && (
           <div className="px-5 pb-6 pt-3 border-t border-black/[0.06] flex gap-3">
             <button
               type="button"
@@ -291,8 +540,54 @@ export function RequestDetailSheet({
               onClick={() => onApprove(r)}
               className="flex-2 flex-grow-[2] py-3.5 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80"
             >
-              Approve & Process
+              Approve
             </button>
+          </div>
+        )}
+
+        {isAM && isApproved && isBrf && (
+          <div className="px-5 pb-6 pt-3 border-t border-black/[0.06]">
+            <button
+              type="button"
+              onClick={() => onExecute(r)}
+              className="w-full py-3.5 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80"
+            >
+              Execute
+            </button>
+          </div>
+        )}
+
+        {isAM && isApproved && !isBrf && (
+          <div className="px-5 pb-6 pt-3 border-t border-black/[0.06]">
+            {resolveConfirm ? (
+              <div className="space-y-2">
+                <p className="text-xs text-center text-[#6C6C70]">Mark this request as resolved?</p>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setResolveConfirm(false)}
+                    className="flex-1 py-3 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-70"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setResolveConfirm(false); onMarkResolved(r); }}
+                    className="flex-2 flex-grow-[2] py-3 rounded-2xl bg-[#1A7F37] text-white text-sm font-bold active:opacity-80"
+                  >
+                    Yes, Resolved
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setResolveConfirm(true)}
+                className="w-full py-3.5 rounded-2xl bg-[#1A7F37] text-white text-sm font-bold active:opacity-80"
+              >
+                Mark Resolved
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -314,7 +609,7 @@ export default function RequestInquiryPage() {
   useEffect(() => {
     async function load() {
       const [session] = await Promise.all([getSession()]);
-      setIsAM(session?.role_name === 'Account Management');
+      setIsAM(session?.role_name === 'Account Management' || session?.role_name === 'All Access');
       setUserName(session?.full_name || session?.email || '');
 
       const { data } = await supabase
@@ -342,9 +637,9 @@ export default function RequestInquiryPage() {
   }
 
   const total    = requests.length;
-  const open     = requests.filter(r => r.status === 'open' && !r.approval_status).length;
-  const closed   = requests.filter(r => r.status === 'closed').length;
   const pending  = requests.filter(r => r.approval_status === 'Pending').length;
+  const approved = requests.filter(r => r.approval_status === 'Approved').length;
+  const resolved = requests.filter(r => r.approval_status === 'Resolved').length;
   const recent   = requests.slice(0, 5);
 
   return (
@@ -393,7 +688,7 @@ export default function RequestInquiryPage() {
         )}
 
         {/* ── Summary tiles ── */}
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2">
           <GlassCard className="p-3 flex flex-col gap-1">
             <div className="flex items-center gap-1.5">
               <ListChecks size={12} className="text-[#8E8E93]" />
@@ -403,17 +698,30 @@ export default function RequestInquiryPage() {
           </GlassCard>
           <GlassCard className="p-3 flex flex-col gap-1">
             <div className="flex items-center gap-1.5">
-              <CircleDot size={12} style={{ color: '#1A7F37' }} />
-              <span className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wide">Open</span>
+              <AlertTriangle size={12} style={{ color: '#A05A00' }} />
+              <span className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wide">Pending</span>
             </div>
-            <p className="text-2xl font-bold text-[#1C1C1E] leading-none">{loading ? '–' : open}</p>
+            <p className="text-2xl font-bold leading-none" style={{ color: pending > 0 ? '#A05A00' : '#1C1C1E' }}>
+              {loading ? '–' : pending}
+            </p>
           </GlassCard>
           <GlassCard className="p-3 flex flex-col gap-1">
             <div className="flex items-center gap-1.5">
-              <CheckCircle2 size={12} style={{ color: '#6C6C70' }} />
-              <span className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wide">Closed</span>
+              <CheckCircle2 size={12} style={{ color: '#0055CC' }} />
+              <span className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wide">Approved</span>
             </div>
-            <p className="text-2xl font-bold text-[#1C1C1E] leading-none">{loading ? '–' : closed}</p>
+            <p className="text-2xl font-bold leading-none" style={{ color: approved > 0 ? '#0055CC' : '#1C1C1E' }}>
+              {loading ? '–' : approved}
+            </p>
+          </GlassCard>
+          <GlassCard className="p-3 flex flex-col gap-1">
+            <div className="flex items-center gap-1.5">
+              <CheckCircle2 size={12} style={{ color: '#1A7F37' }} />
+              <span className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wide">Resolved</span>
+            </div>
+            <p className="text-2xl font-bold leading-none" style={{ color: resolved > 0 ? '#1A7F37' : '#1C1C1E' }}>
+              {loading ? '–' : resolved}
+            </p>
           </GlassCard>
         </div>
 
@@ -458,7 +766,13 @@ export default function RequestInquiryPage() {
           <div className="space-y-2">
             <p className="text-[11px] font-semibold text-[#8E8E93] uppercase tracking-wider px-1">Recent</p>
             {recent.map(r => (
-              <RequestCard key={r.id} r={r} onClick={() => setSelected(r)} />
+              <RequestCard key={r.id} r={r} onClick={() => {
+                if (isAM && r.approval_status === 'Approved' && isBrfType(r.type_of_request)) {
+                  router.push(`/account/request-inquiry/approve?id=${r.id}`);
+                } else {
+                  setSelected(r);
+                }
+              }} />
             ))}
             {total > 5 && (
               <button
@@ -479,14 +793,30 @@ export default function RequestInquiryPage() {
           r={selected}
           onClose={() => setSelected(null)}
           isAM={isAM}
-          onApprove={r => {
+          onApprove={async r => {
+            await supabase
+              .from('requests_and_inquiries')
+              .update({ approval_status: 'Approved', status: 'open' })
+              .eq('id', r.id);
             setSelected(null);
-            router.push(`/account/request-inquiry/approve?id=${r.id}`);
+            reload();
           }}
           onReject={async r => {
             await supabase
               .from('requests_and_inquiries')
-              .update({ approval_status: 'Disapproved', resolution_status: 'Rejected', status: 'closed' })
+              .update({ approval_status: 'Rejected', status: 'closed' })
+              .eq('id', r.id);
+            setSelected(null);
+            reload();
+          }}
+          onExecute={r => {
+            setSelected(null);
+            router.push(`/account/request-inquiry/approve?id=${r.id}`);
+          }}
+          onMarkResolved={async r => {
+            await supabase
+              .from('requests_and_inquiries')
+              .update({ approval_status: 'Resolved', status: 'closed' })
               .eq('id', r.id);
             setSelected(null);
             reload();

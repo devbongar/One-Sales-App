@@ -747,11 +747,6 @@ function PostCollectionSheet({
                   </div>
                 </div>
               ))}
-              {excess > 0.005 && (
-                <p className="text-[11px] px-2.5 py-1.5 rounded-xl" style={{ background: 'rgba(255,159,10,0.12)', color: '#A05A00' }}>
-                  {fmtPeso(excess)} exceeds outstanding — excess will not be applied
-                </p>
-              )}
             </div>
           )}
 
@@ -936,8 +931,8 @@ function LinesOverlay({
   // For a line, find every collection that contributed to it
   function getLineCollections(lineId: string) {
     return applications
-      .filter(a => a.receivable_line_id === lineId)
-      .map(a => ({ app: a, coll: collections.find(c => c.id === a.collection_id) }))
+      .filter(a => String(a.receivable_line_id) === String(lineId))
+      .map(a => ({ app: a, coll: collections.find(c => String(c.id) === String(a.collection_id)) }))
       .filter(x => x.coll) as { app: CollectionApplication; coll: CollectionRecord }[];
   }
 
@@ -1047,10 +1042,10 @@ function LinesOverlay({
               const upcomingLines = activeLines.filter(l => l.payment_status !== 'Paid' && l.due_date >= today)
                 .sort((a, b) => a.due_date.localeCompare(b.due_date));
               const paidLines     = activeLines.filter(l => l.payment_status === 'Paid')
-                .sort((a, b) => (a.posting_date ?? '').localeCompare(b.posting_date ?? '') || a.due_date.localeCompare(b.due_date));
+                .sort((a, b) => a.due_date.localeCompare(b.due_date));
               // Superseded lines that had a partial payment before BRF restructuring
               const priorPaidLines = supersededLines.filter(l => Number(l.amount_paid) > 0)
-                .sort((a, b) => (a.posting_date ?? '').localeCompare(b.posting_date ?? '') || a.due_date.localeCompare(b.due_date));
+                .sort((a, b) => a.due_date.localeCompare(b.due_date));
 
               function LineCard({ line }: { line: ReceivableLine }) {
                 const isPaid    = line.payment_status === 'Paid';
@@ -1062,6 +1057,7 @@ function LinesOverlay({
                 const lineCols  = getLineCollections(line.id);
                 const hasDirectPayment = isPaid && lineCols.length === 0 &&
                   (line.mode_of_payment || line.acknowledgement_receipt_no || line.posting_date);
+                const paidDate = line.posting_date || lineCols[0]?.coll.posting_date || null;
 
                 return (
                   <div
@@ -1073,8 +1069,8 @@ function LinesOverlay({
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-[#1C1C1E] truncate">{line.type_of_payment}</p>
                         <p className="text-xs text-[#8E8E93] mt-0.5">Due {fmtDate(line.due_date)}</p>
-                        {isPaid && line.posting_date && (
-                          <p className="text-[11px] text-[#34C759] mt-0.5 font-medium">Paid {fmtDate(line.posting_date)}</p>
+                        {isPaid && paidDate && (
+                          <p className="text-[11px] text-[#34C759] mt-0.5 font-medium">Paid {fmtDate(paidDate)}</p>
                         )}
                       </div>
                       <div className="flex items-center gap-2 shrink-0 ml-3">
@@ -1106,15 +1102,17 @@ function LinesOverlay({
                       <div className="border-t border-black/[0.06] px-4 py-2.5 space-y-2 bg-[#FAFAFA]">
                         {lineCols.map(({ app, coll }) => (
                           <div key={app.id} className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <p className="text-[11px] text-[#8E8E93]">
-                                {fmtDate(coll.posting_date)} · {coll.mode_of_payment}
-                                {coll.acknowledgement_receipt_no ? ` · OR# ${coll.acknowledgement_receipt_no}` : ''}
-                              </p>
-                              {coll.sales_invoice_number && (
-                                <p className="text-[11px] text-[#C7C7CC]">SI# {coll.sales_invoice_number}</p>
-                              )}
-                            </div>
+                            <p className="text-[11px] text-[#8E8E93] min-w-0">
+                              {[
+                                fmtDate(coll.posting_date),
+                                coll.mode_of_payment,
+                                coll.acknowledgement_receipt_no ? `OR# ${coll.acknowledgement_receipt_no}` : null,
+                                coll.sales_invoice_number ? `SI# ${coll.sales_invoice_number}` : null,
+                                coll.mode_of_payment === 'Check' && coll.check_no
+                                  ? `Chk# ${coll.check_no}${coll.check_date ? ` · ${fmtDate(coll.check_date)}` : ''}`
+                                  : null,
+                              ].filter(Boolean).join(' · ')}
+                            </p>
                             <span className="text-[11px] font-semibold text-[#1C1C1E] shrink-0">{fmtPeso(app.applied_amount)}</span>
                           </div>
                         ))}

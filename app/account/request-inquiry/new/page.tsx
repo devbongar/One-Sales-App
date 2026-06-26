@@ -1,18 +1,41 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import { supabase } from '@/lib/supabase';
 import { getSession } from '@/lib/auth';
 import { isBrfType } from '@/lib/brf';
+import { fetchInventoryUnits, type InventoryUnit } from '@/lib/inventory';
+import { fetchAllPayterms, type PaytermRecord } from '@/lib/paytems';
+import InventoryChart from '@/components/ui/InventoryChart';
+import CalcCard from '@/components/ui/CalcCard';
 import {
   Hash, User, Building2, Tag, Search,
-  FileText, Layers, GitBranch, AlignLeft, Clock,
+  FileText, Layers, GitBranch, AlignLeft, Clock, Calendar,
   CheckCircle2, Loader2, AlertTriangle, X, CheckCheck,
-  ChevronDown, Check, ArrowRightLeft,
+  ChevronDown, Check, Banknote, CreditCard, CalendarRange,
 } from 'lucide-react';
+
+const OTHER_CHARGES_RATE = 0.07;
+
+const PAYMENT_SCHEMES = [
+  { value: 'spot_cash',     label: 'Spot Cash',     icon: <Banknote size={15} /> },
+  { value: 'deferred_cash', label: 'Deferred Cash', icon: <Clock size={15} /> },
+  { value: 'spot_dp',       label: 'Spot DP',       icon: <CreditCard size={15} /> },
+  { value: 'stretched_dp',  label: 'Stretched DP',  icon: <CalendarRange size={15} /> },
+];
+
+function toInternalScheme(label: string | null): string {
+  switch (label) {
+    case 'Deferred Cash': return 'deferred_cash';
+    case 'Spot Cash':     return 'spot_cash';
+    case 'Spot DP':       return 'spot_dp';
+    case 'Stretched DP':  return 'stretched_dp';
+    default:              return '';
+  }
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -99,11 +122,33 @@ function InlineSelect({
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+interface ResFinancials {
+  listPrice:              number;
+  promoDiscountAmount:    number;
+  employeeDiscountAmount: number;
+  hicDiscount:            number;
+  paytermDiscountPct:     number;
+  netListPrice:           number;
+  vat:                    number;
+  otherCharges:           number;
+  hasVat:                 boolean;
+  tcp:                    number;
+  reservationFee:         number;
+  retentionFee:           number;
+  unitArea:               number;
+  schemeName:             string;
+  paymentScheme:          string;
+  termMonths:             number;
+  dpRate:                 string;
+}
+
+
 interface BuyerInfo {
   reservation_id: string;
   client_id:      string | null;
   client_name:    string | null;
   project:        string | null;
+  tower:          string | null;
   inventory_code: string | null;
 }
 
@@ -119,8 +164,9 @@ export default function NewRequestPage() {
   const [showResults,   setShowResults]   = useState(false);
   const [lookupErr,     setLookupErr]     = useState('');
   const [buyer,         setBuyer]         = useState<BuyerInfo | null>(null);
-  const searchRef   = useRef<HTMLDivElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchRef      = useRef<HTMLDivElement>(null);
+  const debounceRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const descriptionRef = useRef<HTMLTextAreaElement>(null);
 
   // Request detail fields
   const [typeOfRequest,   setTypeOfRequest]   = useState('');
@@ -128,14 +174,27 @@ export default function NewRequestPage() {
   const [requestCategory, setRequestCategory] = useState('');
   const [description,     setDescription]     = useState('');
 
-  // Change of Unit — new unit search
-  const [newUnitQuery,    setNewUnitQuery]    = useState('');
-  const [newUnitResults,  setNewUnitResults]  = useState<{ inventory_code: string; project: string; tower: string | null; floor: string | null; unit_no: string | null }[]>([]);
-  const [newUnit,         setNewUnit]         = useState<{ inventory_code: string; project: string; tower: string | null; floor: string | null; unit_no: string | null } | null>(null);
-  const [newUnitSearching, setNewUnitSearching] = useState(false);
-  const [showNewUnitResults, setShowNewUnitResults] = useState(false);
-  const newUnitDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const newUnitRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = descriptionRef.current;
+    if (!el) return;
+    el.style.height = '0px';
+    el.style.height = el.scrollHeight + 'px';
+  }, [description]);
+
+  // Payment Schedule Restructuring — calculator
+  const [paytems,         setPaytems]         = useState<PaytermRecord[]>([]);
+  const [paytermLoading,  setPaytermLoading]  = useState(false);
+  const [rPaymentScheme,  setRPaymentScheme]  = useState('');
+  const [rDpRate,         setRDpRate]         = useState('');
+  const [rTermStr,        setRTermStr]        = useState('');
+  const [rComputed,       setRComputed]       = useState(false);
+
+  // Change of Unit — inventory chart
+  const [newUnit,          setNewUnit]          = useState<InventoryUnit | null>(null);
+  const [chartUnits,       setChartUnits]       = useState<InventoryUnit[]>([]);
+  const [chartLoading,     setChartLoading]     = useState(false);
+  const [chartTower,       setChartTower]       = useState<string | null>(null);
+  const [resFinancials,    setResFinancials]    = useState<ResFinancials | null>(null);
 
   // Live timestamp
   const [now, setNow] = useState(() => new Date());
@@ -149,44 +208,112 @@ export default function NewRequestPage() {
   const [saveErr,     setSaveErr]     = useState('');
   const [done,        setDone]        = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [ticketId,    setTicketId]    = useState<string | null>(null);
 
   // Derived
   const subTypeOptions = typeOfRequest ? (SUB_TYPES[typeOfRequest] ?? []) : [];
   const hasSubTypes    = subTypeOptions.length > 0;
   const turnaroundDays = requestCategory === 'simple' ? 5 : requestCategory === 'complex' ? 7 : null;
 
+  // Change of Unit: compute new unit TCP using same discount rates
+  const newCalc = useMemo(() => {
+    if (!newUnit || !resFinancials || resFinancials.listPrice === 0) return null;
+    const newLP     = parseFloat(newUnit.total_list_price) || 0;
+    if (newLP === 0) return null;
+    const promoRate    = resFinancials.promoDiscountAmount    / resFinancials.listPrice;
+    const employeeRate = resFinancials.employeeDiscountAmount / resFinancials.listPrice;
+    const promoAmt     = Math.round(newLP * promoRate);
+    const employeeAmt  = Math.round(newLP * employeeRate);
+    const paytermAmt   = Math.round(newLP * resFinancials.paytermDiscountPct / 100);
+    const hicAmt       = newUnit.hic ? resFinancials.hicDiscount : 0;
+    const nlpRaw       = newLP - promoAmt - employeeAmt - paytermAmt - hicAmt;
+    const vat          = resFinancials.hasVat ? Math.round(nlpRaw * 0.12) : 0;
+    const oc           = Math.round(nlpRaw * 0.07);
+    const tcp          = nlpRaw + vat + oc + hicAmt;
+    return { newLP, promoAmt, employeeAmt, paytermAmt, hicAmt, nlp: nlpRaw, vat, oc, tcp };
+  }, [newUnit, resFinancials]);
+
+  // Payment Schedule Restructuring: derived paytems options + new TCP
+  const isRestructuring = typeOfRequest === 'Payment Schedule Restructuring';
+
+
+
+  const rAvailableSchemes = useMemo(() => {
+    const present = new Set(paytems.map(p => toInternalScheme(p.payterm_scheme ?? '')).filter(Boolean));
+    return PAYMENT_SCHEMES.filter(s => present.has(s.value));
+  }, [paytems]);
+
+  const rDpOptions = useMemo(() => {
+    if (rPaymentScheme !== 'spot_dp' && rPaymentScheme !== 'stretched_dp') return [];
+    const set = new Set<string>();
+    paytems.filter(p => toInternalScheme(p.payterm_scheme ?? '') === rPaymentScheme)
+      .forEach(p => { if (p.dp_percent) set.add(p.dp_percent); });
+    return [...set].sort((a, b) => Number(a) - Number(b));
+  }, [paytems, rPaymentScheme]);
+
+  const rTermOptions = useMemo(() => {
+    if (rPaymentScheme !== 'deferred_cash' && rPaymentScheme !== 'stretched_dp') return [];
+    let filtered = paytems.filter(p => toInternalScheme(p.payterm_scheme ?? '') === rPaymentScheme);
+    if (rPaymentScheme === 'stretched_dp' && rDpRate) filtered = filtered.filter(p => p.dp_percent === rDpRate);
+    const set = new Set<string>();
+    filtered.forEach(p => { if (p.term) set.add(p.term); });
+    return [...set].sort((a, b) => Number(a) - Number(b));
+  }, [paytems, rPaymentScheme, rDpRate]);
+
+  const restructureDerived = useMemo(() => {
+    if (!isRestructuring || !rPaymentScheme || !resFinancials || resFinancials.listPrice === 0) return null;
+    if (rPaymentScheme === 'deferred_cash' && !rTermStr) return null;
+    if (rPaymentScheme === 'spot_dp'       && !rDpRate)  return null;
+    if (rPaymentScheme === 'stretched_dp'  && (!rDpRate || !rTermStr)) return null;
+
+    const match = paytems.find(p => {
+      const s = toInternalScheme(p.payterm_scheme ?? '');
+      if (s !== rPaymentScheme) return false;
+      if ((rPaymentScheme === 'spot_dp' || rPaymentScheme === 'stretched_dp') && p.dp_percent !== rDpRate) return false;
+      if ((rPaymentScheme === 'deferred_cash' || rPaymentScheme === 'stretched_dp') && p.term !== rTermStr) return false;
+      return true;
+    });
+    if (!match) return null;
+
+    const lp          = resFinancials.listPrice;
+    const discPct     = Number(match.discount) || 0;
+    const paytermAmt  = Math.round(lp * discPct / 100);
+    const promoAmt    = resFinancials.promoDiscountAmount;
+    const employeeAmt = resFinancials.employeeDiscountAmount;
+    const hicAmt      = resFinancials.hicDiscount;
+    const nlp         = lp - promoAmt - employeeAmt - paytermAmt - hicAmt;
+    const vat         = resFinancials.hasVat ? Math.round(nlp * 0.12) : 0;
+    const oc          = Math.round(nlp * OTHER_CHARGES_RATE);
+    const tcp         = nlp + vat + oc + hicAmt;
+    const termMonths  = parseInt(match.term ?? '') || 0;
+    return { match, discPct, paytermAmt, promoAmt, employeeAmt, hicAmt, nlp, vat, oc, tcp, termMonths };
+  }, [isRestructuring, rPaymentScheme, rDpRate, rTermStr, paytems, resFinancials]);
+
+  // Lock chart tower to buyer's own tower
+  useEffect(() => {
+    setChartTower(buyer?.tower ?? null);
+    setChartUnits([]);
+    setNewUnit(null);
+  }, [buyer]);
+
+  // Fetch inventory units when tower tab changes
+  useEffect(() => {
+    if (!buyer?.project || !chartTower) { setChartUnits([]); return; }
+    setChartLoading(true);
+    fetchInventoryUnits(buyer.project, chartTower).then(units => {
+      setChartUnits(units);
+      setChartLoading(false);
+    });
+  }, [buyer, chartTower]);
+
   useEffect(() => {
     function onOutside(e: MouseEvent) {
       if (searchRef.current && !searchRef.current.contains(e.target as Node))
         setShowResults(false);
-      if (newUnitRef.current && !newUnitRef.current.contains(e.target as Node))
-        setShowNewUnitResults(false);
     }
     document.addEventListener('mousedown', onOutside);
     return () => document.removeEventListener('mousedown', onOutside);
   }, []);
-
-  function handleNewUnitInput(value: string) {
-    setNewUnitQuery(value);
-    setNewUnit(null);
-    setShowNewUnitResults(false);
-    if (newUnitDebounce.current) clearTimeout(newUnitDebounce.current);
-    if (!value.trim()) { setNewUnitResults([]); return; }
-    newUnitDebounce.current = setTimeout(() => runNewUnitSearch(value.trim()), 350);
-  }
-
-  async function runNewUnitSearch(q: string) {
-    setNewUnitSearching(true);
-    const { data } = await supabase
-      .from('inventory')
-      .select('inventory_code, project, tower, floor, unit_no')
-      .or(`inventory_code.ilike.%${q}%,project.ilike.%${q}%,unit_no.ilike.%${q}%`)
-      .eq('status', 'Available')
-      .limit(10);
-    setNewUnitResults((data as any[]) ?? []);
-    setShowNewUnitResults(true);
-    setNewUnitSearching(false);
-  }
 
   function handleSearchInput(value: string) {
     setSearchQuery(value);
@@ -203,11 +330,12 @@ export default function NewRequestPage() {
     const upper = q.toUpperCase();
     const { data } = await supabase
       .from('reservations')
-      .select('reservation_id, client_id, client_name, project, inventory_code')
+      .select('reservation_id, client_id, client_name, project, tower, inventory_code')
       .or(
         `client_name.ilike.%${q}%,client_id.ilike.%${q}%,reservation_id.ilike.%${upper}%,project.ilike.%${q}%,inventory_code.ilike.%${q}%`
       )
-      .limit(10);
+      .order('reservation_id', { ascending: true })
+      .limit(25);
     setSearchResults((data as BuyerInfo[]) ?? []);
     setShowResults(true);
     setSearching(false);
@@ -220,6 +348,43 @@ export default function NewRequestPage() {
     setSearchQuery(b.client_name ?? b.reservation_id);
     setShowResults(false);
     setLookupErr('');
+    // Fetch paytems for buyer's project/tower
+    if (b.project && b.tower) {
+      setPaytermLoading(true);
+      fetchAllPayterms().then(all =>
+        setPaytems(all.filter(p => p.project === b.project && p.tower === b.tower))
+      ).catch(() => {}).finally(() => setPaytermLoading(false));
+    }
+
+    // Fetch reservation financials
+    supabase
+      .from('reservations')
+      .select('list_price, promo_discount_amount, employee_discount_amount, hic_discount, payterm_discount_pct, net_list_price, vat, other_charges, total_contract_price, reservation_fee, retention_fee, unit_area, scheme_name, payment_scheme, term_months, dp_rate')
+      .eq('reservation_id', b.reservation_id)
+      .single()
+      .then(({ data }) => {
+        if (!data) return;
+        const d = data as any;
+        setResFinancials({
+          listPrice:              Number(d.list_price)              || 0,
+          promoDiscountAmount:    Number(d.promo_discount_amount)   || 0,
+          employeeDiscountAmount: Number(d.employee_discount_amount)|| 0,
+          hicDiscount:            Number(d.hic_discount)            || 0,
+          paytermDiscountPct:     Number(d.payterm_discount_pct)    || 0,
+          netListPrice:           Number(d.net_list_price)          || 0,
+          vat:                    Number(d.vat)                     || 0,
+          otherCharges:           Number(d.other_charges)           || 0,
+          hasVat:                 Number(d.vat)                     >  0,
+          tcp:                    Number(d.total_contract_price)    || 0,
+          reservationFee:         Number(d.reservation_fee)         || 0,
+          retentionFee:           Number(d.retention_fee)           || 0,
+          unitArea:               Number(d.unit_area)               || 0,
+          schemeName:             d.scheme_name                     ?? '',
+          paymentScheme:          d.payment_scheme                  ?? '',
+          termMonths:             Number(d.term_months)             || 0,
+          dpRate:                 (d.dp_rate ?? '').replace('%', ''),
+        });
+      });
   }
 
   function clearSearch() {
@@ -228,6 +393,9 @@ export default function NewRequestPage() {
     setSearchResults([]);
     setShowResults(false);
     setLookupErr('');
+    setResFinancials(null);
+    setPaytems([]); setPaytermLoading(false);
+    setRPaymentScheme(''); setRDpRate(''); setRTermStr(''); setRComputed(false);
   }
 
   async function handleSubmit() {
@@ -237,7 +405,7 @@ export default function NewRequestPage() {
     try {
       const session = await getSession();
       const isBrf = isBrfType(typeOfRequest);
-      const { error } = await supabase.from('requests_and_inquiries').insert({
+      const { data: inserted, error } = await supabase.from('requests_and_inquiries').insert({
         reservation_id:    buyer.reservation_id,
         client_id:         buyer.client_id,
         client_name:       buyer.client_name,
@@ -248,14 +416,17 @@ export default function NewRequestPage() {
         request_category:  requestCategory,
         turnaround_days:   turnaroundDays,
         description:       description.trim() || null,
-        requested_by:      session?.email ?? null,
-        // BRF types enter the approval workflow; others go straight to open
+        requested_by:      session?.email     ?? null,
+        requested_by_name: session?.full_name ?? null,
         status:            'open',
         approval_status:   isBrf ? 'Pending' : null,
-        // Change of Unit: store the new unit at submission time
-        new_inventory_code: typeOfRequest === 'Change of Unit' ? (newUnit?.inventory_code ?? null) : null,
-      });
+        new_inventory_code:  typeOfRequest === 'Change of Unit' ? (newUnit?.inventory_code ?? null) : null,
+        new_payterm_code:    isRestructuring ? (restructureDerived?.match.payterm_code ?? null) : null,
+        new_payterm_scheme:  isRestructuring ? rPaymentScheme || null : null,
+        new_term_months:     isRestructuring ? (restructureDerived?.termMonths ?? null) : null,
+      }).select('ticket_id').single();
       if (error) throw error;
+      setTicketId((inserted as { ticket_id: string | null } | null)?.ticket_id ?? null);
       setDone(true);
     } catch (e: unknown) {
       setSaveErr((e as Error).message ?? 'Failed to submit. Please try again.');
@@ -270,7 +441,9 @@ export default function NewRequestPage() {
     !!typeOfRequest &&
     (!hasSubTypes || !!subType) &&
     !!requestCategory &&
-    (typeOfRequest !== 'Change of Unit' || !!newUnit);
+    !!description.trim() &&
+    (typeOfRequest !== 'Change of Unit'              || !!newUnit) &&
+    (!isRestructuring                                || !!restructureDerived);
 
   // ── Done screen ──────────────────────────────────────────────────────────────
 
@@ -282,6 +455,12 @@ export default function NewRequestPage() {
             <CheckCircle2 size={36} className="text-green-500" />
           </div>
           <p className="text-base font-bold text-[#1C1C1E]">Request Submitted</p>
+          {ticketId && (
+            <div className="flex flex-col items-center gap-0.5">
+              <p className="text-[10px] text-[#8E8E93] uppercase tracking-wider">Ticket ID</p>
+              <p className="text-lg font-bold font-mono tracking-widest" style={{ color: '#C03D25' }}>{ticketId}</p>
+            </div>
+          )}
           <p className="text-sm text-[#8E8E93] text-center leading-relaxed">
             The <span className="font-semibold text-[#1C1C1E]">{typeOfRequest}</span> request for{' '}
             <span className="font-semibold text-[#1C1C1E]">{buyer?.client_name}</span> has been recorded.
@@ -297,7 +476,8 @@ export default function NewRequestPage() {
               onClick={() => {
                 setBuyer(null); setSearchQuery(''); setSearchResults([]);
                 setTypeOfRequest(''); setSubType(''); setRequestCategory('');
-                setDescription(''); setSaveErr(''); setLookupErr(''); setDone(false);
+                setDescription(''); setSaveErr(''); setLookupErr('');
+                setTicketId(null); setDone(false);
               }}
               className="flex-1 py-3 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80"
             >
@@ -418,7 +598,7 @@ export default function NewRequestPage() {
               value={typeOfRequest}
               options={[...REQUEST_TYPES]}
               placeholder="Select type"
-              onChange={v => { setTypeOfRequest(v); setSubType(''); }}
+              onChange={v => { setTypeOfRequest(v); setSubType(''); setRPaymentScheme(''); setRDpRate(''); setRTermStr(''); setRComputed(false); }}
             />
 
             {hasSubTypes && (
@@ -433,56 +613,6 @@ export default function NewRequestPage() {
               />
             )}
 
-            {/* Change of Unit: new unit picker */}
-            {typeOfRequest === 'Change of Unit' && (
-              <div className="border-b border-black/[0.06]">
-                <div className="flex items-center gap-3 py-2.5 px-1">
-                  <ArrowRightLeft size={15} className="text-[#C03D25] shrink-0" />
-                  <span className="text-sm font-medium text-[#1C1C1E] flex-1">
-                    New Unit <span className="text-[#C03D25] text-xs">*</span>
-                  </span>
-                </div>
-                <div ref={newUnitRef} className="relative px-1 pb-2">
-                  <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border border-black/[0.08] ${newUnit ? 'bg-green-50/60 border-green-200' : 'bg-[#F2F2F7]'}`}>
-                    {newUnitSearching
-                      ? <Loader2 size={13} className="text-[#C03D25] shrink-0 animate-spin" />
-                      : newUnit
-                        ? <CheckCircle2 size={13} className="text-green-500 shrink-0" />
-                        : <Search size={13} className="text-[#8E8E93] shrink-0" />}
-                    <input
-                      type="text"
-                      value={newUnitQuery}
-                      onChange={e => handleNewUnitInput(e.target.value)}
-                      onFocus={() => newUnitResults.length > 0 && !newUnit && setShowNewUnitResults(true)}
-                      placeholder="Search available units…"
-                      readOnly={!!newUnit}
-                      className={`flex-1 text-sm bg-transparent outline-none placeholder-[#C7C7CC] ${newUnit ? 'text-green-700 font-medium' : 'text-[#1C1C1E]'}`}
-                    />
-                    {(newUnitQuery || newUnit) && (
-                      <button type="button" onClick={() => { setNewUnit(null); setNewUnitQuery(''); setNewUnitResults([]); }} className="shrink-0 active:opacity-60">
-                        <X size={13} className="text-[#8E8E93]" />
-                      </button>
-                    )}
-                  </div>
-                  {showNewUnitResults && newUnitResults.length > 0 && !newUnit && (
-                    <div className="absolute left-1 right-1 top-full z-20 bg-white rounded-2xl shadow-xl border border-black/[0.07] max-h-52 overflow-y-auto mt-1">
-                      {newUnitResults.map(u => (
-                        <button key={u.inventory_code} type="button"
-                          onMouseDown={() => { setNewUnit(u); setNewUnitQuery(u.inventory_code); setShowNewUnitResults(false); }}
-                          className="w-full flex flex-col px-4 py-3 text-left border-b border-black/[0.05] last:border-0 active:bg-[#F2F2F7]"
-                        >
-                          <span className="text-sm font-bold text-[#1C1C1E]">{u.inventory_code}</span>
-                          <span className="text-xs text-[#6C6C70] mt-0.5">{u.project}{u.tower ? ` · ${u.tower}` : ''}{u.floor ? ` · Floor ${u.floor}` : ''}{u.unit_no ? ` · Unit ${u.unit_no}` : ''}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {newUnitResults.length === 0 && newUnitQuery && !newUnit && !newUnitSearching && (
-                    <p className="text-xs text-[#FF3B30] mt-1 px-1">No available units found.</p>
-                  )}
-                </div>
-              </div>
-            )}
 
             <InlineSelect
               icon={<Layers size={15} />}
@@ -511,20 +641,20 @@ export default function NewRequestPage() {
             <div className="py-3 px-1 border-b border-black/[0.06]">
               <div className="flex items-center gap-3 mb-2.5">
                 <AlignLeft size={15} className="text-[#C03D25] shrink-0" />
-                <span className="text-sm font-medium text-[#1C1C1E]">Description</span>
-                <span className="text-[10px] text-[#C7C7CC] ml-auto">Optional</span>
+                <span className="text-sm font-medium text-[#1C1C1E]">Description<span className="text-[#C03D25] text-xs ml-0.5">*</span></span>
               </div>
               <textarea
+                ref={descriptionRef}
                 value={description}
                 onChange={e => setDescription(e.target.value)}
                 placeholder="Describe the request in detail…"
-                rows={4}
-                className="w-full px-3 py-2.5 rounded-xl border border-black/[0.08] bg-[#F2F2F7] text-sm text-[#1C1C1E] placeholder-[#C7C7CC] outline-none focus:border-[#C03D25]/40 resize-none leading-relaxed"
+                style={{ minHeight: '52px' }}
+                className="w-full px-3 py-2.5 rounded-xl border border-black/[0.08] bg-[#F2F2F7] text-sm text-[#1C1C1E] placeholder-[#C7C7CC] outline-none focus:border-[#C03D25]/40 resize-none leading-relaxed overflow-hidden"
               />
             </div>
 
             <div className="flex items-center gap-3 py-3 px-1">
-              <Clock size={15} className="text-[#C03D25] shrink-0" />
+              <Calendar size={15} className="text-[#C03D25] shrink-0" />
               <span className="flex-1 text-sm font-medium text-[#1C1C1E]">Timestamp</span>
               <span className="text-xs text-[#6C6C70]">
                 {now.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}
@@ -532,6 +662,242 @@ export default function NewRequestPage() {
             </div>
           </GlassCard>
         </div>
+
+        {/* ── Section 3: New Unit selector (Change of Unit only) ── */}
+        {typeOfRequest === 'Change of Unit' && (
+          <div className={`transition-opacity duration-200 ${!buyer ? 'opacity-40 pointer-events-none select-none' : ''}`}>
+            <GlassCard className="px-4 py-1">
+              <div className="flex items-center justify-between py-2.5 border-b border-black/[0.06]">
+                <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider">
+                  New Unit <span className="text-[#C03D25]">*</span>
+                </p>
+                {newUnit && (
+                  <span className="flex items-center gap-1 text-[10px] font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
+                    <CheckCircle2 size={10} />
+                    {newUnit.inventory_code}
+                    <button type="button" onClick={() => setNewUnit(null)} className="ml-0.5 active:opacity-60">
+                      <X size={10} className="text-green-600" />
+                    </button>
+                  </span>
+                )}
+              </div>
+              {!newUnit && (chartLoading ? (
+                <div className="flex items-center justify-center py-6 gap-2">
+                  <Loader2 size={16} className="animate-spin text-[#C03D25]" />
+                  <span className="text-xs text-[#8E8E93]">Loading units…</span>
+                </div>
+              ) : buyer?.project && chartTower ? (
+                <InventoryChart
+                  project={buyer.project}
+                  tower={chartTower}
+                  inventoryUnits={chartUnits}
+                  onSelectUnit={unit => setNewUnit(unit)}
+                  excludeCode={buyer.inventory_code}
+                  showCategoryTabs
+                  showFilters
+                />
+              ) : null)}
+
+              {/* Side-by-side price comparison */}
+              {newUnit && resFinancials && newCalc && (
+                <div className="grid grid-cols-2 [grid-template-rows:auto_1fr] gap-2 pt-2 pb-1 -mx-4 px-4 overflow-x-auto">
+                  <CalcCard
+                    title="Current Unit"
+                    unitCode={buyer?.inventory_code ?? null}
+                    unitArea={resFinancials.unitArea}
+                    schemeName={resFinancials.schemeName}
+                    category={newUnit.product_type}
+                    listPrice={resFinancials.listPrice}
+                    promoAmt={resFinancials.promoDiscountAmount}
+                    promoPct={resFinancials.listPrice > 0 ? resFinancials.promoDiscountAmount / resFinancials.listPrice * 100 : 0}
+                    employeeAmt={resFinancials.employeeDiscountAmount}
+                    employeePct={resFinancials.listPrice > 0 ? resFinancials.employeeDiscountAmount / resFinancials.listPrice * 100 : 0}
+                    paytermAmt={Math.round(resFinancials.listPrice * resFinancials.paytermDiscountPct / 100)}
+                    paytermPct={resFinancials.paytermDiscountPct}
+                    hicAmt={resFinancials.hicDiscount}
+                    nlp={resFinancials.netListPrice}
+                    vat={resFinancials.vat}
+                    otherCharges={resFinancials.otherCharges}
+                    tcp={resFinancials.tcp}
+                    reservationFee={resFinancials.reservationFee}
+                    retentionFee={resFinancials.retentionFee}
+                  />
+                  <CalcCard
+                    title="New Unit"
+                    unitCode={newUnit.inventory_code}
+                    unitArea={newUnit.unit_area}
+                    schemeName={resFinancials.schemeName}
+                    category={newUnit.product_type}
+                    listPrice={newCalc.newLP}
+                    promoAmt={newCalc.promoAmt}
+                    promoPct={newCalc.newLP > 0 ? newCalc.promoAmt / newCalc.newLP * 100 : 0}
+                    employeeAmt={newCalc.employeeAmt}
+                    employeePct={newCalc.newLP > 0 ? newCalc.employeeAmt / newCalc.newLP * 100 : 0}
+                    paytermAmt={newCalc.paytermAmt}
+                    paytermPct={resFinancials.paytermDiscountPct}
+                    hicAmt={newCalc.hicAmt}
+                    nlp={newCalc.nlp}
+                    vat={newCalc.vat}
+                    otherCharges={newCalc.oc}
+                    tcp={newCalc.tcp}
+                    reservationFee={resFinancials.reservationFee}
+                    retentionFee={resFinancials.retentionFee}
+                    highlight
+                  />
+                </div>
+              )}
+            </GlassCard>
+          </div>
+        )}
+
+        {/* ── Section 4: Payment Calculator (Restructuring only) ── */}
+        {isRestructuring && (
+          <div className={`transition-opacity duration-200 ${!buyer ? 'opacity-40 pointer-events-none select-none' : ''}`}>
+            <GlassCard className="px-4 py-1 space-y-0">
+              <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider py-2.5 border-b border-black/[0.06]">
+                Payment Calculator
+              </p>
+
+              {paytermLoading ? (
+                <div className="flex items-center justify-center gap-2 py-6">
+                  <Loader2 size={15} className="animate-spin text-[#C03D25]" />
+                  <span className="text-xs text-[#8E8E93]">Loading paytems…</span>
+                </div>
+              ) : paytems.length === 0 ? (
+                <p className="text-xs text-[#FF3B30] py-4 text-center">No paytems found for this project/tower.</p>
+              ) : rComputed ? (
+                /* ── Computed view: side-by-side cards + Reset ── */
+                <div className="py-3 space-y-3">
+                  <div className="grid grid-cols-2 [grid-template-rows:auto_1fr] gap-2 -mx-4 px-4 overflow-x-auto">
+                    <CalcCard
+                      title="Current"
+                      unitCode={buyer?.inventory_code ?? null}
+                      unitArea={resFinancials.unitArea}
+                      schemeName={resFinancials.schemeName}
+                      category={null}
+                      termMonths={resFinancials.termMonths || undefined}
+                      dpRate={resFinancials.dpRate || undefined}
+                      listPrice={resFinancials.listPrice}
+                      promoAmt={resFinancials.promoDiscountAmount}
+                      promoPct={resFinancials.listPrice > 0 ? resFinancials.promoDiscountAmount / resFinancials.listPrice * 100 : 0}
+                      employeeAmt={resFinancials.employeeDiscountAmount}
+                      employeePct={resFinancials.listPrice > 0 ? resFinancials.employeeDiscountAmount / resFinancials.listPrice * 100 : 0}
+                      paytermAmt={Math.round(resFinancials.listPrice * resFinancials.paytermDiscountPct / 100)}
+                      paytermPct={resFinancials.paytermDiscountPct}
+                      hicAmt={resFinancials.hicDiscount}
+                      nlp={resFinancials.netListPrice}
+                      vat={resFinancials.vat}
+                      otherCharges={resFinancials.otherCharges}
+                      tcp={resFinancials.tcp}
+                      reservationFee={resFinancials.reservationFee}
+                      retentionFee={resFinancials.retentionFee}
+                    />
+                    <CalcCard
+                      title="New"
+                      unitCode={buyer?.inventory_code ?? null}
+                      unitArea={resFinancials.unitArea}
+                      schemeName={restructureDerived.match.payterm_scheme ?? ''}
+                      category={null}
+                      termMonths={restructureDerived.termMonths}
+                      dpRate={rDpRate || undefined}
+                      listPrice={resFinancials.listPrice}
+                      promoAmt={restructureDerived.promoAmt}
+                      promoPct={resFinancials.listPrice > 0 ? restructureDerived.promoAmt / resFinancials.listPrice * 100 : 0}
+                      employeeAmt={restructureDerived.employeeAmt}
+                      employeePct={resFinancials.listPrice > 0 ? restructureDerived.employeeAmt / resFinancials.listPrice * 100 : 0}
+                      paytermAmt={restructureDerived.paytermAmt}
+                      paytermPct={restructureDerived.discPct}
+                      hicAmt={restructureDerived.hicAmt}
+                      nlp={restructureDerived.nlp}
+                      vat={restructureDerived.vat}
+                      otherCharges={restructureDerived.oc}
+                      tcp={restructureDerived.tcp}
+                      reservationFee={resFinancials.reservationFee}
+                      retentionFee={resFinancials.retentionFee}
+                      highlight
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setRComputed(false)}
+                    className="w-full py-2.5 rounded-2xl border border-[#C03D25] text-[#C03D25] text-xs font-bold transition-colors active:bg-[#C03D25]/10"
+                  >
+                    Reset
+                  </button>
+                </div>
+              ) : (
+                /* ── Selection view: scheme cards + dropdowns + Compute ── */
+                <div className="py-3 space-y-3">
+                  {/* Scheme cards */}
+                  <div>
+                    <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-wider mb-2">Payterm Scheme</p>
+                    <div className="grid grid-cols-4 gap-2">
+                      {PAYMENT_SCHEMES.map(ps => {
+                        const available = rAvailableSchemes.some(s => s.value === ps.value);
+                        const active    = rPaymentScheme === ps.value;
+                        return (
+                          <button key={ps.value} type="button" disabled={!available}
+                            onClick={() => { setRPaymentScheme(ps.value); setRDpRate(''); setRTermStr(''); }}
+                            className={`flex flex-col items-center gap-1 rounded-2xl border py-3 px-1.5 text-center transition-colors ${
+                              !available
+                                ? 'bg-[#F2F2F7] border-[#E5E5EA] text-[#C7C7CC] cursor-not-allowed opacity-50'
+                                : active
+                                ? 'bg-[#C03D25]/10 border-[#C03D25] text-[#C03D25]'
+                                : 'bg-white border-[#E5E5EA] text-[#6C6C70] active:bg-gray-50'
+                            }`}
+                          >
+                            {ps.icon}
+                            <span className="text-[10px] font-semibold leading-tight">{ps.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* DP % and Term dropdowns */}
+                  {(rDpOptions.length > 0 || rTermOptions.length > 0) && (
+                    <div className="bg-white/60 rounded-2xl px-3 border border-black/[0.06]">
+                      {rDpOptions.length > 0 && (
+                        <InlineSelect icon={<CreditCard size={15} />} label="Down Payment %" required
+                          value={rDpRate ? `${rDpRate}%` : ''}
+                          options={rDpOptions.map(v => `${v}%`)}
+                          placeholder="Select DP %"
+                          onChange={v => { setRDpRate(v.replace('%', '')); setRTermStr(''); }}
+                        />
+                      )}
+                      {rTermOptions.length > 0 && (
+                        <InlineSelect icon={<Clock size={15} />} label="Term" required
+                          value={rTermStr ? `${rTermStr} months` : ''}
+                          options={rTermOptions.map(v => `${v} months`)}
+                          placeholder="Select term"
+                          onChange={v => setRTermStr(v.replace(' months', ''))}
+                        />
+                      )}
+                    </div>
+                  )}
+
+                  {rPaymentScheme && !restructureDerived && rPaymentScheme === 'spot_cash' && (
+                    <p className="text-xs text-[#FF3B30]">No matching payterm found.</p>
+                  )}
+
+                  {/* Compute button */}
+                  <button
+                    type="button"
+                    disabled={!restructureDerived}
+                    onClick={() => setRComputed(true)}
+                    className={`w-full py-2.5 rounded-2xl text-xs font-bold transition-all ${
+                      restructureDerived
+                        ? 'bg-[#C03D25] text-white shadow-[0_4px_12px_rgba(192,61,37,0.3)] active:opacity-80'
+                        : 'bg-[#E5E5EA] text-[#C7C7CC] cursor-not-allowed'
+                    }`}
+                  >
+                    Compute
+                  </button>
+                </div>
+              )}
+            </GlassCard>
+          </div>
+        )}
 
         {saveErr && <p className="text-[#FF3B30] text-xs text-center px-4">{saveErr}</p>}
 

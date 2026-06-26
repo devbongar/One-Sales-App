@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { resolveDueDate, fetchTurnoverDate } from '@/lib/admin';
 import { regenerateCommissionSchedule } from '@/lib/commission';
 import { reapplyCollections } from '@/lib/collections';
+import { updateInventoryUnitStatus } from '@/lib/inventory';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -14,12 +15,32 @@ export function isBrfType(t: string): t is BrfType {
 // ── Supersede ─────────────────────────────────────────────────────────────────
 
 export async function supersedeReceivableLines(reservationId: string): Promise<void> {
+  const { count: before } = await supabase
+    .from('receivables_database')
+    .select('id', { count: 'exact', head: true })
+    .eq('reservation_id', reservationId)
+    .in('payment_status', ['Unpaid', 'Partial']);
+
   const { error } = await supabase
     .from('receivables_database')
     .update({ payment_status: 'Superseded' })
     .eq('reservation_id', reservationId)
     .in('payment_status', ['Unpaid', 'Partial']);
   if (error) throw error;
+
+  if (before && before > 0) {
+    const { count: after } = await supabase
+      .from('receivables_database')
+      .select('id', { count: 'exact', head: true })
+      .eq('reservation_id', reservationId)
+      .in('payment_status', ['Unpaid', 'Partial']);
+    if (after && after > 0) {
+      throw new Error(
+        `RLS blocked superseding: ${after} of ${before} active lines were not updated for ${reservationId}. ` +
+        'Apply the fix_receivables_database_rls.sql migration in Supabase.'
+      );
+    }
+  }
 }
 
 export async function supersedeCommissionLines(reservationId: string): Promise<void> {
@@ -279,6 +300,7 @@ export interface BRFApprovalOptions {
   newOtherCharges:         number;
   newTcp:                  number;
   newInventoryCode?:       string;
+  onStep?:                 (step: number) => void;
 }
 
 export async function processBRF(opts: BRFApprovalOptions): Promise<void> {
@@ -287,7 +309,7 @@ export async function processBRF(opts: BRFApprovalOptions): Promise<void> {
     newPaytermCode, newPaytermScheme, newSchemeName, newTermMonths, remainingBalance,
     newPaytermDiscountPct, newPaytermDiscountAmount, newDpPercent,
     newNlp, newVat, newOtherCharges, newTcp,
-    newInventoryCode,
+    newInventoryCode, onStep,
   } = opts;
 
   // Idempotency guard
@@ -296,7 +318,7 @@ export async function processBRF(opts: BRFApprovalOptions): Promise<void> {
     .select('approval_status')
     .eq('id', requestId)
     .single();
-  if ((req as any)?.approval_status === 'Approved') return;
+  if ((req as any)?.approval_status === 'Resolved') return;
 
   // ── Change of Unit: swap inventory ────────────────────────────────────────
   if (typeOfRequest === 'Change of Unit' && newInventoryCode) {
@@ -308,40 +330,54 @@ export async function processBRF(opts: BRFApprovalOptions): Promise<void> {
     const oldCode = (resData as any)?.inventory_code as string | null;
 
     if (oldCode) {
-      await supabase.from('inventory').update({ status: 'Available' }).eq('inventory_code', oldCode);
+      await updateInventoryUnitStatus(oldCode, 'Available');
     }
     await supabase
       .from('reservations')
       .update({ inventory_code: newInventoryCode })
       .eq('reservation_id', reservationId);
-    await supabase.from('inventory').update({ status: 'Reserved' }).eq('inventory_code', newInventoryCode);
+    await updateInventoryUnitStatus(newInventoryCode, 'Reserved');
   }
 
-  // ── Update reservation with new TCP / payterm values ─────────────────────
-  // Must happen BEFORE regenerateReceivableLines so breakdown ratios use new TCP.
+  // ── Snapshot full reservation row before overwrite ───────────────────────
   const { data: resRow } = await supabase
     .from('reservations')
-    .select('reservation_fee, retention_fee')
+    .select('*')
     .eq('reservation_id', reservationId)
     .single();
   const resFee = Number((resRow as any)?.reservation_fee) || 0;
   const retFee = Number((resRow as any)?.retention_fee) || 0;
 
+  const updatePayload = {
+    payment_scheme:          newPaytermScheme,
+    scheme_name:             newSchemeName,
+    term_months:             newTermMonths,
+    payterm_discount_pct:    newPaytermDiscountPct,
+    payterm_discount_amount: newPaytermDiscountAmount,
+    net_list_price:          newNlp,
+    vat:                     newVat,
+    other_charges:           newOtherCharges,
+    total_contract_price:    newTcp,
+    net_amount:              newTcp - resFee - retFee,
+  };
+
+  await supabase.from('audit_log_reservation').insert({
+    reservation_id: reservationId,
+    request_id:     requestId,
+    event_type:     typeOfRequest === 'Change of Unit' ? 'change_of_unit' : 'payment_restructuring',
+    changed_by:     approvedBy,
+    before_state:   resRow ?? {},
+    after_state:    { ...(resRow ?? {}), ...updatePayload },
+  });
+  onStep?.(1);
+
+  // ── Update reservation with new TCP / payterm values ─────────────────────
+  // Must happen BEFORE regenerateReceivableLines so breakdown ratios use new TCP.
   await supabase
     .from('reservations')
-    .update({
-      payment_scheme:          newPaytermScheme,
-      scheme_name:             newSchemeName,
-      term_months:             newTermMonths,
-      payterm_discount_pct:    newPaytermDiscountPct,
-      payterm_discount_amount: newPaytermDiscountAmount,
-      net_list_price:          newNlp,
-      vat:                     newVat,
-      other_charges:           newOtherCharges,
-      total_contract_price:    newTcp,
-      net_amount:              newTcp - resFee - retFee,
-    })
+    .update(updatePayload)
     .eq('reservation_id', reservationId);
+  onStep?.(2);
 
   // ── Compute elapsed installment months ───────────────────────────────────
   const today = new Date().toISOString().split('T')[0];
@@ -370,23 +406,41 @@ export async function processBRF(opts: BRFApprovalOptions): Promise<void> {
   await supersedeReceivableLines(reservationId);
   await supersedeCommissionLines(reservationId);
 
+  // Verify superseding actually worked — if active lines still exist, an RLS
+  // UPDATE policy silently blocked the update. Fail now before inserting new
+  // lines on top of the old ones (which would mix two schedules).
+  const { count: stillActive } = await supabase
+    .from('receivables_database')
+    .select('id', { count: 'exact', head: true })
+    .eq('reservation_id', reservationId)
+    .in('payment_status', ['Unpaid', 'Partial']);
+  if (stillActive && stillActive > 0) {
+    throw new Error(
+      `Superseding failed: ${stillActive} active line(s) remain for ${reservationId}. ` +
+      'Check the receivables_database RLS UPDATE policy.'
+    );
+  }
+  onStep?.(3);
+
   // ── Regenerate payment schedule (uses updated TCP from reservation) ───────
   await regenerateReceivableLines(reservationId, newPaytermScheme, newTermMonths, remainingBalance, elapsedMonths, newDpPercent);
+  onStep?.(4);
 
   // ── Re-apply all existing collections against the new active lines ────────
   // Fixes partial payments that were stranded on superseded lines.
   // Old collection_applications (pointing to superseded lines) are preserved as audit trail.
   await reapplyCollections(reservationId);
+  onStep?.(5);
 
   // ── Regenerate commission schedule ────────────────────────────────────────
   await regenerateCommissionSchedule(reservationId);
+  onStep?.(6);
 
   // ── Mark request as processed ─────────────────────────────────────────────
   const { data: updatedRows, error: updateErr } = await supabase
     .from('requests_and_inquiries')
     .update({
-      approval_status:    'Approved',
-      resolution_status:  'Resolved',
+      approval_status:    'Resolved',
       approved_by:        approvedBy,
       date_approved:      today,
       status:             'closed',
@@ -401,4 +455,5 @@ export async function processBRF(opts: BRFApprovalOptions): Promise<void> {
   if (!updatedRows || updatedRows.length === 0) {
     throw new Error('Request status update was blocked (check RLS policies on requests_and_inquiries).');
   }
+  onStep?.(7);
 }
