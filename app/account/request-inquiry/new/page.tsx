@@ -765,7 +765,7 @@ export default function NewRequestPage() {
                 </div>
               ) : paytems.length === 0 ? (
                 <p className="text-xs text-[#FF3B30] py-4 text-center">No paytems found for this project/tower.</p>
-              ) : rComputed ? (
+              ) : rComputed && resFinancials ? (
                 /* ── Computed view: side-by-side cards + Reset ── */
                 <div className="py-3 space-y-3">
                   <div className="grid grid-cols-2 [grid-template-rows:auto_1fr] gap-2 -mx-4 px-4 overflow-x-auto">
