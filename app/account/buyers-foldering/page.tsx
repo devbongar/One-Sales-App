@@ -60,6 +60,20 @@ function folderBadgeStyle(count: number): { style: React.CSSProperties; label: s
   return { style: { background: 'rgba(255,159,10,0.12)', color: '#A05A00' }, label: `${count}/9` };
 }
 
+async function paginateQuery(baseQuery: any): Promise<any[]> {
+  const PAGE = 1000;
+  let from = 0;
+  const rows: any[] = [];
+  while (true) {
+    const { data, error } = await baseQuery.range(from, from + PAGE - 1);
+    if (error || !data || data.length === 0) break;
+    rows.push(...data);
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  return rows;
+}
+
 export default function BuyersFolderingPage() {
   const router = useRouter();
   const [reservations, setReservations] = useState<Reservation[]>([]);
@@ -78,38 +92,39 @@ export default function BuyersFolderingPage() {
   const activeFilterCount = [sellerFilter, projectFilter, statusFilter].filter(Boolean).length;
 
   useEffect(() => {
-    supabase.from('reservations').select('seller_name, project').in('status', ['Reserved', 'Booked']).limit(5000)
-      .then(({ data }) => {
-        if (!data) return;
-        setSellerOptions([...new Set(data.map(r => r.seller_name).filter(Boolean))] as string[]);
-        setProjectOptions([...new Set(data.map(r => r.project).filter(Boolean))] as string[]);
-      });
+    (async () => {
+      const rows = await paginateQuery(
+        supabase.from('reservations').select('seller_name, project').in('status', ['Reserved', 'Booked'])
+      );
+      setSellerOptions([...new Set(rows.map((r: any) => r.seller_name).filter(Boolean))] as string[]);
+      setProjectOptions([...new Set(rows.map((r: any) => r.project).filter(Boolean))] as string[]);
+    })();
   }, []);
 
   useEffect(() => {
     setLoading(true);
-    let query = supabase
-      .from('reservations')
-      .select(`reservation_id, client_name, project, inventory_code, unit_type, seller_name, status,
-        proof_of_billing_urls, proof_of_income_urls, additional_proof_of_income_urls,
-        existing_loan_disclosure_urls, signed_floor_layout_urls, proof_of_valid_id_urls,
-        co_owner_id_urls, atty_in_fact_id_urls, spouse_id_urls`)
-      .order('created_at', { ascending: false })
-      .limit(5000);
+    (async () => {
+      let q = supabase
+        .from('reservations')
+        .select(`reservation_id, client_name, project, inventory_code, unit_type, seller_name, status,
+          proof_of_billing_urls, proof_of_income_urls, additional_proof_of_income_urls,
+          existing_loan_disclosure_urls, signed_floor_layout_urls, proof_of_valid_id_urls,
+          co_owner_id_urls, atty_in_fact_id_urls, spouse_id_urls`)
+        .order('created_at', { ascending: false });
 
-    if (reservationStatusFilter) {
-      query = query.eq('status', reservationStatusFilter);
-    } else {
-      query = query.in('status', ['Reserved', 'Booked']);
-    }
+      if (reservationStatusFilter) {
+        q = q.eq('status', reservationStatusFilter);
+      } else {
+        q = q.in('status', ['Reserved', 'Booked']);
+      }
 
-    if (sellerFilter)  query = query.eq('seller_name', sellerFilter);
-    if (projectFilter) query = query.eq('project', projectFilter);
+      if (sellerFilter)  q = q.eq('seller_name', sellerFilter);
+      if (projectFilter) q = q.eq('project', projectFilter);
 
-    query.then(({ data }) => {
-      setReservations((data ?? []) as Reservation[]);
+      const data = await paginateQuery(q);
+      setReservations(data as Reservation[]);
       setLoading(false);
-    });
+    })();
   }, [reservationStatusFilter, sellerFilter, projectFilter]);
 
   const filtered = reservations.filter(r => {

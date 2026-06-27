@@ -78,6 +78,20 @@ function fmtDate(iso: string | null) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+async function paginateQuery(baseQuery: any): Promise<any[]> {
+  const PAGE = 1000;
+  let from = 0;
+  const rows: any[] = [];
+  while (true) {
+    const { data, error } = await baseQuery.range(from, from + PAGE - 1);
+    if (error || !data || data.length === 0) break;
+    rows.push(...data);
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  return rows;
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function BuyersPaymentPage() {
@@ -97,79 +111,70 @@ export default function BuyersPaymentPage() {
   const activeFilterCount = [projectFilter, statusFilter, sellerFilter].filter(Boolean).length;
 
   useEffect(() => {
-    async function loadOptions() {
-      const { data } = await supabase
-        .from('reservations')
-        .select('project, seller_name')
-        .not('finance_status', 'is', null)
-        .limit(5000);
-      const rows = data ?? [];
-      setProjectOptions([...new Set(rows.map(r => r.project).filter(Boolean))] as string[]);
-      setSellerOptions([...new Set(rows.map(r => r.seller_name).filter(Boolean))] as string[]);
-    }
-    loadOptions();
+    (async () => {
+      const rows = await paginateQuery(
+        supabase.from('reservations').select('project, seller_name').not('finance_status', 'is', null)
+      );
+      setProjectOptions([...new Set(rows.map((r: any) => r.project).filter(Boolean))] as string[]);
+      setSellerOptions([...new Set(rows.map((r: any) => r.seller_name).filter(Boolean))] as string[]);
+    })();
   }, []);
 
   useEffect(() => {
     setLoading(true);
+    (async () => {
+      const SELECT = `
+        reservation_id, client_name, project, inventory_code, unit_type,
+        seller_name, status, booking_review_status, director_reviewed_at,
+        net_list_price, vat, other_charges, total_contract_price,
+        scheme_name, payment_term, signature_base64, created_at,
+        tower, floor, unit_no, unit_area, payment_proof_url, proof_of_valid_id_urls,
+        finance_verified_at, acknowledgement_receipt_no, sales_invoice_no, date_of_reservation_fee,
+        proof_of_1st_dp_urls, dp_acknowledgement_receipt_no, dp_sales_invoice_no, date_of_1st_dp, dp_verified_at,
+        finance_status, rf_payment_mode, subsequent_mode, ada_bank, first_payment_agreed, proof_of_fdp_urls, end_user_financing,
+        dp_amount, monthly_deferred, monthly_stretched_dp, created_at, payment_date, fdp_payment_date
+      `;
 
-    const SELECT = `
-      reservation_id, client_name, project, inventory_code, unit_type,
-      seller_name, status, booking_review_status, director_reviewed_at,
-      net_list_price, vat, other_charges, total_contract_price,
-      scheme_name, payment_term, signature_base64, created_at,
-      tower, floor, unit_no, unit_area, payment_proof_url, proof_of_valid_id_urls,
-      finance_verified_at, acknowledgement_receipt_no, sales_invoice_no, date_of_reservation_fee,
-      proof_of_1st_dp_urls, dp_acknowledgement_receipt_no, dp_sales_invoice_no, date_of_1st_dp, dp_verified_at,
-      finance_status, rf_payment_mode, subsequent_mode, ada_bank, first_payment_agreed, proof_of_fdp_urls, end_user_financing,
-      dp_amount, monthly_deferred, monthly_stretched_dp, created_at, payment_date, fdp_payment_date
-    `;
+      let q;
+      if (!statusFilter) {
+        q = supabase
+          .from('reservations')
+          .select(SELECT)
+          .not('finance_status', 'is', null)
+          .order('created_at', { ascending: false });
+      } else if (statusFilter === 'Pending RF') {
+        q = supabase
+          .from('reservations')
+          .select(SELECT)
+          .eq('finance_status', 'proof-submitted')
+          .order('created_at', { ascending: false });
+      } else if (statusFilter === 'RF Rejected') {
+        q = supabase
+          .from('reservations')
+          .select(SELECT)
+          .eq('finance_status', 'rf-rejected')
+          .order('created_at', { ascending: false });
+      } else if (statusFilter === 'RF Verified') {
+        q = supabase
+          .from('reservations')
+          .select(SELECT)
+          .eq('finance_status', 'rf-verified')
+          .order('created_at', { ascending: false });
+      } else {
+        q = supabase
+          .from('reservations')
+          .select(SELECT)
+          .or('finance_status.eq.dp-verified,status.eq.Booked')
+          .order('created_at', { ascending: false });
+      }
 
-    let q;
-    if (!statusFilter) {
-      q = supabase
-        .from('reservations')
-        .select(SELECT)
-        .not('finance_status', 'is', null)
-        .order('created_at', { ascending: false })
-        .limit(5000);
-    } else if (statusFilter === 'Pending RF') {
-      q = supabase
-        .from('reservations')
-        .select(SELECT)
-        .eq('finance_status', 'proof-submitted')
-        .order('created_at', { ascending: false })
-        .limit(5000);
-    } else if (statusFilter === 'RF Rejected') {
-      q = supabase
-        .from('reservations')
-        .select(SELECT)
-        .eq('finance_status', 'rf-rejected')
-        .order('created_at', { ascending: false })
-        .limit(5000);
-    } else if (statusFilter === 'RF Verified') {
-      q = supabase
-        .from('reservations')
-        .select(SELECT)
-        .eq('finance_status', 'rf-verified')
-        .order('created_at', { ascending: false })
-        .limit(5000);
-    } else {
-      q = supabase
-        .from('reservations')
-        .select(SELECT)
-        .or('finance_status.eq.dp-verified,status.eq.Booked')
-        .order('created_at', { ascending: false })
-        .limit(5000);
-    }
+      if (projectFilter) q = q.eq('project',     projectFilter);
+      if (sellerFilter)  q = q.eq('seller_name', sellerFilter);
 
-    if (projectFilter) q = q.eq('project',     projectFilter);
-    if (sellerFilter)  q = q.eq('seller_name', sellerFilter);
-
-    q.then(({ data }) => {
-      setBookings((data ?? []) as FinanceBooking[]);
+      const data = await paginateQuery(q);
+      setBookings(data as FinanceBooking[]);
       setLoading(false);
-    });
+    })();
   }, [projectFilter, statusFilter, sellerFilter]);
 
   const filtered = bookings.filter(b => {

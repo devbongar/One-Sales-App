@@ -88,6 +88,20 @@ function financeBadge(financeStatus: string | null): { bg: string; color: string
   return { bg: 'rgba(255,159,10,0.15)', color: '#A05A00', label: 'Pending' };
 }
 
+async function paginateQuery(baseQuery: any): Promise<any[]> {
+  const PAGE = 1000;
+  let from = 0;
+  const rows: any[] = [];
+  while (true) {
+    const { data, error } = await baseQuery.range(from, from + PAGE - 1);
+    if (error || !data || data.length === 0) break;
+    rows.push(...data);
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  return rows;
+}
+
 // ── Page ──────────────────────────────────────────────────────
 export default function BookingPage() {
   const router = useRouter();
@@ -164,16 +178,13 @@ export default function BookingPage() {
 
   // ── Load dropdown options once ─────────────────────────────
   useEffect(() => {
-    supabase
-      .from('reservations')
-      .select('seller_name, project')
-      .in('status', ['Reserved', 'Booked'])
-      .limit(5000)
-      .then(({ data }) => {
-        if (!data) return;
-        setSellerOptions([...new Set(data.map(r => r.seller_name).filter(Boolean))] as string[]);
-        setProjectOptions([...new Set(data.map(r => r.project).filter(Boolean))] as string[]);
-      });
+    (async () => {
+      const rows = await paginateQuery(
+        supabase.from('reservations').select('seller_name, project').in('status', ['Reserved', 'Booked'])
+      );
+      setSellerOptions([...new Set(rows.map((r: any) => r.seller_name).filter(Boolean))] as string[]);
+      setProjectOptions([...new Set(rows.map((r: any) => r.project).filter(Boolean))] as string[]);
+    })();
   }, []);
 
   // ── Load reservations when DB filters or role change ──────
@@ -184,8 +195,7 @@ export default function BookingPage() {
       .from('reservations')
       .select('reservation_id, client_name, project, inventory_code, unit_type, status, finance_status, director_filled, created_by_uuid, seller_name, payment_proof_url')
       .in('status', ['Reserved', 'Booked'])
-      .order('created_at', { ascending: false })
-      .limit(5000);
+      .order('created_at', { ascending: false });
 
     if (isDirector) {
       if (directorTab === 'for-review') {
@@ -225,14 +235,15 @@ export default function BookingPage() {
     if (!isSeller && sellerFilter) query = query.eq('seller_name', sellerFilter);
     if (projectFilter) query = query.eq('project', projectFilter);
 
-    Promise.all([
-      query,
-      getAllBookingProgress().catch(() => ({}) as Record<string, BookingProgress>),
-    ]).then(([{ data }, progress]) => {
-      setReservations((data ?? []) as Reservation[]);
+    (async () => {
+      const [data, progress] = await Promise.all([
+        paginateQuery(query),
+        getAllBookingProgress().catch(() => ({}) as Record<string, BookingProgress>),
+      ]);
+      setReservations(data as Reservation[]);
       setProgressMap(progress);
       setLoading(false);
-    });
+    })();
   }, [sellerFilter, projectFilter, userRoleName, isDirector, isAMD, isAllAccess, isSeller, sellerUuid, directorTab, amdTab, sellerTab]);
 
   // ── Client-side search + status filter ────────────────────

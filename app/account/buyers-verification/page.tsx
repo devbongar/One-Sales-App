@@ -76,6 +76,20 @@ function fmtDate(iso: string | null) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+async function paginateQuery(baseQuery: any): Promise<any[]> {
+  const PAGE = 1000;
+  let from = 0;
+  const rows: any[] = [];
+  while (true) {
+    const { data, error } = await baseQuery.range(from, from + PAGE - 1);
+    if (error || !data || data.length === 0) break;
+    rows.push(...data);
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  return rows;
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function BuyersVerificationPage() {
@@ -95,57 +109,57 @@ export default function BuyersVerificationPage() {
   const activeFilterCount = [projectFilter, sellerFilter].filter(Boolean).length;
 
   useEffect(() => {
-    supabase.from('reservations').select('project, seller_name').eq('documents_saved', true).limit(5000)
-      .then(({ data }) => {
-        if (!data) return;
-        setProjectOptions([...new Set(data.map(r => r.project).filter(Boolean))] as string[]);
-        setSellerOptions([...new Set(data.map(r => r.seller_name).filter(Boolean))] as string[]);
-      });
+    (async () => {
+      const rows = await paginateQuery(
+        supabase.from('reservations').select('project, seller_name').eq('documents_saved', true)
+      );
+      setProjectOptions([...new Set(rows.map((r: any) => r.project).filter(Boolean))] as string[]);
+      setSellerOptions([...new Set(rows.map((r: any) => r.seller_name).filter(Boolean))] as string[]);
+    })();
   }, []);
 
   useEffect(() => {
     setLoading(true);
+    (async () => {
+      let q = supabase
+        .from('reservations')
+        .select(`
+          reservation_id, client_name, project, inventory_code, unit_type,
+          seller_name, booking_review_status, director_notes,
+          submitted_at, director_reviewed_at,
+          net_list_price, vat, other_charges, total_contract_price,
+          scheme_name, payment_term, signature_base64, created_at,
+          tower, floor, unit_no, unit_area,
+          list_price, promo_discount_pct, promo_discount_amount,
+          payterm_discount_pct, payterm_discount_amount, hic_discount, employee_discount_amount,
+          dp_rate, term_months, dp_amount, net_spot_dp,
+          monthly_stretched_dp, monthly_deferred, bank_monthly, hdmf_monthly,
+          balance_for_financing, reservation_fee,
+          payment_proof_url, proof_of_1st_dp_urls, proof_of_billing_urls, proof_of_income_urls,
+          existing_loan_disclosure_urls, additional_proof_of_income_urls, signed_floor_layout_urls,
+          proof_of_valid_id_urls, co_owner_id_urls, atty_in_fact_id_urls,
+          spouse_id_urls, has_co_ownership, has_atty_in_fact, has_spouse
+        `)
+        .eq('documents_saved', true)
+        .order('created_at', { ascending: false });
 
-    let q = supabase
-      .from('reservations')
-      .select(`
-        reservation_id, client_name, project, inventory_code, unit_type,
-        seller_name, booking_review_status, director_notes,
-        submitted_at, director_reviewed_at,
-        net_list_price, vat, other_charges, total_contract_price,
-        scheme_name, payment_term, signature_base64, created_at,
-        tower, floor, unit_no, unit_area,
-        list_price, promo_discount_pct, promo_discount_amount,
-        payterm_discount_pct, payterm_discount_amount, hic_discount, employee_discount_amount,
-        dp_rate, term_months, dp_amount, net_spot_dp,
-        monthly_stretched_dp, monthly_deferred, bank_monthly, hdmf_monthly,
-        balance_for_financing, reservation_fee,
-        payment_proof_url, proof_of_1st_dp_urls, proof_of_billing_urls, proof_of_income_urls,
-        existing_loan_disclosure_urls, additional_proof_of_income_urls, signed_floor_layout_urls,
-        proof_of_valid_id_urls, co_owner_id_urls, atty_in_fact_id_urls,
-        spouse_id_urls, has_co_ownership, has_atty_in_fact, has_spouse
-      `)
-      .eq('documents_saved', true)
-      .order('created_at', { ascending: false })
-      .limit(5000);
+      if (!statusFilter) {
+        q = q.or('booking_review_status.eq.director-approved,booking_review_status.eq.amd-approved,booking_review_status.eq.amd-rejected');
+      } else if (statusFilter === 'For Review') {
+        q = q.eq('booking_review_status', 'director-approved');
+      } else if (statusFilter === 'Approved') {
+        q = q.eq('booking_review_status', 'amd-approved');
+      } else if (statusFilter === 'Rejected') {
+        q = q.eq('booking_review_status', 'amd-rejected');
+      }
 
-    if (!statusFilter) {
-      q = q.or('booking_review_status.eq.director-approved,booking_review_status.eq.amd-approved,booking_review_status.eq.amd-rejected');
-    } else if (statusFilter === 'For Review') {
-      q = q.eq('booking_review_status', 'director-approved');
-    } else if (statusFilter === 'Approved') {
-      q = q.eq('booking_review_status', 'amd-approved');
-    } else if (statusFilter === 'Rejected') {
-      q = q.eq('booking_review_status', 'amd-rejected');
-    }
+      if (projectFilter) q = q.eq('project',     projectFilter);
+      if (sellerFilter)  q = q.eq('seller_name', sellerFilter);
 
-    if (projectFilter) q = q.eq('project',     projectFilter);
-    if (sellerFilter)  q = q.eq('seller_name', sellerFilter);
-
-    q.then(({ data }) => {
-      setBookings((data ?? []) as PendingBooking[]);
+      const data = await paginateQuery(q);
+      setBookings(data as PendingBooking[]);
       setLoading(false);
-    });
+    })();
   }, [projectFilter, statusFilter, sellerFilter]);
 
   const filtered = bookings.filter(b => {

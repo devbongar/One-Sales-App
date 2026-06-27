@@ -61,6 +61,20 @@ function statusStyle(status: string, financeStatus: string | null): React.CSSPro
   return { background: 'rgba(142,142,147,0.12)', color: '#6C6C70' };
 }
 
+async function paginateQuery(baseQuery: any): Promise<any[]> {
+  const PAGE = 1000;
+  let from = 0;
+  const rows: any[] = [];
+  while (true) {
+    const { data, error } = await baseQuery.range(from, from + PAGE - 1);
+    if (error || !data || data.length === 0) break;
+    rows.push(...data);
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  return rows;
+}
+
 // ── Page ──────────────────────────────────────────────────────
 export default function ReservedUnitsPage() {
   const router = useRouter();
@@ -99,11 +113,13 @@ export default function ReservedUnitsPage() {
   useEffect(() => {
     if (!sessionLoaded) return;
     if (!SEE_ALL_ROLES.includes(userRole)) return;
-    supabase.from('reservations').select('seller_name, project').limit(5000).then(({ data }) => {
-      if (!data) return;
-      setSellerOptions([...new Set(data.map(r => r.seller_name).filter(Boolean))] as string[]);
-      setProjectOptions([...new Set(data.map(r => r.project).filter(Boolean))] as string[]);
-    });
+    (async () => {
+      const rows = await paginateQuery(
+        supabase.from('reservations').select('seller_name, project')
+      );
+      setSellerOptions([...new Set(rows.map((r: any) => r.seller_name).filter(Boolean))] as string[]);
+      setProjectOptions([...new Set(rows.map((r: any) => r.project).filter(Boolean))] as string[]);
+    })();
   }, [sessionLoaded, userRole]);
 
   // ── Load reservations when filters change ──────────────────
@@ -116,8 +132,7 @@ export default function ReservedUnitsPage() {
       .neq('status', 'Booked')
       .neq('status', 'Cancelled')
       .or('finance_status.is.null,finance_status.eq.proof-submitted,finance_status.eq.rf-rejected,finance_status.eq.rf-verified')
-      .order('created_at', { ascending: false })
-      .limit(5000);
+      .order('created_at', { ascending: false });
 
     if (userSellerId && !SEE_ALL_ROLES.includes(userRole)) {
       query = query.or(
@@ -132,10 +147,11 @@ export default function ReservedUnitsPage() {
     else if (statusFilter === 'RF Approved')         query = query.eq('finance_status', 'rf-verified');
     if (projectFilter) query = query.eq('project', projectFilter);
 
-    query.then(({ data }) => {
-      setReservations((data ?? []) as Reservation[]);
+    (async () => {
+      const data = await paginateQuery(query);
+      setReservations(data as Reservation[]);
       setLoading(false);
-    });
+    })();
   }, [sessionLoaded, userRole, userSellerId, sellerFilter, statusFilter, projectFilter]);
 
   // ── Client-side search filter ──────────────────────────────
