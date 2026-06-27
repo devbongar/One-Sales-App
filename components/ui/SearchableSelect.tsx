@@ -90,15 +90,25 @@ export default function SearchableSelect(props: SearchableSelectProps) {
         <span className={`text-sm truncate ${hasValue ? (disabled ? 'text-[#6C6C70]' : 'text-[#1C1C1E] font-medium') : 'text-[#C7C7CC]'}`}>
           {triggerLabel}
         </span>
-        <ChevronDown
-          size={14}
-          className={disabled ? 'text-[#C7C7CC]' : 'text-[#8E8E93]'}
-          style={{
-            transform:  open ? 'rotate(180deg)' : 'rotate(0deg)',
-            transition: 'transform 200ms cubic-bezier(0.23,1,0.32,1)',
-            flexShrink: 0,
-          }}
-        />
+        {hasValue && !disabled ? (
+          <span
+            role="button"
+            onClick={e => { e.stopPropagation(); clearAll(); }}
+            className="shrink-0 text-[#8E8E93] active:opacity-60 cursor-pointer"
+          >
+            <X size={14} />
+          </span>
+        ) : (
+          <ChevronDown
+            size={14}
+            className={disabled ? 'text-[#C7C7CC]' : 'text-[#8E8E93]'}
+            style={{
+              transform:  open ? 'rotate(180deg)' : 'rotate(0deg)',
+              transition: 'transform 200ms cubic-bezier(0.23,1,0.32,1)',
+              flexShrink: 0,
+            }}
+          />
+        )}
       </button>
 
       {/* Backdrop */}
@@ -137,21 +147,6 @@ export default function SearchableSelect(props: SearchableSelectProps) {
 
           {/* Options */}
           <div className="overflow-y-auto" style={{ maxHeight: 200 }}>
-            {/* Clear / All */}
-            <button
-              type="button"
-              onClick={clearAll}
-              className="w-full flex items-center justify-between px-3 py-2.5 text-sm text-left"
-              style={{
-                background: !hasValue ? 'rgba(192,61,37,0.06)' : undefined,
-                color:      !hasValue ? '#C03D25' : '#6C6C70',
-                fontWeight: !hasValue ? 600 : 400,
-              }}
-            >
-              All
-              {!hasValue && <Check size={13} style={{ color: '#C03D25' }} />}
-            </button>
-
             {filtered.length === 0 ? (
               <p className="text-xs text-[#8E8E93] text-center py-3 px-3">No matches</p>
             ) : (

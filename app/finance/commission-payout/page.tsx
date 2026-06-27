@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import {
@@ -9,26 +9,52 @@ import {
   fetchAllCollectedByReservation,
   fetchCommissionRecords,
   markPendingTranchesForRelease,
+  releaseCommissionTranches,
+  CommissionScheduleFullLine,
 } from '@/lib/commission';
-import { Building2, Check, FileText, Loader2, Search, X } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+import { AlertTriangle, Building2, Check, ChevronDown, Download, Loader2, Search, Send, SlidersHorizontal, Wallet, X } from 'lucide-react';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export interface SellerPayoutSummary {
-  sellerName:      string;
-  sellerId:        string | null;
-  positionRank:    string | null;
-  forRelease:      number;
-  released:        number;
-  forReleaseCount: number;
+interface Project {
+  id:               string;
+  name:             string;
+  cover_photo_url?: string | null;
+  property_type?:   string | null;
 }
 
-interface ProjectSummary {
-  project:         string;
-  forRelease:      number;
-  released:        number;
-  forReleaseCount: number;
+type EffectiveStatus = 'For Release' | 'Released';
+
+interface ReportLine extends CommissionScheduleFullLine {
+  effectiveStatus: EffectiveStatus;
+  positionRank:    string | null;
+  sellerType:      string | null;
+  sellerStatus:    string | null;
+  payrollAccount:  string | null;
 }
+
+type SellerGroup = 'Inhouse Active' | 'Inhouse Inactive' | 'Broker';
+
+function getSellerGroup(line: ReportLine): SellerGroup {
+  // Presence in Salesperson table = in-house (covers chain members not in typeMap)
+  if (line.sellerStatus !== null) {
+    return line.sellerStatus === 'Active' ? 'Inhouse Active' : 'Inhouse Inactive';
+  }
+  if (line.sellerType === 'In-house') {
+    return 'Inhouse Active';
+  }
+  return 'Broker';
+}
+
+const GROUP_ORDER: SellerGroup[] = ['Inhouse Active', 'Inhouse Inactive', 'Broker'];
+
+const GROUP_META: Record<SellerGroup, { dot: string; bg: string }> = {
+  'Inhouse Active':   { dot: '#34C759', bg: 'rgba(52,199,89,0.08)'  },
+  'Inhouse Inactive': { dot: '#FF9500', bg: 'rgba(255,149,0,0.08)'  },
+  'Broker':           { dot: '#007AFF', bg: 'rgba(0,122,255,0.08)'  },
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -36,66 +62,160 @@ function fmt(n: number) {
   return `₱ ${n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function positionLabel(rank: string | null) {
+  const map: Record<string, string> = {
+    PS: 'Property Specialist', SM: 'Sales Manager', SD: 'Sales Director',
+    SDH: 'Sales Division Head', SH: 'Sales Head',
+  };
+  return map[rank ?? ''] ?? rank ?? '—';
+}
+
+function commissionId(id: number) {
+  return `CS-${String(id).padStart(5, '0')}`;
+}
+
+const STATUS_STYLE: Record<EffectiveStatus, React.CSSProperties> = {
+  'For Release': { background: 'rgba(147,51,234,0.12)', color: '#6D28D9' },
+  'Released':    { background: 'rgba(52,199,89,0.12)',  color: '#1A7F37' },
+};
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CommissionPayoutPage() {
-  const router = useRouter();
-
-  const [loading, setLoading]                 = useState(true);
-  const [error, setError]                     = useState('');
-  const [projects, setProjects]               = useState<ProjectSummary[]>([]);
-  const [totalForRelease, setTotalForRelease] = useState(0);
-  const [totalReleased, setTotalReleased]     = useState(0);
-  const [search, setSearch]                   = useState('');
-  const [selected, setSelected]               = useState<Set<string>>(new Set());
+  // ── Project selection (step 0) ───────────────────────────────────────────────
+  const [projects,         setProjects]         = useState<Project[]>([]);
+  const [projectsLoading,  setProjectsLoading]  = useState(true);
+  const [selectedProjects, setSelectedProjects] = useState<Set<string>>(new Set());
+  const [showReport,       setShowReport]        = useState(false);
 
   useEffect(() => {
+    fetch('/api/projects')
+      .then(r => r.json())
+      .then((data: Project[]) => setProjects(data ?? []))
+      .catch(console.error)
+      .finally(() => setProjectsLoading(false));
+  }, []);
+
+  function toggleProject(name: string) {
+    setSelectedProjects(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+  }
+
+  const allSelected = projects.length > 0 && projects.every(p => selectedProjects.has(p.name));
+
+  function toggleAll() {
+    if (allSelected) setSelectedProjects(new Set());
+    else setSelectedProjects(new Set(projects.map(p => p.name)));
+  }
+
+  // ── Report state (step 1) ────────────────────────────────────────────────────
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState('');
+  const [lines, setLines]     = useState<ReportLine[]>([]);
+
+  // Filter state
+  const [search, setSearch]                 = useState('');
+  const [filterOpen, setFilterOpen]         = useState(false);
+
+  useEffect(() => {
+    const main = document.querySelector('main') as HTMLElement | null;
+    if (!main) return;
+    if (filterOpen) {
+      main.style.setProperty('touch-action', 'none', 'important');
+      main.style.setProperty('overflow-y', 'hidden', 'important');
+      return () => {
+        main.style.removeProperty('touch-action');
+        main.style.removeProperty('overflow-y');
+      };
+    }
+  }, [filterOpen]);
+  const [statusFilter, setStatusFilter]           = useState<EffectiveStatus | ''>('');
+  const [sellerStatusFilter, setSellerStatusFilter] = useState('');
+  const [sellerFilter, setSellerFilter]           = useState('');
+  const [positionFilter, setPositionFilter]       = useState('');
+
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<SellerGroup>>(
+    new Set<SellerGroup>(['Inhouse Active', 'Inhouse Inactive', 'Broker'])
+  );
+
+  function toggleGroup(group: SellerGroup) {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group); else next.add(group);
+      return next;
+    });
+  }
+
+  // Selection + post state
+  const [selectedTranches, setSelectedTranches] = useState<Set<number>>(new Set());
+  const [confirmPost, setConfirmPost]           = useState(false);
+  const [posting, setPosting]                   = useState(false);
+
+  useEffect(() => {
+    if (!showReport) return;
     async function load() {
+      setLoading(true);
+      setError('');
+      setLines([]);
       try {
-        const [lines, collectionsMap, commRecords] = await Promise.all([
+        const [allLines, collectionsMap, commRecords, { data: spRows }] = await Promise.all([
           fetchAllCommissionScheduleLines(),
           fetchAllCollectedByReservation(),
           fetchCommissionRecords(),
+          supabase.from('Salesperson').select('"Seller Name", "Seller Status", "Payroll Account Number"'),
         ]);
 
-        const nlpMap: Record<string, number> = {};
-        commRecords.forEach(r => { nlpMap[r.reservation_id] = r.net_list_price ?? 0; });
-
-        // Persist newly-eligible tranches as For Release in DB (background)
-        markPendingTranchesForRelease(lines, collectionsMap, nlpMap).catch(console.error);
-
-        const projMap: Record<string, ProjectSummary> = {};
-        let tForRelease = 0;
-        let tReleased   = 0;
-
-        for (const line of lines) {
-          const proj = line.project ?? '—';
-          if (!projMap[proj]) {
-            projMap[proj] = { project: proj, forRelease: 0, released: 0, forReleaseCount: 0 };
+        const nlpMap: Record<string, number>    = {};
+        const rankMap: Record<string, string>   = {};
+        const typeMap: Record<string, string>   = {};
+        const statusMap: Record<string, string> = {};
+        const accountMap: Record<string, string | null> = {};
+        commRecords.forEach(r => {
+          nlpMap[r.reservation_id] = r.net_list_price ?? 0;
+          if (r.seller_name && r.position_rank) rankMap[r.seller_name] = r.position_rank;
+          if (r.seller_name && r.seller_type)   typeMap[r.seller_name]  = r.seller_type;
+        });
+        (spRows ?? []).forEach((s: any) => {
+          if (s['Seller Name']) {
+            statusMap[s['Seller Name']]  = s['Seller Status'] ?? '';
+            accountMap[s['Seller Name']] = s['Payroll Account Number'] ?? null;
           }
+        });
 
+        markPendingTranchesForRelease(allLines, collectionsMap, nlpMap).catch(console.error);
+
+        const result: ReportLine[] = [];
+
+        for (const line of allLines) {
+          if (selectedProjects.size > 0 && line.project && !selectedProjects.has(line.project)) continue;
+          let effectiveStatus: EffectiveStatus | 'Pending';
           if (line.status === 'Released') {
-            projMap[proj].released += line.gross_commission;
-            tReleased              += line.gross_commission;
+            effectiveStatus = 'Released';
           } else {
             const nlp          = nlpMap[line.reservation_id] ?? 0;
             const collected    = collectionsMap[line.reservation_id] ?? 0;
             const pctCollected = nlp > 0 ? (collected / nlp) * 100 : 0;
-            if (pctCollected >= line.percentage_collection || line.status === 'For Release') {
-              projMap[proj].forRelease      += line.gross_commission;
-              projMap[proj].forReleaseCount += 1;
-              tForRelease                   += line.gross_commission;
-            }
+            effectiveStatus    = (pctCollected >= line.percentage_collection || line.status === 'For Release')
+              ? 'For Release'
+              : 'Pending';
           }
+
+          if (effectiveStatus === 'Pending') continue;
+
+          result.push({
+            ...line,
+            effectiveStatus,
+            positionRank:   line.seller_name ? (rankMap[line.seller_name]    ?? null) : null,
+            sellerType:     line.seller_name ? (typeMap[line.seller_name]     ?? null) : null,
+            sellerStatus:   line.seller_name ? (statusMap[line.seller_name]   ?? null) : null,
+            payrollAccount: line.seller_name ? (accountMap[line.seller_name]  ?? null) : null,
+          });
         }
 
-        const sorted = Object.values(projMap)
-          .filter(p => p.forRelease > 0 || p.released > 0)
-          .sort((a, b) => b.forRelease - a.forRelease);
-
-        setProjects(sorted);
-        setTotalForRelease(tForRelease);
-        setTotalReleased(tReleased);
+        setLines(result);
       } catch (e: any) {
         setError(e.message);
       } finally {
@@ -103,170 +223,649 @@ export default function CommissionPayoutPage() {
       }
     }
     load();
-  }, []);
+  }, [showReport]);
 
+  // ── Filter options (cascading) ──────────────────────────────────────────────
+  const sellerOptions = useMemo(() => {
+    const source = positionFilter ? lines.filter(l => l.positionRank === positionFilter) : lines;
+    return [...new Set(source.map(l => l.seller_name).filter(Boolean))].sort() as string[];
+  }, [lines, positionFilter]);
+
+  const positionOptions = useMemo(() => {
+    const source = sellerFilter ? lines.filter(l => l.seller_name === sellerFilter) : lines;
+    return [...new Set(source.map(l => l.positionRank).filter(Boolean))].sort() as string[];
+  }, [lines, sellerFilter]);
+  const activeFilterCount = [statusFilter, sellerStatusFilter, sellerFilter, positionFilter].filter(Boolean).length;
+
+  // ── Filtered lines ──────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
-    if (!search.trim()) return projects;
-    const q = search.toLowerCase();
-    return projects.filter(p => p.project.toLowerCase().includes(q));
-  }, [projects, search]);
+    return lines.filter(l => {
+      if (statusFilter       && l.effectiveStatus !== statusFilter) return false;
+      if (sellerStatusFilter && (l.sellerStatus ?? '') !== sellerStatusFilter) return false;
+      if (sellerFilter       && l.seller_name     !== sellerFilter) return false;
+      if (positionFilter     && l.positionRank    !== positionFilter) return false;
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        if (
+          !l.reservation_id.toLowerCase().includes(q) &&
+          !(l.seller_name   ?? '').toLowerCase().includes(q) &&
+          !(l.inventory_code ?? '').toLowerCase().includes(q) &&
+          !commissionId(l.id).toLowerCase().includes(q)
+        ) return false;
+      }
+      return true;
+    });
+  }, [lines, statusFilter, sellerStatusFilter, sellerFilter, positionFilter, search]);
 
-  function toggleSelect(project: string) {
-    setSelected(prev => {
+  // ── Summary totals (full unfiltered) ───────────────────────────────────────
+  const totalForRelease = useMemo(() => lines.filter(l => l.effectiveStatus === 'For Release').reduce((s, l) => s + l.gross_commission, 0), [lines]);
+  const totalReleased   = useMemo(() => lines.filter(l => l.effectiveStatus === 'Released').reduce((s, l)   => s + l.gross_commission, 0), [lines]);
+
+  // ── Selection helpers ───────────────────────────────────────────────────────
+  function toggleTranche(id: number) {
+    setSelectedTranches(prev => {
       const next = new Set(prev);
-      if (next.has(project)) next.delete(project); else next.add(project);
+      if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
   }
 
-  const selectedCount = selected.size;
+  const selectedCount = selectedTranches.size;
   const selectedTotal = useMemo(
-    () => projects.filter(p => selected.has(p.project)).reduce((s, p) => s + p.forRelease, 0),
-    [projects, selected],
+    () => lines.filter(l => selectedTranches.has(l.id)).reduce((s, l) => s + l.gross_commission, 0),
+    [lines, selectedTranches],
   );
 
-  return (
-    <PageShell title="Commission Payout">
+  // ── DAT download ────────────────────────────────────────────────────────────
+  const [datWarning, setDatWarning] = useState<string[]>([]);
 
-      <div className="space-y-3 pb-28">
+  function buildDat(includeAll: boolean) {
+    const inhouse = filtered.filter(l =>
+      l.effectiveStatus === 'For Release' && l.sellerStatus !== null
+    );
+    const totals: Record<string, { account: string | null; amount: number }> = {};
+    for (const l of inhouse) {
+      const name = l.seller_name ?? '';
+      if (!totals[name]) totals[name] = { account: l.payrollAccount, amount: 0 };
+      totals[name].amount += l.gross_commission;
+    }
+    const missing = Object.entries(totals).filter(([, v]) => !v.account).map(([name]) => name);
+    if (missing.length > 0 && !includeAll) { setDatWarning(missing); return; }
+    const rows = Object.entries(totals)
+      .filter(([, v]) => includeAll ? true : !!v.account)
+      .map(([, v]) => `${v.account} ${v.amount.toFixed(2)}`);
+    const blob = new Blob([rows.join('\n')], { type: 'text/plain' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `commission_payout_${new Date().toISOString().slice(0, 10)}.dat`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setDatWarning([]);
+  }
 
-        {/* ── Summary stats ─────────────────────────────────────── */}
-        <div className="grid grid-cols-2 gap-3">
-          <GlassCard className="p-4">
-            <p className="text-[#8E8E93] text-xs font-semibold">For Release</p>
-            <p className="text-[#C7C7CC] text-[10px] mb-1">Gross Commission</p>
-            <p className="text-[#C03D25] font-bold text-lg leading-tight">
-              {loading ? '—' : fmt(totalForRelease)}
-            </p>
-          </GlassCard>
-          <GlassCard className="p-4">
-            <p className="text-[#8E8E93] text-xs font-semibold">Released</p>
-            <p className="text-[#C7C7CC] text-[10px] mb-1">Gross Commission</p>
-            <p className="text-[#34C759] font-bold text-lg leading-tight">
-              {loading ? '—' : fmt(totalReleased)}
-            </p>
-          </GlassCard>
-        </div>
+  // ── Post action ─────────────────────────────────────────────────────────────
+  async function handlePost() {
+    setPosting(true);
+    setConfirmPost(false);
+    try {
+      const ids = [...selectedTranches];
+      await releaseCommissionTranches(ids);
+      const idSet = new Set(ids);
+      setLines(prev => prev.map(l =>
+        idSet.has(l.id)
+          ? { ...l, status: 'Released', effectiveStatus: 'Released' as EffectiveStatus }
+          : l
+      ));
+      setSelectedTranches(new Set());
+    } catch (e: any) {
+      alert(`Failed to post commission: ${e.message}`);
+    } finally {
+      setPosting(false);
+    }
+  }
 
-        {/* ── Project search ─────────────────────────────────────── */}
-        <div className="flex items-center gap-2 px-3 py-2.5 rounded-2xl bg-white/80 border border-black/[0.08] backdrop-blur-sm">
-          <Search size={15} className="text-[#8E8E93] shrink-0" />
-          <input
-            type="text"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search project…"
-            className="flex-1 bg-transparent text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC]"
-          />
-          {search && (
-            <button type="button" onClick={() => setSearch('')}>
-              <X size={13} className="text-[#8E8E93]" />
+  // ── Project selection screen ─────────────────────────────────────────────────
+  if (!showReport) {
+    return (
+      <PageShell title="Commission Payout">
+        <div className="space-y-4 pb-32">
+          <div className="flex items-center justify-between px-1">
+            <p className="text-sm font-semibold text-[#1C1C1E]">Select Projects</p>
+            <button
+              type="button"
+              onClick={toggleAll}
+              className="text-xs font-semibold text-[#C03D25] active:opacity-60"
+            >
+              {allSelected ? 'Deselect All' : 'Select All'}
             </button>
+          </div>
+
+          {projectsLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 size={24} className="text-[#C03D25] animate-spin" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              {projects.map(project => {
+                const isSelected = selectedProjects.has(project.name);
+                return (
+                  <button
+                    key={project.id}
+                    type="button"
+                    onClick={() => toggleProject(project.name)}
+                    className="relative rounded-2xl overflow-hidden aspect-[3/2] active:scale-[0.97] transition-transform"
+                    style={{
+                      background: '#1C1C1E',
+                      outline: isSelected ? '2.5px solid #C03D25' : '2.5px solid transparent',
+                      outlineOffset: '2px',
+                    }}
+                  >
+                    {project.cover_photo_url ? (
+                      <Image
+                        src={project.cover_photo_url}
+                        alt={project.name}
+                        fill
+                        className="object-cover opacity-70"
+                      />
+                    ) : (
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <Building2 size={28} className="text-white/20" />
+                      </div>
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+                    <div className="absolute bottom-0 left-0 right-0 p-3 text-left">
+                      <p className="text-white text-xs font-bold leading-tight line-clamp-2">{project.name}</p>
+                      {project.property_type && (
+                        <p className="text-white/60 text-[10px] mt-0.5">{project.property_type}</p>
+                      )}
+                    </div>
+                    {isSelected && (
+                      <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-[#C03D25] flex items-center justify-center shadow">
+                        <Check size={11} className="text-white" />
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           )}
         </div>
 
-        {/* ── Project cards ──────────────────────────────────────── */}
-        {loading ? (
-          <div className="flex items-center justify-center py-16">
-            <Loader2 size={24} className="text-[#C03D25] animate-spin" />
-          </div>
-        ) : error ? (
-          <GlassCard className="p-8 text-center">
-            <p className="text-sm text-red-500">{error}</p>
-          </GlassCard>
-        ) : filtered.length === 0 ? (
-          <GlassCard className="p-8 text-center">
-            <Building2 size={28} className="text-[#C7C7CC] mx-auto mb-2" strokeWidth={1.4} />
-            <p className="text-sm font-semibold text-[#1C1C1E]">No projects found</p>
-            <p className="text-xs text-[#8E8E93] mt-1">
-              {search ? 'Try a different search term' : 'No commissions are currently due for release'}
-            </p>
-          </GlassCard>
-        ) : (
-          <div className="space-y-2">
-            {filtered.map(p => {
-              const isSelected = selected.has(p.project);
-              return (
-                <button
-                  key={p.project}
-                  type="button"
-                  onClick={() => toggleSelect(p.project)}
-                  className="w-full text-left active:scale-[0.98] transition-transform"
-                >
-                  <GlassCard
-                    className="p-4 transition-all"
-                    style={isSelected ? { outline: '2px solid rgba(192,61,37,0.55)', outlineOffset: '-2px' } : undefined}
-                  >
-                    <div className="flex items-center gap-3">
-
-                      <div
-                        className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 border-2 transition-all"
-                        style={isSelected
-                          ? { background: '#C03D25', borderColor: '#C03D25' }
-                          : { background: '#fff',    borderColor: '#C7C7CC' }}
-                      >
-                        {isSelected && <Check size={11} className="text-white" />}
-                      </div>
-
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-bold text-[#1C1C1E] truncate">{p.project}</p>
-                        {p.forReleaseCount > 0 && (
-                          <p className="text-xs text-[#8E8E93] mt-0.5">
-                            {p.forReleaseCount} tranche{p.forReleaseCount !== 1 ? 's' : ''} for release
-                          </p>
-                        )}
-                      </div>
-
-                      <div className="text-right shrink-0">
-                        <p className="text-sm font-bold text-[#C03D25]">{fmt(p.forRelease)}</p>
-                        {p.released > 0 && (
-                          <p className="text-[10px] font-semibold text-[#34C759] mt-0.5">
-                            {fmt(p.released)} released
-                          </p>
-                        )}
-                      </div>
-
-                    </div>
-                  </GlassCard>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* ── Floating "View Report" button ─────────────────────────────────────── */}
-      <div
-        className="fixed bottom-0 inset-x-0 z-40 px-4 pb-8 pt-4 pointer-events-none"
-        style={{ background: 'linear-gradient(to top, rgba(255,255,255,0.96) 60%, transparent)' }}
-      >
-        <button
-          type="button"
-          disabled={selectedCount === 0}
-          onClick={() => {
-            sessionStorage.setItem('payoutReportProjects', JSON.stringify([...selected]));
-            router.push('/finance/commission-payout/report');
-          }}
-          className="w-full py-4 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 pointer-events-auto transition-all"
-          style={{
-            background:  selectedCount > 0 ? '#C03D25' : 'rgba(199,199,204,0.6)',
-            boxShadow:   selectedCount > 0 ? '0 4px 24px rgba(192,61,37,0.35)' : 'none',
-            color:       selectedCount > 0 ? '#fff' : 'rgba(60,60,67,0.4)',
-            transition:  'background 200ms ease, box-shadow 200ms ease, color 200ms ease',
-          }}
+        {/* Show Report button */}
+        <div
+          className="fixed bottom-0 inset-x-0 z-40 px-4 pb-8 pt-4 pointer-events-none"
+          style={{ background: 'linear-gradient(to top, rgba(255,255,255,0.96) 60%, transparent)' }}
         >
-          <FileText size={16} />
-          {selectedCount === 0
-            ? 'Select projects to view report'
-            : `View Report · ${selectedCount} project${selectedCount !== 1 ? 's' : ''}`}
-          {selectedCount > 0 && (
-            <span className="ml-1 text-white/70 text-xs font-semibold">
-              · {fmt(selectedTotal)}
-            </span>
+          <button
+            type="button"
+            disabled={selectedProjects.size === 0}
+            onClick={() => setShowReport(true)}
+            className="w-full py-4 rounded-2xl text-sm font-bold text-white pointer-events-auto active:opacity-80 transition-opacity disabled:opacity-40"
+            style={{ background: '#C03D25', boxShadow: '0 4px 24px rgba(192,61,37,0.35)' }}
+          >
+            {selectedProjects.size === 0
+              ? 'Select at least one project'
+              : `Show Report · ${selectedProjects.size} project${selectedProjects.size !== 1 ? 's' : ''}`}
+          </button>
+        </div>
+      </PageShell>
+    );
+  }
+
+  return (
+    <>
+      <PageShell
+        title="Commission Payout"
+        backButton
+        onBack={() => { setShowReport(false); setLines([]); setError(''); }}
+      >
+        <div className="space-y-3 pb-32">
+
+          {/* ── Summary stats ──────────────────────────────────── */}
+          <div className="grid grid-cols-2 gap-3">
+            <GlassCard className="p-4">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-[#8E8E93] text-xs font-semibold">For Release</p>
+                {!loading && (
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ background: 'rgba(192,61,37,0.1)', color: '#C03D25' }}>
+                    {lines.filter(l => l.effectiveStatus === 'For Release').length} tranches
+                  </span>
+                )}
+              </div>
+              <p className="text-[#C03D25] font-bold text-lg leading-tight">
+                {loading ? '—' : fmt(totalForRelease)}
+              </p>
+            </GlassCard>
+            <GlassCard className="p-4">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-[#8E8E93] text-xs font-semibold">Released</p>
+                {!loading && (
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ background: 'rgba(52,199,89,0.1)', color: '#1A7F37' }}>
+                    {lines.filter(l => l.effectiveStatus === 'Released').length} tranches
+                  </span>
+                )}
+              </div>
+              <p className="text-[#34C759] font-bold text-lg leading-tight">
+                {loading ? '—' : fmt(totalReleased)}
+              </p>
+            </GlassCard>
+          </div>
+
+          {/* ── Search + Filter + Download ──────────────────────── */}
+          <div className="flex gap-2 items-center">
+            <div className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-2xl bg-white/80 border border-black/[0.08] backdrop-blur-sm">
+              <Search size={15} className="text-[#8E8E93] shrink-0" />
+              <input
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search by ID, seller, unit…"
+                className="flex-1 bg-transparent text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC]"
+              />
+              {search && (
+                <button type="button" onClick={() => setSearch('')}>
+                  <X size={13} className="text-[#8E8E93]" />
+                </button>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => buildDat(false)}
+              disabled={loading || filtered.filter(l => l.effectiveStatus === 'For Release' && l.sellerStatus !== null).length === 0}
+              className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 bg-white/80 backdrop-blur-sm border border-black/[0.08] text-[#6C6C70] disabled:opacity-40 active:opacity-60 transition-opacity"
+              title="Download DAT"
+            >
+              <Download size={18} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterOpen(true)}
+              className={`relative w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 transition-colors ${
+                activeFilterCount > 0
+                  ? 'bg-[#C03D25] text-white shadow-md'
+                  : 'bg-white/80 backdrop-blur-sm border border-black/[0.08] text-[#6C6C70]'
+              }`}
+            >
+              <SlidersHorizontal size={18} />
+              {activeFilterCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-white text-[#C03D25] text-[9px] font-bold flex items-center justify-center shadow">
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* ── Tranche cards ───────────────────────────────────── */}
+          {loading ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 size={24} className="text-[#C03D25] animate-spin" />
+            </div>
+          ) : error ? (
+            <GlassCard className="p-8 text-center">
+              <p className="text-sm text-red-500">{error}</p>
+            </GlassCard>
+          ) : filtered.length === 0 ? (
+            <GlassCard className="p-8 text-center">
+              <Wallet size={28} className="text-[#C7C7CC] mx-auto mb-2" strokeWidth={1.4} />
+              <p className="text-sm font-semibold text-[#1C1C1E]">No records found</p>
+              <p className="text-xs text-[#8E8E93] mt-1">Try adjusting your search or filters</p>
+            </GlassCard>
+          ) : (
+            <>
+              {/* Record count */}
+              <p className="text-xs text-[#8E8E93] px-1">
+                {filtered.length} tranche{filtered.length !== 1 ? 's' : ''}
+                {activeFilterCount > 0 || search ? ' (filtered)' : ''}
+              </p>
+
+              <div className="space-y-3">
+                {GROUP_ORDER.map(group => {
+                  const groupLines    = filtered.filter(l => getSellerGroup(l) === group);
+                  if (groupLines.length === 0) return null;
+                  const isCollapsed   = collapsedGroups.has(group);
+                  const meta          = GROUP_META[group];
+                  const groupForRel   = groupLines.filter(l => l.effectiveStatus === 'For Release');
+                  const groupSubtotal = groupLines.reduce((s, l) => s + l.gross_commission, 0);
+                  const allGroupSelected = groupForRel.length > 0 && groupForRel.every(l => selectedTranches.has(l.id));
+
+                  function toggleGroupSelect() {
+                    setSelectedTranches(prev => {
+                      const next = new Set(prev);
+                      if (allGroupSelected) groupForRel.forEach(l => next.delete(l.id));
+                      else groupForRel.forEach(l => next.add(l.id));
+                      return next;
+                    });
+                  }
+
+                  return (
+                    <div key={group}>
+                      {/* Group header */}
+                      <div
+                        className="flex items-center gap-2 px-3 py-2.5 rounded-2xl mb-2"
+                        style={{ background: meta.bg }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => toggleGroup(group)}
+                          className="flex items-center gap-2 flex-1 min-w-0 active:opacity-60"
+                        >
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ background: meta.dot }} />
+                          <span className="text-[12px] font-bold text-[#1C1C1E]">{group}</span>
+                          <span className="text-[11px] text-[#8E8E93]">· {groupLines.length}</span>
+                          <span className="text-[11px] font-semibold text-[#1C1C1E] ml-auto">{fmt(groupSubtotal)}</span>
+                          <ChevronDown
+                            size={13}
+                            className="text-[#8E8E93] shrink-0 transition-transform duration-200"
+                            style={{ transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}
+                          />
+                        </button>
+                        {!isCollapsed && groupForRel.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={toggleGroupSelect}
+                            className="shrink-0 text-[11px] font-semibold active:opacity-60 pl-2 border-l border-black/[0.1]"
+                            style={{ color: meta.dot }}
+                          >
+                            {allGroupSelected ? 'Deselect' : 'Select all'}
+                          </button>
+                        )}
+                      </div>
+
+                      {!isCollapsed && (
+                        <div className="space-y-2">
+                          {groupLines.map(line => {
+                            const isForRel  = line.effectiveStatus === 'For Release';
+                            const isChecked = selectedTranches.has(line.id);
+                            return (
+                              <button
+                                key={line.id}
+                                type="button"
+                                disabled={!isForRel}
+                                onClick={() => isForRel && toggleTranche(line.id)}
+                                className="w-full text-left active:scale-[0.99] transition-transform disabled:active:scale-100"
+                              >
+                                <GlassCard
+                                  className="p-4 transition-all"
+                                  style={isChecked ? { outline: '2px solid rgba(192,61,37,0.55)', outlineOffset: '-2px' } : undefined}
+                                >
+                                  {/* Row 1: Checkbox + Seller name + commission amount */}
+                                  <div className="flex items-center gap-2.5 mb-1">
+                                    {isForRel ? (
+                                      <div
+                                        className="w-5 h-5 rounded-full shrink-0 border-2 flex items-center justify-center transition-all"
+                                        style={isChecked
+                                          ? { background: '#C03D25', borderColor: '#C03D25' }
+                                          : { background: '#fff',    borderColor: '#C7C7CC' }}
+                                      >
+                                        {isChecked && <Check size={11} className="text-white" />}
+                                      </div>
+                                    ) : (
+                                      <div className="w-5 h-5 shrink-0" />
+                                    )}
+                                    <p className="text-[#1C1C1E] font-bold text-sm flex-1 min-w-0 truncate">
+                                      {line.seller_name ?? '—'}
+                                    </p>
+                                    <p className="text-sm font-bold text-[#C03D25] shrink-0">{fmt(line.gross_commission)}</p>
+                                  </div>
+
+                                  {/* Row 2: Position */}
+                                  {line.positionRank && (
+                                    <p className="text-[11px] text-[#8E8E93] pl-7 mb-1.5">{positionLabel(line.positionRank)}</p>
+                                  )}
+
+                                  {/* Row 3: Reservation ID + Tranche + Status */}
+                                  <div className="flex items-center gap-2 pl-7 mb-1">
+                                    <p className="text-xs text-[#6C6C70] font-medium flex-1 min-w-0 truncate">{line.reservation_id}</p>
+                                    <span className="text-[10px] font-bold text-[#8E8E93] shrink-0">TR. {line.tranche}</span>
+                                    <span
+                                      className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0"
+                                      style={STATUS_STYLE[line.effectiveStatus]}
+                                    >
+                                      {line.effectiveStatus}
+                                    </span>
+                                  </div>
+
+                                  {/* Row 4: Project · Unit | Commission ID */}
+                                  <div className="flex items-center justify-between gap-2 pt-2 mt-1 border-t border-black/[0.05] pl-7">
+                                    <p className="text-[10px] text-[#C7C7CC] truncate flex-1">
+                                      {line.project}
+                                      {line.inventory_code && <> · <span className="font-medium">{line.inventory_code}</span></>}
+                                    </p>
+                                    <p className="text-[10px] text-[#C7C7CC] font-mono shrink-0">{commissionId(line.id)}</p>
+                                  </div>
+
+                                </GlassCard>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
-        </button>
+        </div>
+      </PageShell>
+
+      {/* ── Floating Post button ──────────────────────────────────────────────── */}
+      {selectedCount > 0 && (
+        <div
+          className="fixed bottom-0 inset-x-0 z-40 px-4 pb-8 pt-4 pointer-events-none"
+          style={{ background: 'linear-gradient(to top, rgba(255,255,255,0.96) 60%, transparent)' }}
+        >
+          <button
+            type="button"
+            disabled={posting}
+            onClick={() => setConfirmPost(true)}
+            className="w-full py-4 rounded-2xl text-sm font-bold text-white flex items-center justify-center gap-2 pointer-events-auto active:opacity-80 transition-opacity"
+            style={{ background: '#C03D25', boxShadow: '0 4px 24px rgba(192,61,37,0.35)' }}
+          >
+            {posting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+            {posting
+              ? 'Posting…'
+              : `Post ${selectedCount} tranche${selectedCount !== 1 ? 's' : ''}`
+            }
+            {!posting && (
+              <span className="ml-1 text-white/70 text-xs font-semibold">· {fmt(selectedTotal)}</span>
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* ── Filter sheet backdrop ─────────────────────────────── */}
+      {filterOpen && (
+        <div
+          className="fixed inset-0 z-[45] bg-black/40"
+          style={{ touchAction: 'none' }}
+          onClick={() => setFilterOpen(false)}
+        />
+      )}
+
+      {/* ── Filter sheet ─────────────────────────────────────── */}
+      <div data-filter-sheet className={`fixed inset-x-0 bottom-0 z-[46] transition-transform duration-300 ease-out ${filterOpen ? 'translate-y-0' : 'translate-y-full'}`}>
+        <div className="bg-white rounded-t-3xl shadow-2xl max-h-[80vh] flex flex-col">
+          <div className="flex justify-center pt-3 pb-1 shrink-0">
+            <div className="w-9 h-1 rounded-full bg-[#D1D1D6]" />
+          </div>
+          <div className="flex items-center justify-between px-5 py-3 shrink-0">
+            <p className="text-base font-bold text-[#1C1C1E]">Filters</p>
+            <button
+              type="button"
+              onClick={() => setFilterOpen(false)}
+              className="w-7 h-7 rounded-full bg-[#F2F2F7] flex items-center justify-center"
+            >
+              <X size={14} className="text-[#8E8E93]" />
+            </button>
+          </div>
+          <div className="px-5 pb-4 space-y-5">
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Status</p>
+              <SearchableSelect
+                options={['For Release', 'Released']}
+                value={statusFilter}
+                onChange={v => setStatusFilter(v as EffectiveStatus | '')}
+                placeholder="All Statuses"
+                dropUp
+              />
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Seller Status</p>
+              <SearchableSelect
+                options={['Active', 'Inactive']}
+                value={sellerStatusFilter}
+                onChange={v => setSellerStatusFilter(v)}
+                placeholder="All"
+                dropUp
+              />
+            </div>
+            {sellerOptions.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Seller</p>
+                <SearchableSelect
+                  options={sellerOptions}
+                  value={sellerFilter}
+                  onChange={v => {
+                    setSellerFilter(v);
+                    if (positionFilter) {
+                      const valid = [...new Set(lines.filter(l => l.seller_name === v).map(l => l.positionRank).filter(Boolean))];
+                      if (!valid.includes(positionFilter)) setPositionFilter('');
+                    }
+                  }}
+                  placeholder="All Sellers"
+                  dropUp
+                />
+              </div>
+            )}
+            {positionOptions.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Position</p>
+                <SearchableSelect
+                  options={positionOptions.map(p => positionLabel(p))}
+                  value={positionFilter ? positionLabel(positionFilter) : ''}
+                  onChange={v => {
+                    const rank = positionOptions.find(p => positionLabel(p) === v) ?? '';
+                    setPositionFilter(rank);
+                    if (sellerFilter) {
+                      const valid = [...new Set(lines.filter(l => l.positionRank === rank).map(l => l.seller_name).filter(Boolean))];
+                      if (!valid.includes(sellerFilter)) setSellerFilter('');
+                    }
+                  }}
+                  placeholder="All Positions"
+                  dropUp
+                />
+              </div>
+            )}
+          </div>
+          <div className="px-5 pb-10 pt-3 flex gap-3 shrink-0 border-t border-black/[0.06]">
+            <button
+              type="button"
+              onClick={() => { setStatusFilter(''); setSellerStatusFilter(''); setSellerFilter(''); setPositionFilter(''); }}
+              className="flex-1 py-3.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-70"
+            >
+              Clear All
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterOpen(false)}
+              className="flex-1 py-3.5 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80"
+            >
+              Done
+            </button>
+          </div>
+        </div>
       </div>
 
-    </PageShell>
+      {/* ── Confirm post backdrop ─────────────────────────────────────────────── */}
+      {confirmPost && (
+        <div className="fixed inset-0 z-[47] bg-black/40" onClick={() => setConfirmPost(false)} />
+      )}
+
+      {/* ── Confirm post sheet ────────────────────────────────────────────────── */}
+      <div
+        className={`fixed inset-x-0 bottom-0 z-[48] transition-transform duration-300 ease-out ${
+          confirmPost ? 'translate-y-0' : 'translate-y-full'
+        }`}
+      >
+        <div className="bg-white rounded-t-3xl shadow-2xl">
+          <div className="flex justify-center pt-3 pb-1">
+            <div className="w-9 h-1 rounded-full bg-[#D1D1D6]" />
+          </div>
+          <div className="px-6 pt-4 pb-2">
+            <p className="text-base font-bold text-[#1C1C1E]">Post Commission</p>
+            <p className="text-sm text-[#6C6C70] mt-1.5 leading-relaxed">
+              You are about to release{' '}
+              <span className="font-semibold text-[#1C1C1E]">
+                {selectedCount} tranche{selectedCount !== 1 ? 's' : ''}
+              </span>{' '}
+              totalling{' '}
+              <span className="font-semibold text-[#C03D25]">{fmt(selectedTotal)}</span>.
+            </p>
+            <p className="text-xs text-[#8E8E93] mt-2">This action cannot be undone.</p>
+          </div>
+          <div className="px-5 py-4 pb-10 grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setConfirmPost(false)}
+              className="py-3.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-70"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handlePost}
+              className="py-3.5 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80"
+            >
+              Confirm Post
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── DAT warning modal ─────────────────────────────────────────────────── */}
+      {datWarning.length > 0 && (
+        <>
+          <div className="fixed inset-0 z-[49] bg-black/40" onClick={() => setDatWarning([])} />
+          <div className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-[50] bg-white rounded-3xl shadow-2xl overflow-hidden">
+            <div className="px-5 pt-5 pb-4">
+              <div className="flex items-start gap-3 mb-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
+                  <AlertTriangle size={18} className="text-amber-500" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-[#1C1C1E]">Missing Payroll Accounts</p>
+                  <p className="text-xs text-[#6C6C70] mt-0.5 leading-relaxed">
+                    The following in-house sellers have no payroll account number on file and will be skipped in the DAT file:
+                  </p>
+                </div>
+              </div>
+              <div className="bg-[#F2F2F7] rounded-2xl px-4 py-3 space-y-1.5 max-h-48 overflow-y-auto">
+                {datWarning.map(name => (
+                  <p key={name} className="text-xs font-semibold text-[#1C1C1E]">· {name}</p>
+                ))}
+              </div>
+            </div>
+            <div className="px-5 pb-6 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setDatWarning([])}
+                className="py-3.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-70"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => buildDat(true)}
+                className="py-3.5 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80"
+              >
+                Download Anyway
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </>
   );
 }

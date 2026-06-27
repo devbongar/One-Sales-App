@@ -67,10 +67,6 @@ export default function CommissionPayoutReportPage() {
   const [posting, setPosting]                   = useState(false);
 
   useEffect(() => {
-    const stored = sessionStorage.getItem('payoutReportProjects');
-    if (!stored) { router.replace('/finance/commission-payout'); return; }
-    const selectedProjects = JSON.parse(stored) as string[];
-
     async function load() {
       try {
         const [allLines, collectionsMap, commRecords] = await Promise.all([
@@ -86,12 +82,9 @@ export default function CommissionPayoutReportPage() {
           if (r.seller_name && r.position_rank) rankMap[r.seller_name] = r.position_rank;
         });
 
-        const projectSet = new Set(selectedProjects);
         const result: ReportLine[] = [];
 
         for (const line of allLines) {
-          if (!projectSet.has(line.project)) continue;
-
           let effectiveStatus: EffectiveStatus | 'Pending';
           if (line.status === 'Released') {
             effectiveStatus = 'Released';

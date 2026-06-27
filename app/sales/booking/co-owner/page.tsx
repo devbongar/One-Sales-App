@@ -247,6 +247,9 @@ export default function CoOwnerPage() {
   const [isSaving,         setIsSaving]         = useState(false);
   const [isSaved,          setIsSaved]          = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [step0Error, setStep0Error] = useState('');
+  const [step1Error, setStep1Error] = useState('');
+  const [step2Error, setStep2Error] = useState('');
   const [hasAttyInFact,    setHasAttyInFact]    = useState(false);
   const [spouseInfo,       setSpouseInfo]       = useState<SpouseInfoRecord | null>(null);
   const [sameAsSpouse,     setSameAsSpouse]     = useState(false);
@@ -421,6 +424,55 @@ export default function CoOwnerPage() {
     setMailingOther(spouseInfo.mailing_other ?? '');
   }
 
+  function handleNextFromStep0() {
+    if (isSaved) { setStep(1); return; }
+    if (!lastName.trim())              { setStep0Error('Please enter the last name.'); return; }
+    if (!firstName.trim())             { setStep0Error('Please enter the first name.'); return; }
+    if (!gender)                       { setStep0Error('Please select a gender.'); return; }
+    if (!civilStatus)                  { setStep0Error('Please select a civil status.'); return; }
+    if (!citizenship)                  { setStep0Error('Please select a citizenship.'); return; }
+    if (!dateOfBirth)                  { setStep0Error('Please enter the date of birth.'); return; }
+    if (!mobile.trim())                { setStep0Error('Please enter a mobile number.'); return; }
+    if (!noTin && !tin.trim())         { setStep0Error('Please enter the TIN, or mark "No TIN".'); return; }
+    setStep0Error('');
+    setStep(1);
+  }
+
+  function handleNextFromStep1() {
+    if (isSaved) { setStep(2); return; }
+    if (!homeOwnership)              { setStep1Error('Please select home ownership.'); return; }
+    if (!country)                    { setStep1Error('Please select a country.'); return; }
+    if (!regionProvince.trim())      { setStep1Error('Please enter a region / province.'); return; }
+    if (!cityMunicipality.trim())    { setStep1Error('Please enter a city / municipality.'); return; }
+    if (!barangayLine1.trim())       { setStep1Error('Please enter a barangay / address line 1.'); return; }
+    if (!streetLine2.trim())         { setStep1Error('Please enter a street / address line 2.'); return; }
+    if (!unitNo.trim())              { setStep1Error('Please enter a unit / building / house / block no.'); return; }
+    setStep1Error('');
+    setStep(2);
+  }
+
+  function handleSaveClick() {
+    if (isSaved) { handleSave(); return; }
+    if (!employer.trim())                { setStep2Error('Please enter an employer / business.'); return; }
+    if (!natureOfBusiness)               { setStep2Error('Please select a nature of business.'); return; }
+    if (!employmentSector)               { setStep2Error('Please select an employment sector.'); return; }
+    if (!employmentStatus)               { setStep2Error('Please select an employment status.'); return; }
+    if (!jobTitle.trim())                { setStep2Error('Please enter a job title / position.'); return; }
+    if (!rank)                           { setStep2Error('Please select a rank.'); return; }
+    if (!salaryRange)                    { setStep2Error('Please select a salary range.'); return; }
+    if (!workMobile.trim())              { setStep2Error('Please enter a work mobile number.'); return; }
+    if (!workCountry)                    { setStep2Error('Please select a work country.'); return; }
+    if (!workRegionProvince.trim())      { setStep2Error('Please enter a work region / province.'); return; }
+    if (!workCityMunicipality.trim())    { setStep2Error('Please enter a work city / municipality.'); return; }
+    if (!workBarangay.trim())            { setStep2Error('Please enter a work barangay.'); return; }
+    if (!workStreet.trim())              { setStep2Error('Please enter a work street.'); return; }
+    if (!workBuildingUnit.trim())        { setStep2Error('Please enter a work building / unit no.'); return; }
+    if (!mailingType)                    { setStep2Error('Please select a mailing address type.'); return; }
+    if (mailingType === 'Others' && !mailingOther.trim()) { setStep2Error('Please enter the mailing address.'); return; }
+    setStep2Error('');
+    setShowConfirmModal(true);
+  }
+
   // ── Save ──────────────────────────────────────────────────────────────────
   async function handleSave() {
     if (isSaved) { router.push('/sales/booking/detail'); return; }
@@ -499,13 +551,13 @@ export default function CoOwnerPage() {
           <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Personal Information</p>
 
           <InputRow label="Last Name" icon={<User size={11} />} required>
-            <TextInput value={lastName} onChange={setLastName} placeholder="e.g. Santos" disabled={isSaved || sameAsSpouse} />
+            <TextInput value={lastName} onChange={v => setLastName(v.replace(/\b\w/g, c => c.toUpperCase()))} placeholder="e.g. Santos" disabled={isSaved || sameAsSpouse} />
           </InputRow>
           <InputRow label="First Name" icon={<User size={11} />} required>
-            <TextInput value={firstName} onChange={setFirstName} placeholder="e.g. Maria" disabled={isSaved || sameAsSpouse} />
+            <TextInput value={firstName} onChange={v => setFirstName(v.replace(/\b\w/g, c => c.toUpperCase()))} placeholder="e.g. Maria" disabled={isSaved || sameAsSpouse} />
           </InputRow>
           <InputRow label="Middle Name" icon={<User size={11} />}>
-            <TextInput value={middleName} onChange={setMiddleName} placeholder="e.g. Cruz" disabled={isSaved || sameAsSpouse} />
+            <TextInput value={middleName} onChange={v => setMiddleName(v.replace(/\b\w/g, c => c.toUpperCase()))} placeholder="e.g. Cruz" disabled={isSaved || sameAsSpouse} />
           </InputRow>
           <InputRow label="Suffix" icon={<User size={11} />}>
             <TextInput value={suffix} onChange={setSuffix} placeholder="e.g. Jr." disabled={isSaved || sameAsSpouse} />
@@ -518,13 +570,13 @@ export default function CoOwnerPage() {
             <SelectInput value={civilStatus} options={CIVIL_STATUS_OPTIONS} onChange={setCivilStatus} placeholder="Select civil status" disabled={isSaved || sameAsSpouse} />
           </InputRow>
 
-          <InputRow label="Citizenship" icon={<Globe size={11} />}>
+          <InputRow label="Citizenship" icon={<Globe size={11} />} required={!isSaved}>
             <SearchableSelect value={citizenship} options={COUNTRY_OPTIONS} onChange={setCitizenship} placeholder="Select citizenship" disabled={isSaved || sameAsSpouse} />
           </InputRow>
-          <InputRow label="Date of Birth" icon={<Calendar size={11} />}>
+          <InputRow label="Date of Birth" icon={<Calendar size={11} />} required={!isSaved}>
             <DatePickerInput value={dateOfBirth} onChange={setDateOfBirth} disabled={isSaved || sameAsSpouse} />
           </InputRow>
-          <InputRow label="Mobile No." icon={<Phone size={11} />}>
+          <InputRow label="Mobile No." icon={<Phone size={11} />} required={!isSaved}>
             <PhoneInputField code={mobileCode} onCodeChange={setMobileCode} number={mobile} onNumberChange={setMobile} disabled={isSaved || sameAsSpouse} />
           </InputRow>
           <InputRow label="Landline No." icon={<Phone size={11} />}>
@@ -568,7 +620,17 @@ export default function CoOwnerPage() {
           )}
         </GlassCard>
 
-        <NextButton onClick={() => setStep(1)} />
+        {step0Error && (
+          <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+            <AlertCircle size={14} className="text-red-500 shrink-0" />
+            <p className="text-xs text-red-700 font-medium">{step0Error}</p>
+          </div>
+        )}
+
+        <button type="button" onClick={handleNextFromStep0}
+          className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity">
+          Next
+        </button>
       </div>
     </PageShell>
   );
@@ -581,15 +643,15 @@ export default function CoOwnerPage() {
         <GlassCard className="p-4 space-y-4">
           <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Address Information</p>
 
-          <InputRow label="Home Ownership" icon={<Home size={11} />}>
+          <InputRow label="Home Ownership" icon={<Home size={11} />} required={!isSaved}>
             <SelectInput value={homeOwnership} options={HOME_OWNERSHIP_OPTIONS} onChange={setHomeOwnership} placeholder="Select home ownership" disabled={isSaved || sameAsSpouse} />
           </InputRow>
-          <InputRow label="Country" icon={<Globe size={11} />}>
+          <InputRow label="Country" icon={<Globe size={11} />} required={!isSaved}>
             <SearchableSelect value={country} options={COUNTRY_OPTIONS}
               onChange={v => { setCountry(v); if (v !== 'Philippines') { setRegionProvince(''); setCityMunicipality(''); } }}
               placeholder="Select country" disabled={isSaved || sameAsSpouse} />
           </InputRow>
-          <InputRow label="Region / Province" icon={<MapPin size={11} />}>
+          <InputRow label="Region / Province" icon={<MapPin size={11} />} required={!isSaved}>
             {country === 'Philippines'
               ? <SearchableSelect value={regionProvince}
                   options={PH_PROVINCES.map(p => ({ label: p }))}
@@ -598,7 +660,7 @@ export default function CoOwnerPage() {
               : <TextInput value={regionProvince} onChange={setRegionProvince} placeholder="e.g. Metro Manila" disabled={isSaved || sameAsSpouse} />
             }
           </InputRow>
-          <InputRow label="City / Municipality" icon={<MapPin size={11} />}>
+          <InputRow label="City / Municipality" icon={<MapPin size={11} />} required={!isSaved}>
             {country === 'Philippines'
               ? <SearchableSelect value={cityMunicipality}
                   options={(PH_CITIES[regionProvince] ?? []).map(c => ({ label: c }))}
@@ -608,18 +670,28 @@ export default function CoOwnerPage() {
               : <TextInput value={cityMunicipality} onChange={setCityMunicipality} placeholder="e.g. Quezon City" disabled={isSaved || sameAsSpouse} />
             }
           </InputRow>
-          <InputRow label="Barangay / Address Line 1" icon={<MapPin size={11} />}>
+          <InputRow label="Barangay / Address Line 1" icon={<MapPin size={11} />} required={!isSaved}>
             <TextInput value={barangayLine1} onChange={setBarangayLine1} placeholder="e.g. Brgy. Commonwealth" disabled={isSaved || sameAsSpouse} />
           </InputRow>
-          <InputRow label="Street / Subdivision / Village / Address Line 2" icon={<MapPin size={11} />}>
+          <InputRow label="Street / Subdivision / Village / Address Line 2" icon={<MapPin size={11} />} required={!isSaved}>
             <TextInput value={streetLine2} onChange={setStreetLine2} placeholder="e.g. Batangas St." disabled={isSaved || sameAsSpouse} />
           </InputRow>
-          <InputRow label="Unit / Building / House / Block No." icon={<Building2 size={11} />}>
+          <InputRow label="Unit / Building / House / Block No." icon={<Building2 size={11} />} required={!isSaved}>
             <TextInput value={unitNo} onChange={setUnitNo} placeholder="e.g. Unit 12B" disabled={isSaved || sameAsSpouse} />
           </InputRow>
         </GlassCard>
 
-        <NextButton onClick={() => setStep(2)} />
+        {step1Error && (
+          <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+            <AlertCircle size={14} className="text-red-500 shrink-0" />
+            <p className="text-xs text-red-700 font-medium">{step1Error}</p>
+          </div>
+        )}
+
+        <button type="button" onClick={handleNextFromStep1}
+          className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity">
+          Next
+        </button>
       </div>
     </PageShell>
   );
@@ -634,28 +706,28 @@ export default function CoOwnerPage() {
         <GlassCard className="p-4 space-y-4">
           <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Employment Information</p>
 
-          <InputRow label="Employer / Business" icon={<Briefcase size={11} />}>
+          <InputRow label="Employer / Business" icon={<Briefcase size={11} />} required={!isSaved}>
             <TextInput value={employer} onChange={setEmployer} placeholder="e.g. Megawide Construction" disabled={isSaved || sameAsSpouse} />
           </InputRow>
-          <InputRow label="Nature of Business" icon={<Briefcase size={11} />}>
+          <InputRow label="Nature of Business" icon={<Briefcase size={11} />} required={!isSaved}>
             <SelectInput value={natureOfBusiness} options={NATURE_OF_BUSINESS_OPTS} onChange={setNatureOfBusiness} placeholder="Select nature of business" disabled={isSaved || sameAsSpouse} />
           </InputRow>
-          <InputRow label="Employment Sector" icon={<Briefcase size={11} />}>
+          <InputRow label="Employment Sector" icon={<Briefcase size={11} />} required={!isSaved}>
             <SelectInput value={employmentSector} options={EMPLOYMENT_SECTOR_OPTS} onChange={setEmploymentSector} placeholder="Select employment sector" disabled={isSaved || sameAsSpouse} />
           </InputRow>
-          <InputRow label="Employment Status" icon={<Briefcase size={11} />}>
+          <InputRow label="Employment Status" icon={<Briefcase size={11} />} required={!isSaved}>
             <SelectInput value={employmentStatus} options={EMPLOYMENT_STATUS_OPTS} onChange={setEmploymentStatus} placeholder="Select employment status" disabled={isSaved || sameAsSpouse} />
           </InputRow>
-          <InputRow label="Job Title / Position" icon={<User size={11} />}>
+          <InputRow label="Job Title / Position" icon={<User size={11} />} required={!isSaved}>
             <TextInput value={jobTitle} onChange={setJobTitle} placeholder="e.g. Software Engineer" disabled={isSaved || sameAsSpouse} />
           </InputRow>
-          <InputRow label="Rank" icon={<User size={11} />}>
+          <InputRow label="Rank" icon={<User size={11} />} required={!isSaved}>
             <SelectInput value={rank} options={RANK_OPTS} onChange={setRank} placeholder="Select rank" disabled={isSaved || sameAsSpouse} />
           </InputRow>
-          <InputRow label="Salary Range" icon={<DollarSign size={11} />}>
+          <InputRow label="Salary Range" icon={<DollarSign size={11} />} required={!isSaved}>
             <SelectInput value={salaryRange} options={SALARY_RANGE_OPTS} onChange={setSalaryRange} placeholder="Select salary range" disabled={isSaved || sameAsSpouse} />
           </InputRow>
-          <InputRow label="Mobile No." icon={<Phone size={11} />}>
+          <InputRow label="Mobile No." icon={<Phone size={11} />} required={!isSaved}>
             <PhoneInputField code={workMobileCode} onCodeChange={setWorkMobileCode} number={workMobile} onNumberChange={setWorkMobile} disabled={isSaved || sameAsSpouse} />
           </InputRow>
           <InputRow label="Landline No." icon={<Phone size={11} />}>
@@ -674,12 +746,12 @@ export default function CoOwnerPage() {
         <GlassCard className="p-4 space-y-4">
           <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Work Address Information</p>
 
-          <InputRow label="Country" icon={<Globe size={11} />}>
+          <InputRow label="Country" icon={<Globe size={11} />} required={!isSaved}>
             <SearchableSelect value={workCountry} options={COUNTRY_OPTIONS}
               onChange={v => { setWorkCountry(v); if (v !== 'Philippines') { setWorkRegionProvince(''); setWorkCityMunicipality(''); } }}
               placeholder="Select country" disabled={isSaved || sameAsSpouse} />
           </InputRow>
-          <InputRow label="Region / Province" icon={<MapPin size={11} />}>
+          <InputRow label="Region / Province" icon={<MapPin size={11} />} required={!isSaved}>
             {workCountry === 'Philippines'
               ? <SearchableSelect value={workRegionProvince}
                   options={PH_PROVINCES.map(p => ({ label: p }))}
@@ -688,7 +760,7 @@ export default function CoOwnerPage() {
               : <TextInput value={workRegionProvince} onChange={setWorkRegionProvince} placeholder="e.g. Metro Manila" disabled={isSaved || sameAsSpouse} />
             }
           </InputRow>
-          <InputRow label="City / Municipality" icon={<MapPin size={11} />}>
+          <InputRow label="City / Municipality" icon={<MapPin size={11} />} required={!isSaved}>
             {workCountry === 'Philippines'
               ? <SearchableSelect value={workCityMunicipality}
                   options={(PH_CITIES[workRegionProvince] ?? []).map(c => ({ label: c }))}
@@ -698,13 +770,13 @@ export default function CoOwnerPage() {
               : <TextInput value={workCityMunicipality} onChange={setWorkCityMunicipality} placeholder="e.g. Makati City" disabled={isSaved || sameAsSpouse} />
             }
           </InputRow>
-          <InputRow label="Barangay" icon={<MapPin size={11} />}>
+          <InputRow label="Barangay" icon={<MapPin size={11} />} required={!isSaved}>
             <TextInput value={workBarangay} onChange={setWorkBarangay} placeholder="e.g. Brgy. Poblacion" disabled={isSaved || sameAsSpouse} />
           </InputRow>
-          <InputRow label="Street / Subdivision / Village" icon={<MapPin size={11} />}>
+          <InputRow label="Street / Subdivision / Village" icon={<MapPin size={11} />} required={!isSaved}>
             <TextInput value={workStreet} onChange={setWorkStreet} placeholder="e.g. Ayala Ave." disabled={isSaved || sameAsSpouse} />
           </InputRow>
-          <InputRow label="Building / Unit No." icon={<Building2 size={11} />}>
+          <InputRow label="Building / Unit No." icon={<Building2 size={11} />} required={!isSaved}>
             <TextInput value={workBuildingUnit} onChange={setWorkBuildingUnit} placeholder="e.g. 28F Tower 1" disabled={isSaved || sameAsSpouse} />
           </InputRow>
 
@@ -712,6 +784,7 @@ export default function CoOwnerPage() {
           <div className="space-y-2">
             <label className="text-xs font-semibold text-[#8E8E93] flex items-center gap-1.5">
               <Mail size={11} /> Mailing Address
+              {!isSaved && <span className="text-red-500 font-bold">*</span>}
             </label>
             <div className="grid grid-cols-3 gap-2">
               {MAILING_OPTS.map(opt => (
@@ -746,9 +819,16 @@ export default function CoOwnerPage() {
           </div>
         </GlassCard>
 
+        {step2Error && (
+          <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+            <AlertCircle size={14} className="text-red-500 shrink-0" />
+            <p className="text-xs text-red-700 font-medium">{step2Error}</p>
+          </div>
+        )}
+
         {/* Save button */}
         <button type="button"
-          onClick={() => isSaved ? handleSave() : setShowConfirmModal(true)}
+          onClick={handleSaveClick}
           disabled={isSaving}
           className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity disabled:opacity-60">
           {isSaving ? 'Saving...' : isSaved ? 'Done' : 'Save'}

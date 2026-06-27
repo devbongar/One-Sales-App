@@ -8,7 +8,7 @@ import { COUNTRY_CODES } from '@/lib/client-form-options';
 import { saveAttyInFact, fetchAttyInFact } from '@/lib/atty-in-fact';
 import { supabase } from '@/lib/supabase';
 import {
-  User, CheckCircle2,
+  User, CheckCircle2, AlertCircle,
   ChevronDown, X, Phone, Mail, Search, Loader2,
 } from 'lucide-react';
 
@@ -115,6 +115,7 @@ export default function AttyInFactPage() {
   const LOCKED_STATUSES = ['submitted', 'director-approved', 'amd-approved'];
   const [showModal, setShowModal] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   const [reservation, setReservation] = useState<{
     reservation_id?: string; project?: string; inventory_code?: string;
@@ -160,6 +161,15 @@ export default function AttyInFactPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  function handleSaveClick() {
+    if (isSaved) { handleSave(); return; }
+    if (!lastName.trim())  { setSaveError('Please enter the last name.'); return; }
+    if (!firstName.trim()) { setSaveError('Please enter the first name.'); return; }
+    if (!mobile.trim())    { setSaveError('Please enter a mobile number.'); return; }
+    setSaveError('');
+    setShowConfirmModal(true);
+  }
+
   async function handleSave() {
     if (isSaved) { router.push('/sales/booking/detail'); return; }
     setIsSaving(true);
@@ -204,19 +214,19 @@ export default function AttyInFactPage() {
           <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Personal Information</p>
 
           <InputRow label="Last Name" icon={<User size={11} />} required>
-            <TextInput value={lastName} onChange={setLastName} placeholder="e.g. Santos" disabled={isSaved} />
+            <TextInput value={lastName} onChange={v => setLastName(v.replace(/\b\w/g, c => c.toUpperCase()))} placeholder="e.g. Santos" disabled={isSaved} />
           </InputRow>
           <InputRow label="First Name" icon={<User size={11} />} required>
-            <TextInput value={firstName} onChange={setFirstName} placeholder="e.g. Maria" disabled={isSaved} />
+            <TextInput value={firstName} onChange={v => setFirstName(v.replace(/\b\w/g, c => c.toUpperCase()))} placeholder="e.g. Maria" disabled={isSaved} />
           </InputRow>
           <InputRow label="Middle Name" icon={<User size={11} />}>
-            <TextInput value={middleName} onChange={setMiddleName} placeholder="e.g. Cruz" disabled={isSaved} />
+            <TextInput value={middleName} onChange={v => setMiddleName(v.replace(/\b\w/g, c => c.toUpperCase()))} placeholder="e.g. Cruz" disabled={isSaved} />
           </InputRow>
           <InputRow label="Suffix" icon={<User size={11} />}>
             <TextInput value={suffix} onChange={setSuffix} placeholder="e.g. Jr." disabled={isSaved} />
           </InputRow>
 
-          <InputRow label="Mobile No." icon={<Phone size={11} />}>
+          <InputRow label="Mobile No." icon={<Phone size={11} />} required={!isSaved}>
             <PhoneInputField code={mobileCode} onCodeChange={setMobileCode} number={mobile} onNumberChange={setMobile} disabled={isSaved} />
           </InputRow>
           <InputRow label="Landline No." icon={<Phone size={11} />}>
@@ -231,9 +241,16 @@ export default function AttyInFactPage() {
           </InputRow>
         </GlassCard>
 
+        {saveError && (
+          <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+            <AlertCircle size={14} className="text-red-500 shrink-0" />
+            <p className="text-xs text-red-700 font-medium">{saveError}</p>
+          </div>
+        )}
+
         {/* Save button */}
         <button type="button"
-          onClick={() => isSaved ? handleSave() : setShowConfirmModal(true)}
+          onClick={handleSaveClick}
           disabled={isSaving}
           className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity disabled:opacity-60">
           {isSaving ? 'Saving...' : isSaved ? 'Done' : 'Save'}

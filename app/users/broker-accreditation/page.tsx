@@ -15,6 +15,7 @@ import {
 } from '@/lib/brokers';
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
 import { fetchDropdownOptions } from '@/lib/admin';
+import SavingOverlay from '@/components/ui/SavingOverlay';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -301,6 +302,7 @@ function DetailSheet({ broker, onClose, onSaved, businessUnits }: {
     const finalForm = { ...form, broker_id: brokerId };
     setSaving(true);
     setError('');
+    const saveStart = Date.now();
     try {
       await updateBrokerRecruit(finalForm);
       if (finalForm.broker_id) {
@@ -317,6 +319,8 @@ function DetailSheet({ broker, onClose, onSaved, businessUnits }: {
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to save. Please try again.');
     } finally {
+      const elapsed = Date.now() - saveStart;
+      if (elapsed < 1500) await new Promise(r => setTimeout(r, 1500 - elapsed));
       setSaving(false);
     }
   }
@@ -324,6 +328,7 @@ function DetailSheet({ broker, onClose, onSaved, businessUnits }: {
   return (
     <div className="fixed inset-0 z-50" style={{ background: PAGE_GRADIENT, animation: 'overlaySlideUp 0.32s cubic-bezier(0.32,0.72,0,1) both' }}>
       <style>{`@keyframes overlaySlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
+      <SavingOverlay visible={saving} />
 
       {/* Fixed nav */}
       <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 pt-12 pb-3 z-10">
@@ -696,6 +701,7 @@ function AddSheet({ onClose, onAdded, businessUnits }: {
     const finalForm = { ...form, full_name: composed, broker_id: brokerId };
     setSaving(true);
     setError('');
+    const saveStart = Date.now();
     try {
       await addBrokerRecruit(finalForm);
       if (finalForm.broker_id && sigPreview) {
@@ -705,6 +711,8 @@ function AddSheet({ onClose, onAdded, businessUnits }: {
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to save. Please try again.');
     } finally {
+      const elapsed = Date.now() - saveStart;
+      if (elapsed < 1500) await new Promise(r => setTimeout(r, 1500 - elapsed));
       setSaving(false);
     }
   }
@@ -712,6 +720,7 @@ function AddSheet({ onClose, onAdded, businessUnits }: {
   return (
     <div className="fixed inset-0 z-50" style={{ background: PAGE_GRADIENT, animation: 'overlaySlideUp 0.32s cubic-bezier(0.32,0.72,0,1) both' }}>
       <style>{`@keyframes overlaySlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
+      <SavingOverlay visible={saving} />
 
       {/* Fixed nav */}
       <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 pt-12 pb-3 z-10">
