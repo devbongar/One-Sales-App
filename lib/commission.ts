@@ -306,16 +306,25 @@ export interface CommissionScheduleFullLine {
 const SCHEDULE_FULL_SELECT = 'id, reservation_id, seller_id, seller_name, client_name, project, inventory_code, tranche, percentage_collection, commission_release_rate, commission_rate, gross_commission, status, vat_amount, ewt_amount, net_commission';
 
 export async function fetchAllCommissionScheduleLines(): Promise<CommissionScheduleFullLine[]> {
-  const { data, error } = await supabase
-    .from('commission_schedule')
-    .select(SCHEDULE_FULL_SELECT)
-    .neq('status', 'Superseded')
-    .order('seller_name', { ascending: true })
-    .order('reservation_id', { ascending: true })
-    .order('tranche',        { ascending: true })
-    .limit(10000);
-  if (error) throw error;
-  return (data ?? []) as CommissionScheduleFullLine[];
+  const PAGE = 1000;
+  let from = 0;
+  const rows: any[] = [];
+  while (true) {
+    const { data, error } = await supabase
+      .from('commission_schedule')
+      .select(SCHEDULE_FULL_SELECT)
+      .neq('status', 'Superseded')
+      .order('seller_name', { ascending: true })
+      .order('reservation_id', { ascending: true })
+      .order('tranche',        { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    rows.push(...data);
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  return rows as CommissionScheduleFullLine[];
 }
 
 export async function fetchSellerCommissionLines(sellerId: string): Promise<CommissionScheduleFullLine[]> {
@@ -331,13 +340,22 @@ export async function fetchSellerCommissionLines(sellerId: string): Promise<Comm
 }
 
 export async function fetchAllCollectedByReservation(): Promise<Record<string, number>> {
-  const { data, error } = await supabase
-    .from('receivables_database')
-    .select('reservation_id, amount_paid, total_amount_due, payment_status')
-    .limit(10000);
-  if (error) throw error;
+  const PAGE = 1000;
+  let from = 0;
+  const allRows: any[] = [];
+  while (true) {
+    const { data, error } = await supabase
+      .from('receivables_database')
+      .select('reservation_id, amount_paid, total_amount_due, payment_status')
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    allRows.push(...data);
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
   const map: Record<string, number> = {};
-  for (const row of (data ?? []) as { reservation_id: string; amount_paid: number | null; total_amount_due: number | null; payment_status: string }[]) {
+  for (const row of allRows as { reservation_id: string; amount_paid: number | null; total_amount_due: number | null; payment_status: string }[]) {
     const amount = (row.payment_status === 'Paid' && (row.amount_paid == null || Number(row.amount_paid) === 0))
       ? Number(row.total_amount_due || 0)
       : Number(row.amount_paid || 0);
