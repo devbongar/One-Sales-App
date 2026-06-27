@@ -11,7 +11,7 @@ import {
   releaseCommissionTranches,
   CommissionScheduleFullLine,
 } from '@/lib/commission';
-import type { SellerPayoutSummary } from '../page';
+type SellerPayoutSummary = { sellerId: string | null; sellerName: string; positionRank: string | null };
 import { Loader2, CheckCircle2, Clock, Wallet } from 'lucide-react';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
