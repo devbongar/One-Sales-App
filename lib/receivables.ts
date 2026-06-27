@@ -562,12 +562,21 @@ export async function fetchReceivableSummaries(): Promise<ReservationReceivableS
   const d = new Date();
   const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-  const { data: lines, error: linesErr } = await supabase
-    .from('receivables_database')
-    .select('reservation_id, client_id, client_name, inventory_code, due_date, total_amount_due, amount_paid, payment_status')
-    .limit(10000);
-  if (linesErr) throw linesErr;
-  if (!lines || lines.length === 0) return [];
+  const PAGE = 1000;
+  let from = 0;
+  const lines: any[] = [];
+  while (true) {
+    const { data, error: linesErr } = await supabase
+      .from('receivables_database')
+      .select('reservation_id, client_id, client_name, inventory_code, due_date, total_amount_due, amount_paid, payment_status')
+      .range(from, from + PAGE - 1);
+    if (linesErr) throw linesErr;
+    if (!data || data.length === 0) break;
+    lines.push(...data);
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  if (lines.length === 0) return [];
 
   const reservationIds = [...new Set((lines as any[]).map((l) => l.reservation_id as string))];
   const { data: reservations, error: resErr } = await supabase
