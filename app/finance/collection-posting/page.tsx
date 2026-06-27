@@ -627,7 +627,7 @@ function PostCollectionSheet({
 
   const amount    = parseFloat(amountStr) || 0;
   const isCheck   = mop === 'Check';
-  const canSubmit = amount > 0 && mop && postDate && (!isCheck || (checkNo.trim() && checkDate));
+  const canSubmit = amount > 0 && mop && orNo.trim() && siNo.trim() && transactionDate && (!isCheck || (checkNo.trim() && checkDate));
 
   const allocationPreview = useMemo(() => {
     if (amount <= 0) return [];
@@ -651,6 +651,19 @@ function PostCollectionSheet({
     setPosting(true);
     setError('');
     try {
+      if (siNo.trim()) {
+        const { data: dup } = await supabase
+          .from('collections')
+          .select('id')
+          .eq('reservation_id', reservationId)
+          .eq('sales_invoice_number', siNo.trim())
+          .maybeSingle();
+        if (dup) {
+          setError(`Duplicate: SI No. "${siNo.trim()}" has already been posted for this reservation.`);
+          setPosting(false);
+          return;
+        }
+      }
       await postCollection(reservationId, {
         amount_received:            amount,
         mode_of_payment:            mop,
@@ -789,28 +802,26 @@ function PostCollectionSheet({
 
           {/* OR No. */}
           <div className="space-y-1.5">
-            <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-widest">OR / Acknowledgement No.</p>
+            <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-widest">
+              OR / Acknowledgement No. <span className="text-[#C03D25]">*</span>
+            </p>
             <input type="text" value={orNo} onChange={e => setOrNo(e.target.value)} placeholder="e.g. 0001234" className={inputCls} />
           </div>
 
           {/* Sales Invoice */}
           <div className="space-y-1.5">
-            <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-widest">Sales Invoice No.</p>
-            <input type="text" value={siNo} onChange={e => setSiNo(e.target.value)} placeholder="e.g. SI-00123" className={inputCls} />
-          </div>
-
-          {/* Posting Date */}
-          <div className="space-y-1.5">
             <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-widest">
-              Posting Date <span className="text-[#C03D25]">*</span>
+              Sales Invoice No. <span className="text-[#C03D25]">*</span>
             </p>
-            <input type="date" value={postDate} onChange={e => setPostDate(e.target.value)} className={inputCls} />
+            <input type="text" value={siNo} onChange={e => setSiNo(e.target.value)} placeholder="e.g. SI-00123" className={inputCls} />
           </div>
 
           {/* Transaction Date */}
           <div className="space-y-1.5">
-            <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-widest">Transaction Date</p>
-            <input type="date" value={transactionDate} onChange={e => setTransactionDate(e.target.value)} className={inputCls} />
+            <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-widest">
+              Transaction Date <span className="text-[#C03D25]">*</span>
+            </p>
+            <input type="date" value={transactionDate} onChange={e => setTransactionDate(e.target.value)} max={localToday()} className={inputCls} />
           </div>
 
           {error && (
@@ -857,9 +868,10 @@ function LinesOverlay({
   const [collections,     setCollections]     = useState<CollectionRecord[]>([]);
   const [applications,    setApplications]    = useState<CollectionApplication[]>([]);
   const [loading,         setLoading]         = useState(true);
-  const [showPost,        setShowPost]        = useState(false);
-  const [turnoverDateOk,  setTurnoverDateOk]  = useState<boolean | null>(null);
-  const [actualTotalPaid, setActualTotalPaid] = useState<number | null>(null);
+  const [showPost,           setShowPost]           = useState(false);
+  const [turnoverDateOk,     setTurnoverDateOk]     = useState<boolean | null>(null);
+  const [actualTotalPaid,    setActualTotalPaid]    = useState<number | null>(null);
+  const [latestBrfRequestId, setLatestBrfRequestId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -883,6 +895,19 @@ function LinesOverlay({
         .filter(l => l.payment_status === 'Paid' && !appData.some(a => String(a.receivable_line_id) === String(l.id)))
         .reduce((sum, l) => sum + Number(l.total_amount_due || 0), 0);
       setActualTotalPaid(collTotal + legacyTotal);
+
+      // Identify the most recent BRF so the "Prior Schedule" section shows only
+      // lines from the immediately preceding schedule, not all historical rounds.
+      const { data: latestBrf } = await supabase
+        .from('requests_and_inquiries')
+        .select('id')
+        .eq('reservation_id', summary.reservation_id)
+        .eq('approval_status', 'Resolved')
+        .in('type_of_request', ['Payment Schedule Restructuring', 'Change of Unit'])
+        .order('date_approved', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      setLatestBrfRequestId((latestBrf as any)?.id ?? null);
 
       // Check turnover date — missing it causes wrong retention payment timing
       const { data: resRow } = await supabase
@@ -971,6 +996,9 @@ function LinesOverlay({
 
       {/* Hero card */}
       <div className="px-4 pt-3 pb-4 bg-white border-b border-black/[0.06] shrink-0 space-y-3">
+        {/* Reservation ID */}
+        <p className="text-xs font-bold text-[#C03D25]">{summary.reservation_id}</p>
+
         {/* TCP + lines count */}
         <div className="flex items-end justify-between">
           <div>
@@ -1043,9 +1071,18 @@ function LinesOverlay({
                 .sort((a, b) => a.due_date.localeCompare(b.due_date));
               const paidLines     = activeLines.filter(l => l.payment_status === 'Paid')
                 .sort((a, b) => a.due_date.localeCompare(b.due_date));
-              // Superseded lines that had a partial payment before BRF restructuring
-              const priorPaidLines = supersededLines.filter(l => Number(l.amount_paid) > 0)
-                .sort((a, b) => a.due_date.localeCompare(b.due_date));
+              // Superseded lines from the immediately preceding schedule only.
+              // latestBrfRequestId filters out lines from older BRF rounds so the
+              // "Prior Schedule" section doesn't accumulate across multiple restructurings.
+              // RF is excluded — it never changes across restructurings and belongs
+              // in the active Paid section (new RF line), not in history.
+              const priorPaidLines = supersededLines.filter(l =>
+                Number(l.amount_paid) > 0 &&
+                l.type_of_payment !== 'Reservation Fee' &&
+                (latestBrfRequestId
+                  ? l.superseded_by_request_id === latestBrfRequestId
+                  : true)
+              ).sort((a, b) => a.due_date.localeCompare(b.due_date));
 
               function LineCard({ line }: { line: ReceivableLine }) {
                 const isPaid    = line.payment_status === 'Paid';
@@ -1135,6 +1172,37 @@ function LinesOverlay({
                         </p>
                       </div>
                     )}
+
+                    {/* Pro-rated breakdown — shown for paid and partial lines */}
+                    {(isPaid || isPartial) && (() => {
+                      const paidAmt = isPaid
+                        ? (Number(line.amount_paid) > 0 ? Number(line.amount_paid) : line.total_amount_due)
+                        : Number(line.amount_paid) || 0;
+                      const ratio = line.total_amount_due > 0 ? paidAmt / line.total_amount_due : 0;
+                      const bp = Math.round((Number(line.principal)     || 0) * ratio);
+                      const bh = line.hic != null ? Math.round(Number(line.hic) * ratio) : null;
+                      const bv = Math.round((Number(line.vat)           || 0) * ratio);
+                      const bo = Math.round((Number(line.other_charges) || 0) * ratio);
+                      const items = [
+                        { label: 'Principal', value: bp },
+                        bh != null && bh > 0 ? { label: 'HIC',     value: bh } : null,
+                        bv > 0               ? { label: 'VAT',     value: bv } : null,
+                        bo > 0               ? { label: 'Charges', value: bo } : null,
+                      ].filter(Boolean) as { label: string; value: number }[];
+                      if (items.length <= 1) return null;
+                      return (
+                        <div className="border-t border-black/[0.06] px-4 py-2.5 bg-[#FAFAFA]">
+                          <div className="flex flex-wrap gap-x-5 gap-y-1.5">
+                            {items.map(item => (
+                              <div key={item.label}>
+                                <p className="text-[9px] font-bold text-[#8E8E93] uppercase tracking-wider">{item.label}</p>
+                                <p className="text-[11px] font-semibold text-[#3C3C43]">{fmtPeso(item.value)}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               }
@@ -1145,30 +1213,56 @@ function LinesOverlay({
                     <div className="space-y-2">
                       <SectionDivider label={`Paid · ${paidLines.length + priorPaidLines.length}`} color="#1A7F37" />
                       {paidLines.map(l => <LineCard key={l.id} line={l} />)}
-                      {priorPaidLines.map(l => (
-                        <div
-                          key={l.id}
-                          className="rounded-3xl bg-white overflow-hidden"
-                          style={{ border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}
-                        >
-                          <div className="flex items-center justify-between px-4 py-3">
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold text-[#1C1C1E] truncate">{l.type_of_payment}</p>
-                              <p className="text-xs text-[#8E8E93] mt-0.5">Due {fmtDate(l.due_date)}</p>
+                      {priorPaidLines.map(l => {
+                        const paidAmt = Number(l.amount_paid) || 0;
+                        const ratio   = l.total_amount_due > 0 ? paidAmt / l.total_amount_due : 0;
+                        const bp = Math.round((Number(l.principal)     || 0) * ratio);
+                        const bh = l.hic != null ? Math.round(Number(l.hic) * ratio) : null;
+                        const bv = Math.round((Number(l.vat)           || 0) * ratio);
+                        const bo = Math.round((Number(l.other_charges) || 0) * ratio);
+                        const items = [
+                          { label: 'Principal', value: bp },
+                          bh != null && bh > 0 ? { label: 'HIC',     value: bh } : null,
+                          bv > 0               ? { label: 'VAT',     value: bv } : null,
+                          bo > 0               ? { label: 'Charges', value: bo } : null,
+                        ].filter(Boolean) as { label: string; value: number }[];
+                        return (
+                          <div
+                            key={l.id}
+                            className="rounded-3xl bg-white overflow-hidden"
+                            style={{ border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}
+                          >
+                            <div className="flex items-center justify-between px-4 py-3">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-[#1C1C1E] truncate">{l.type_of_payment}</p>
+                                <p className="text-xs text-[#8E8E93] mt-0.5">Due {fmtDate(l.due_date)}</p>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0 ml-3">
+                                <p className="text-sm font-bold text-[#1C1C1E]">{fmtPeso(paidAmt)}</p>
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                                  style={{ background: 'rgba(52,199,89,0.12)', color: '#1A7F37' }}>
+                                  Partial Paid
+                                </span>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-2 shrink-0 ml-3">
-                              <p className="text-sm font-bold text-[#1C1C1E]">{fmtPeso(Number(l.amount_paid))}</p>
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                                style={{ background: 'rgba(52,199,89,0.12)', color: '#1A7F37' }}>
-                                Partial Paid
-                              </span>
+                            {items.length > 1 && (
+                              <div className="border-t border-black/[0.06] px-4 py-2.5 bg-[#FAFAFA]">
+                                <div className="flex flex-wrap gap-x-5 gap-y-1.5">
+                                  {items.map(item => (
+                                    <div key={item.label}>
+                                      <p className="text-[9px] font-bold text-[#8E8E93] uppercase tracking-wider">{item.label}</p>
+                                      <p className="text-[11px] font-semibold text-[#3C3C43]">{fmtPeso(item.value)}</p>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            <div className="border-t border-black/[0.06] px-4 py-1.5 bg-[#FAFAFA]">
+                              <p className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wider">Prior schedule · restructured</p>
                             </div>
                           </div>
-                          <div className="border-t border-black/[0.06] px-4 py-1.5 bg-[#FAFAFA]">
-                            <p className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wider">Prior schedule · restructured</p>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                   {overdueLines.length > 0 && (
@@ -1189,9 +1283,16 @@ function LinesOverlay({
 
             {/* Payment History — one card per posting receipt */}
             {(() => {
-              // New model: collection records with application entries
+              // Build a lookup for fast non-Superseded line checks
+              const activeLineIds = new Set(
+                lines.filter(l => l.payment_status !== 'Superseded').map(l => String(l.id))
+              );
+
+              // New model: collection records with application entries.
+              // Only show collections that have at least one application on an active line —
+              // excludes stale pre-BRF applications that now point only to superseded lines.
               const postedCollections = collections.filter(c =>
-                applications.some(a => a.collection_id === c.id)
+                applications.some(a => a.collection_id === c.id && activeLineIds.has(String(a.receivable_line_id)))
               ).sort((a, b) => (a.posting_date < b.posting_date ? 1 : -1));
 
               // Legacy model: lines paid directly without a collection record
@@ -1212,7 +1313,8 @@ function LinesOverlay({
 
                   {/* New-model collection receipts */}
                   {postedCollections.map(c => {
-                    const apps  = applications.filter(a => a.collection_id === c.id);
+                    // Only show applications on active (non-superseded) lines
+                    const apps  = applications.filter(a => a.collection_id === c.id && activeLineIds.has(String(a.receivable_line_id)));
                     const total = apps.reduce((sum, a) => sum + Number(a.applied_amount), 0);
                     return (
                       <div

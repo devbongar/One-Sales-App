@@ -372,6 +372,7 @@ export default function SampleComputationPage() {
     setClientEmail(c.email ?? '');
     setClientSuggestionsOpen(false);
     setErrors(p => ({ ...p, clientLastName: '', clientFirstName: '', clientMobile: '' }));
+    setIsMegawide(!!c.is_megawide_employee);
 
     // Auto-populate seller from client record
     if (c.seller_type === 'In House' && c.property_specialist) {
@@ -389,6 +390,7 @@ export default function SampleComputationPage() {
     setClientMobile('');
     setClientCountryCode('+63');
     setClientEmail('');
+    setIsMegawide(false);
     setSellerRecord(null);
     setSellerSearch('');
     setSellerDropdownOpen(false);
@@ -1135,15 +1137,18 @@ export default function SampleComputationPage() {
             {(userRole === 'All Access' || userRole === 'Sales Director') && (
               <button
                 type="button"
-                onClick={() => setIsMegawide(p => !p)}
-                className="w-full flex items-center gap-3 py-3 px-1 active:bg-[#F2F2F7]"
+                onClick={() => { if (!selectedClientRecord) setIsMegawide(p => !p); }}
+                className={`w-full flex items-center gap-3 py-3 px-1 ${!selectedClientRecord ? 'active:bg-[#F2F2F7]' : 'cursor-default'}`}
               >
                 <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
                   isMegawide ? 'border-[#166534] bg-[#166534]' : 'border-[#C7C7CC]'
                 }`}>
                   {isMegawide && <Check size={12} className="text-white" />}
                 </div>
-                <span className={`text-sm font-medium ${isMegawide ? 'text-[#166534]' : 'text-[#1C1C1E]'}`}>Megawide Employee</span>
+                <span className={`text-sm font-medium ${isMegawide ? 'text-[#166534]' : 'text-[#1C1C1E]'}`}>
+                  Megawide Employee
+                  {selectedClientRecord && <span className="ml-1.5 text-[10px] text-[#8E8E93] font-normal">(from client profile)</span>}
+                </span>
               </button>
             )}
           </GlassCard>
@@ -1949,7 +1954,7 @@ export default function SampleComputationPage() {
               {duplicateAlert && (
                 <p className="text-amber-500 text-[11px] text-center -mt-1">Already added to comparison.</p>
               )}
-              <p className="text-[#6C6C70] text-[11px] font-semibold uppercase tracking-wider px-1">Payment Scheme</p>
+              <p className="text-[#6C6C70] text-[11px] font-semibold uppercase tracking-wider px-1">Payterm Scheme</p>
               <div className="grid grid-cols-4 gap-2">
                 {PAYMENT_SCHEMES.map(({ value, label, icon }) => {
                   const active = paymentScheme === value;

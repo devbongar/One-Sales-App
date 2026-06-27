@@ -398,108 +398,59 @@ export async function releaseCommissionTranches(ids: number[]): Promise<void> {
   if (error) throw error;
 }
 
-// Same as generateCommissionSchedule but skips the already-exists guard.
 // Used by BRF after superseding the old commission lines.
+// Reads rates/hierarchy/tranches from the Superseded lines (original reservation-time values)
+// and only recalculates gross_commission using the new NLP + hic_discount.
+// Deduplicates by (seller_id, tranche) taking the oldest row so multiple restructurings
+// always derive from the original reservation-time commission configuration.
 export async function regenerateCommissionSchedule(reservationId: string): Promise<CommissionGenerateResult> {
-  const rec = await fetchCommissionRecord(reservationId);
-  if (!rec) return { ok: false, reason: 'no-commission-record' };
-  if (!rec.product_type || !rec.seller_type) return { ok: false, reason: 'missing-fields' };
-  if (rec.position_rank && ['SD', 'SDH', 'SH'].includes(rec.position_rank)) return { ok: true };
+  const { data: superseded, error: supErr } = await supabase
+    .from('commission_schedule')
+    .select('id, seller_id, seller_name, client_id, client_name, inventory_code, project, tower, tranche, percentage_collection, commission_release_rate, commission_rate')
+    .eq('reservation_id', reservationId)
+    .eq('status', 'Superseded')
+    .order('id', { ascending: true }); // oldest first = original reservation-time values
 
-  const { data: ids } = await supabase
+  if (supErr) throw supErr;
+  if (!superseded || superseded.length === 0) return { ok: false, reason: 'no-tranches' };
+
+  // Deduplicate: one entry per (seller_id, tranche) — oldest row wins
+  const seen = new Set<string>();
+  const uniqueLines = (superseded as any[]).filter(l => {
+    const key = `${l.seller_id}__${l.tranche}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  // New NLP from the already-updated reservation; HIC added back (commission base is pre-HIC NLP)
+  const { data: res } = await supabase
     .from('reservations')
-    .select('client_id, hic_discount')
+    .select('net_list_price, hic_discount')
     .eq('reservation_id', reservationId)
     .single();
-  const client_id    = (ids as any)?.client_id    ?? null;
-  const hic_discount = Number((ids as any)?.hic_discount) || 0;
 
-  type Target = { name: string; sellerId: string | null; positionRank: string };
-  const targets: Target[] = [];
+  if (!res) return { ok: false, reason: 'no-commission-record' };
+  const nlp = (Number((res as any).net_list_price) || 0) + (Number((res as any).hic_discount) || 0);
 
-  if (rec.seller_type === 'In-house') {
-    const { data: sellerRow } = await supabase
-      .from('Salesperson')
-      .select('"Sales Manager", "Sales Manager ID", "Sales Director", "Sales Director ID", "Sales Division Head", "Sales Division Head ID", "Sales Head", "Sales Head ID"')
-      .eq('"Seller Id"', rec.seller_id)
-      .maybeSingle();
+  const allLines = uniqueLines.map(l => ({
+    reservation_id:          reservationId,
+    client_id:               l.client_id,
+    client_name:             l.client_name,
+    seller_id:               l.seller_id,
+    seller_name:             l.seller_name,
+    inventory_code:          l.inventory_code,
+    project:                 l.project,
+    tower:                   l.tower,
+    tranche:                 l.tranche,
+    percentage_collection:   l.percentage_collection,
+    commission_release_rate: l.commission_release_rate,
+    commission_rate:         l.commission_rate,
+    gross_commission:
+      Math.round(nlp * (Number(l.commission_rate) / 100) * (Number(l.commission_release_rate) / 100) * 100) / 100,
+    status: 'Pending',
+  }));
 
-    const smName  = (sellerRow as any)?.['Sales Manager']          as string | null ?? null;
-    const smId    = (sellerRow as any)?.['Sales Manager ID']       as string | null ?? null;
-    const sdName  = (sellerRow as any)?.['Sales Director']         as string | null ?? null;
-    const sdId    = (sellerRow as any)?.['Sales Director ID']      as string | null ?? null;
-    const sdhName = (sellerRow as any)?.['Sales Division Head']    as string | null ?? null;
-    const sdhId   = (sellerRow as any)?.['Sales Division Head ID'] as string | null ?? null;
-    const shName  = (sellerRow as any)?.['Sales Head']             as string | null ?? null;
-    const shId    = (sellerRow as any)?.['Sales Head ID']          as string | null ?? null;
-
-    if (rec.position_rank === 'PS') {
-      targets.push({ name: rec.seller_name!, sellerId: rec.seller_id, positionRank: 'PS' });
-      if (smName)  targets.push({ name: smName,  sellerId: smId,  positionRank: 'SM'  });
-      if (sdName)  targets.push({ name: sdName,  sellerId: sdId,  positionRank: 'SD'  });
-      if (sdhName) targets.push({ name: sdhName, sellerId: sdhId, positionRank: 'SDH' });
-      if (shName)  targets.push({ name: shName,  sellerId: shId,  positionRank: 'SH'  });
-    } else if (rec.position_rank === 'SM') {
-      targets.push({ name: rec.seller_name!, sellerId: rec.seller_id, positionRank: 'PS' });
-      if (sdName)  targets.push({ name: sdName,  sellerId: sdId,  positionRank: 'SD'  });
-      if (sdhName) targets.push({ name: sdhName, sellerId: sdhId, positionRank: 'SDH' });
-      if (shName)  targets.push({ name: shName,  sellerId: shId,  positionRank: 'SH'  });
-    }
-  } else {
-    const { data: brokerRow } = await supabase
-      .from('Brokers')
-      .select('"Broker Network Associate", "Broker Network Associate ID", "Broker Network Officer", "Broker Network Officer ID", "Sales Director Head", "Sales Director Head ID", "Sales Head", "Sales Head ID"')
-      .eq('"Broker ID"', rec.seller_id)
-      .maybeSingle();
-
-    const smName  = (brokerRow as any)?.['Broker Network Associate']    as string | null ?? null;
-    const smId    = (brokerRow as any)?.['Broker Network Associate ID'] as string | null ?? null;
-    const sdName  = (brokerRow as any)?.['Broker Network Officer']      as string | null ?? null;
-    const sdId    = (brokerRow as any)?.['Broker Network Officer ID']   as string | null ?? null;
-    const sdhName = (brokerRow as any)?.['Sales Director Head']         as string | null ?? null;
-    const sdhId   = (brokerRow as any)?.['Sales Director Head ID']      as string | null ?? null;
-    const shName  = (brokerRow as any)?.['Sales Head']                  as string | null ?? null;
-    const shId    = (brokerRow as any)?.['Sales Head ID']               as string | null ?? null;
-
-    targets.push({ name: rec.seller_name!, sellerId: rec.seller_id, positionRank: 'PS' });
-    if (smName)  targets.push({ name: smName,  sellerId: smId,  positionRank: 'SM'  });
-    if (sdName)  targets.push({ name: sdName,  sellerId: sdId,  positionRank: 'SD'  });
-    if (sdhName) targets.push({ name: sdhName, sellerId: sdhId, positionRank: 'SDH' });
-    if (shName)  targets.push({ name: shName,  sellerId: shId,  positionRank: 'SH'  });
-  }
-
-  if (targets.length === 0) return { ok: false, reason: 'missing-fields' };
-
-  const nlp = (Number(rec.net_list_price) || 0) + hic_discount;
-  const allLines: object[] = [];
-
-  for (const target of targets) {
-    const targetSellerId = target.sellerId;
-    const sellerType = rec.seller_type!;
-    const tranches = await fetchCommissionTranches(rec.project, target.positionRank, rec.product_type, sellerType);
-    if (!tranches || tranches.length === 0) continue;
-    for (const t of tranches) {
-      allLines.push({
-        reservation_id:          reservationId,
-        client_id,
-        client_name:             rec.client_name,
-        seller_id:               targetSellerId,
-        seller_name:             target.name,
-        inventory_code:          rec.inventory_code,
-        project:                 rec.project,
-        tower:                   rec.tower,
-        tranche:                 t.tranche,
-        percentage_collection:   t.percentage_collection,
-        commission_release_rate: t.commission_release_rate,
-        commission_rate:         t.commission_rate,
-        gross_commission:
-          Math.round(nlp * (Number(t.commission_rate) / 100) * (Number(t.commission_release_rate) / 100) * 100) / 100,
-        status: 'Pending',
-      });
-    }
-  }
-
-  if (allLines.length === 0) return { ok: false, reason: 'no-tranches' };
   const { error: insertError } = await supabase.from('commission_schedule').insert(allLines);
   if (insertError) throw insertError;
   return { ok: true };

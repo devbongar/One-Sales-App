@@ -2,12 +2,14 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
-  Building2, Check, ChevronLeft, ChevronRight,
+  AlertTriangle, Building2, ChevronLeft, ChevronRight,
   Loader2, Search, SlidersHorizontal, X,
 } from 'lucide-react';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import SearchableSelect from '@/components/ui/SearchableSelect';
+import { supabase } from '@/lib/supabase';
+import { fetchTurnoverDate } from '@/lib/admin';
 import {
   fetchCollections,
   fetchCollectionApplicationsByIds,
@@ -23,14 +25,19 @@ import {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function fmtPeso(n: number) {
-  return '₱' + n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function fmtPeso(n: number | null | undefined) {
+  return '₱' + (Number(n) || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function fmtDate(d: string) {
   return new Date(d + 'T00:00:00').toLocaleDateString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',
   });
+}
+
+function localToday() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function getInitials(name: string) {
@@ -55,7 +62,21 @@ const STATUS_STYLE: Record<string, React.CSSProperties> = {
   Unpaid:   { background: 'rgba(255,159,10,0.12)', color: '#A05A00' },
 };
 
-// ─── Lines Detail Overlay (read-only) ────────────────────────────────────────
+// ─── Section Divider ──────────────────────────────────────────────────────────
+
+function SectionDivider({ label, color }: { label: string; color: string }) {
+  return (
+    <div className="flex items-center gap-2 pt-1 pb-0.5">
+      <div className="flex-1 h-px" style={{ background: `${color}30` }} />
+      <span className="text-[10px] font-bold uppercase tracking-widest shrink-0" style={{ color }}>
+        {label}
+      </span>
+      <div className="flex-1 h-px" style={{ background: `${color}30` }} />
+    </div>
+  );
+}
+
+// ─── Lines Detail Overlay (read-only) ─────────────────────────────────────────
 
 function LinesOverlay({
   summary,
@@ -64,10 +85,14 @@ function LinesOverlay({
   summary: ReservationReceivableSummary;
   onClose: () => void;
 }) {
-  const [lines,        setLines]        = useState<ReceivableLine[]>([]);
-  const [collections,  setCollections]  = useState<CollectionRecord[]>([]);
-  const [applications, setApplications] = useState<CollectionApplication[]>([]);
-  const [loading,      setLoading]      = useState(true);
+  const [lines,              setLines]              = useState<ReceivableLine[]>([]);
+  const [collections,        setCollections]        = useState<CollectionRecord[]>([]);
+  const [applications,       setApplications]       = useState<CollectionApplication[]>([]);
+  const [loading,            setLoading]            = useState(true);
+  const [turnoverDateOk,     setTurnoverDateOk]     = useState<boolean | null>(null);
+  const [actualTotalPaid,    setActualTotalPaid]    = useState<number | null>(null);
+  const [latestBrfRequestId, setLatestBrfRequestId] = useState<string | null>(null);
+  const [showSuperseded,     setShowSuperseded]     = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -76,19 +101,52 @@ function LinesOverlay({
         fetchReceivableLines(summary.reservation_id),
         fetchCollections(summary.reservation_id),
       ]);
+      const appData = collData.length > 0
+        ? await fetchCollectionApplicationsByIds(collData.map(c => c.id))
+        : [];
       setLines(linesData);
       setCollections(collData);
-      if (collData.length > 0) {
-        setApplications(await fetchCollectionApplicationsByIds(collData.map(c => c.id)));
+      setApplications(appData);
+
+      const collTotal = collData.reduce((sum, c) => sum + Number(c.amount_received), 0);
+      const legacyTotal = linesData
+        .filter(l => l.payment_status === 'Paid' && !appData.some(a => String(a.receivable_line_id) === String(l.id)))
+        .reduce((sum, l) => sum + Number(l.total_amount_due || 0), 0);
+      setActualTotalPaid(collTotal + legacyTotal);
+
+      const { data: latestBrf } = await supabase
+        .from('requests_and_inquiries')
+        .select('id')
+        .eq('reservation_id', summary.reservation_id)
+        .eq('approval_status', 'Resolved')
+        .in('type_of_request', ['Payment Schedule Restructuring', 'Change of Unit'])
+        .order('date_approved', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      setLatestBrfRequestId((latestBrf as any)?.id ?? null);
+
+      const { data: resRow } = await supabase
+        .from('reservations')
+        .select('tower')
+        .eq('reservation_id', summary.reservation_id)
+        .maybeSingle();
+      if (resRow?.tower) {
+        const td = await fetchTurnoverDate(summary.project, resRow.tower);
+        setTurnoverDateOk(td !== null);
+      } else {
+        setTurnoverDateOk(null);
       }
     } finally {
       setLoading(false);
     }
-  }, [summary.reservation_id]);
+  }, [summary.reservation_id, summary.project]);
 
   useEffect(() => { load(); }, [load]);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today           = localToday();
+  const activeLines     = lines.filter(l => l.payment_status !== 'Superseded');
+  const supersededLines = lines.filter(l => l.payment_status === 'Superseded');
+  const unpaidLines     = activeLines.filter(l => l.payment_status !== 'Paid');
 
   function lineStatusStyle(line: ReceivableLine): React.CSSProperties {
     if (line.payment_status === 'Paid')    return { background: 'rgba(52,199,89,0.12)', color: '#1A7F37' };
@@ -110,8 +168,8 @@ function LinesOverlay({
 
   function getLineCollections(lineId: string) {
     return applications
-      .filter(a => a.receivable_line_id === lineId)
-      .map(a => ({ app: a, coll: collections.find(c => c.id === a.collection_id) }))
+      .filter(a => String(a.receivable_line_id) === String(lineId))
+      .map(a => ({ app: a, coll: collections.find(c => String(c.id) === String(a.collection_id)) }))
       .filter(x => x.coll) as { app: CollectionApplication; coll: CollectionRecord }[];
   }
 
@@ -132,31 +190,67 @@ function LinesOverlay({
           <ChevronLeft size={20} />
         </button>
         <div className="text-center min-w-0 px-3">
-          <p className="text-[#1C1C1E] font-bold text-sm truncate">{summary.reservation_id}</p>
-          <p className="text-[#8E8E93] text-xs truncate">{summary.client_name} · {summary.inventory_code}</p>
+          <p className="text-[#1C1C1E] font-bold text-sm truncate">{summary.client_name}</p>
+          <p className="text-[#8E8E93] text-xs">{summary.inventory_code} · {schemeLabel(summary.payment_scheme)}</p>
         </div>
         <div className="w-[60px]" />
       </div>
 
-      {/* Summary strip */}
-      <div className="flex items-center gap-4 px-5 py-3 bg-white border-b border-black/[0.06] shrink-0">
-        <div className="text-center flex-1">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-[#8E8E93]">Outstanding</p>
-          <p className="text-sm font-bold text-[#C03D25]">{fmtPeso(summary.outstanding)}</p>
+      {/* Hero card */}
+      <div className="px-4 pt-3 pb-4 bg-white border-b border-black/[0.06] shrink-0 space-y-3">
+        {/* Reservation ID */}
+        <p className="text-xs font-bold text-[#C03D25]">{summary.reservation_id}</p>
+
+        {/* TCP + lines count */}
+        <div className="flex items-end justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-[#8E8E93]">Total Contract Price</p>
+            <p className="text-xl font-bold text-[#1C1C1E]">{fmtPeso(summary.total_contract_price)}</p>
+          </div>
+          <p className="text-xs text-[#8E8E93] mb-0.5">{summary.paid_lines}/{summary.total_lines} lines paid</p>
         </div>
-        <div className="w-px h-8 bg-black/[0.06]" />
-        <div className="text-center flex-1">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-[#8E8E93]">Paid</p>
-          <p className="text-sm font-bold text-[#1C1C1E]">{summary.paid_lines}/{summary.total_lines}</p>
-        </div>
-        <div className="w-px h-8 bg-black/[0.06]" />
-        <div className="text-center flex-1">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-[#8E8E93]">Status</p>
-          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={STATUS_STYLE[summary.status]}>
-            {summary.status}
-          </span>
+
+        {/* Progress bar */}
+        {(() => {
+          const paid = actualTotalPaid ?? summary.total_paid;
+          const pct  = summary.total_contract_price > 0
+            ? Math.min(100, (paid / summary.total_contract_price) * 100)
+            : 0;
+          return (
+            <div>
+              <div className="h-2 bg-[#E5E5EA] rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{ width: `${pct}%`, background: pct >= 100 ? '#34C759' : '#C03D25' }}
+                />
+              </div>
+              <p className="text-[10px] text-[#8E8E93] mt-1 text-right">{pct.toFixed(1)}% collected</p>
+            </div>
+          );
+        })()}
+
+        {/* Paid / Outstanding tiles */}
+        <div className="flex gap-3">
+          <div className="flex-1 bg-[#F2F2F7] rounded-xl px-3 py-2">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-[#8E8E93]">Total Paid</p>
+            <p className="text-sm font-bold text-[#34C759]">{fmtPeso(actualTotalPaid ?? summary.total_paid)}</p>
+          </div>
+          <div className="flex-1 bg-[#F2F2F7] rounded-xl px-3 py-2">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-[#8E8E93]">Outstanding</p>
+            <p className="text-sm font-bold text-[#C03D25]">{fmtPeso(summary.outstanding)}</p>
+          </div>
         </div>
       </div>
+
+      {/* Turnover date warning */}
+      {turnoverDateOk === false && (
+        <div className="flex items-start gap-3 px-4 py-3 bg-[#FFF3CD] border-b border-[#FFCA28]/50 shrink-0">
+          <AlertTriangle size={16} className="text-[#A05A00] shrink-0 mt-0.5" />
+          <p className="text-xs text-[#7A4400] leading-snug">
+            <span className="font-bold">Turnover date not set</span> for this project — retention payment timing may be incorrect.
+          </p>
+        </div>
+      )}
 
       {/* Scrollable body */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2 pb-10">
@@ -170,250 +264,399 @@ function LinesOverlay({
           </div>
         ) : (
           <>
-            {/* Payment lines */}
-            {lines.map(line => {
-              const isPaid    = line.payment_status === 'Paid';
-              const isPartial = line.payment_status === 'Partial';
-              const balance   = Math.max(0, line.total_amount_due - (line.amount_paid ?? 0));
-              const paidPct   = line.total_amount_due > 0
-                ? Math.min(100, ((line.amount_paid ?? 0) / line.total_amount_due) * 100)
-                : 0;
-              const lineCols  = getLineCollections(line.id);
+            {/* Grouped schedule lines */}
+            {(() => {
+              const overdueLines  = activeLines.filter(l => l.payment_status !== 'Paid' && l.due_date < today)
+                .sort((a, b) => a.due_date.localeCompare(b.due_date));
+              const upcomingLines = activeLines.filter(l => l.payment_status !== 'Paid' && l.due_date >= today)
+                .sort((a, b) => a.due_date.localeCompare(b.due_date));
+              const paidLines     = activeLines.filter(l => l.payment_status === 'Paid')
+                .sort((a, b) => a.due_date.localeCompare(b.due_date));
+              const priorPaidLines = supersededLines.filter(l =>
+                Number(l.amount_paid) > 0 &&
+                l.type_of_payment !== 'Reservation Fee' &&
+                (latestBrfRequestId
+                  ? l.superseded_by_request_id === latestBrfRequestId
+                  : true)
+              ).sort((a, b) => a.due_date.localeCompare(b.due_date));
+
+              function LineCard({ line }: { line: ReceivableLine }) {
+                const isPaid    = line.payment_status === 'Paid';
+                const isPartial = line.payment_status === 'Partial';
+                const balance   = Math.max(0, line.total_amount_due - (line.amount_paid ?? 0));
+                const paidPct   = line.total_amount_due > 0
+                  ? Math.min(100, ((line.amount_paid ?? 0) / line.total_amount_due) * 100)
+                  : 0;
+                const lineCols  = getLineCollections(line.id);
+                const hasDirectPayment = isPaid && lineCols.length === 0 &&
+                  (line.mode_of_payment || line.acknowledgement_receipt_no || line.posting_date);
+                const paidDate = line.posting_date || lineCols[0]?.coll.posting_date || null;
+
+                return (
+                  <div
+                    className="rounded-3xl bg-white overflow-hidden"
+                    style={{ border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}
+                  >
+                    {/* Line header */}
+                    <div className="flex items-center justify-between px-4 py-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-[#1C1C1E] truncate">{line.type_of_payment}</p>
+                        <p className="text-xs text-[#8E8E93] mt-0.5">Due {fmtDate(line.due_date)}</p>
+                        {isPaid && paidDate && (
+                          <p className="text-[11px] text-[#34C759] mt-0.5 font-medium">Paid {fmtDate(paidDate)}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0 ml-3">
+                        <p className="text-sm font-bold text-[#1C1C1E]">{fmtPeso(line.total_amount_due)}</p>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={lineStatusStyle(line)}>
+                          {lineStatusLabel(line)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Partial progress bar */}
+                    {isPartial && (
+                      <div className="px-4 pb-3 space-y-1.5 border-t border-black/[0.06] pt-2.5">
+                        <div className="relative h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(0,0,0,0.08)' }}>
+                          <div
+                            className="absolute inset-y-0 left-0 rounded-full"
+                            style={{ width: `${paidPct}%`, background: '#0058C9' }}
+                          />
+                        </div>
+                        <div className="flex justify-between text-[11px]">
+                          <span style={{ color: '#0058C9', fontWeight: 600 }}>{fmtPeso(line.amount_paid ?? 0)} paid</span>
+                          <span className="text-[#8E8E93]">{fmtPeso(balance)} remaining</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Payment receipts */}
+                    {(isPaid || isPartial) && lineCols.length > 0 && (
+                      <div className="border-t border-black/[0.06] px-4 py-2.5 space-y-2 bg-[#FAFAFA]">
+                        {lineCols.map(({ app, coll }) => (
+                          <div key={app.id} className="flex items-start justify-between gap-2">
+                            <p className="text-[11px] text-[#8E8E93] min-w-0">
+                              {[
+                                fmtDate(coll.posting_date),
+                                coll.mode_of_payment,
+                                coll.acknowledgement_receipt_no ? `OR# ${coll.acknowledgement_receipt_no}` : null,
+                                coll.sales_invoice_number ? `SI# ${coll.sales_invoice_number}` : null,
+                                coll.mode_of_payment === 'Check' && coll.check_no
+                                  ? `Chk# ${coll.check_no}${coll.check_date ? ` · ${fmtDate(coll.check_date)}` : ''}`
+                                  : null,
+                              ].filter(Boolean).join(' · ')}
+                            </p>
+                            <span className="text-[11px] font-semibold text-[#1C1C1E] shrink-0">{fmtPeso(app.applied_amount)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Direct payment info */}
+                    {hasDirectPayment && (
+                      <div className="border-t border-black/[0.06] px-4 py-2.5 bg-[#FAFAFA]">
+                        <p className="text-[11px] text-[#8E8E93]">
+                          {[
+                            line.posting_date ? fmtDate(line.posting_date) : null,
+                            line.mode_of_payment,
+                            line.acknowledgement_receipt_no ? `OR# ${line.acknowledgement_receipt_no}` : null,
+                            line.sales_invoice_number ? `SI# ${line.sales_invoice_number}` : null,
+                            line.mode_of_payment === 'Check' && line.check_no
+                              ? `Chk# ${line.check_no}${line.check_date ? ` · ${fmtDate(line.check_date)}` : ''}`
+                              : null,
+                          ].filter(Boolean).join(' · ')}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Pro-rated breakdown */}
+                    {(isPaid || isPartial) && (() => {
+                      const paidAmt = isPaid
+                        ? (Number(line.amount_paid) > 0 ? Number(line.amount_paid) : line.total_amount_due)
+                        : Number(line.amount_paid) || 0;
+                      const ratio = line.total_amount_due > 0 ? paidAmt / line.total_amount_due : 0;
+                      const bp = Math.round((Number(line.principal)     || 0) * ratio);
+                      const bh = line.hic != null ? Math.round(Number(line.hic) * ratio) : null;
+                      const bv = Math.round((Number(line.vat)           || 0) * ratio);
+                      const bo = Math.round((Number(line.other_charges) || 0) * ratio);
+                      const items = [
+                        { label: 'Principal', value: bp },
+                        bh != null && bh > 0 ? { label: 'HIC',     value: bh } : null,
+                        bv > 0               ? { label: 'VAT',     value: bv } : null,
+                        bo > 0               ? { label: 'Charges', value: bo } : null,
+                      ].filter(Boolean) as { label: string; value: number }[];
+                      if (items.length <= 1) return null;
+                      return (
+                        <div className="border-t border-black/[0.06] px-4 py-2.5 bg-[#FAFAFA]">
+                          <div className="flex flex-wrap gap-x-5 gap-y-1.5">
+                            {items.map(item => (
+                              <div key={item.label}>
+                                <p className="text-[9px] font-bold text-[#8E8E93] uppercase tracking-wider">{item.label}</p>
+                                <p className="text-[11px] font-semibold text-[#3C3C43]">{fmtPeso(item.value)}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                );
+              }
 
               return (
-                <div
-                  key={line.id}
-                  className="rounded-3xl bg-white overflow-hidden"
-                  style={{ border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 2px 12px rgba(0,0,0,0.05)' }}
-                >
-                  {/* Line header */}
-                  <div className="flex items-center justify-between px-4 py-3 border-b border-black/[0.06]">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-[#1C1C1E] truncate">{line.type_of_payment}</p>
-                      <p className="text-xs text-[#8E8E93] mt-0.5">Due {fmtDate(line.due_date)}</p>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <p className="text-sm font-bold text-[#1C1C1E]">{fmtPeso(line.total_amount_due)}</p>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={lineStatusStyle(line)}>
-                        {lineStatusLabel(line)}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Partial progress */}
-                  {isPartial && (
-                    <div className="px-4 py-3 space-y-1.5 bg-[#F9F9F9] border-b border-black/[0.06]">
-                      <div className="relative h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(0,0,0,0.08)' }}>
-                        <div
-                          className="absolute inset-y-0 left-0 rounded-full"
-                          style={{ width: `${paidPct}%`, background: '#0058C9', transition: 'width 400ms cubic-bezier(0.23,1,0.32,1)' }}
-                        />
-                      </div>
-                      <div className="flex justify-between text-[11px]">
-                        <span style={{ color: '#0058C9', fontWeight: 600 }}>{fmtPeso(line.amount_paid ?? 0)} paid</span>
-                        <span className="text-[#8E8E93]">{fmtPeso(balance)} remaining</span>
-                      </div>
+                <>
+                  {(paidLines.length > 0 || priorPaidLines.length > 0) && (
+                    <div className="space-y-2">
+                      <SectionDivider label={`Paid · ${paidLines.length + priorPaidLines.length}`} color="#1A7F37" />
+                      {paidLines.map(l => <LineCard key={l.id} line={l} />)}
+                      {priorPaidLines.map(l => {
+                        const paidAmt = Number(l.amount_paid) || 0;
+                        const ratio   = l.total_amount_due > 0 ? paidAmt / l.total_amount_due : 0;
+                        const bp = Math.round((Number(l.principal)     || 0) * ratio);
+                        const bh = l.hic != null ? Math.round(Number(l.hic) * ratio) : null;
+                        const bv = Math.round((Number(l.vat)           || 0) * ratio);
+                        const bo = Math.round((Number(l.other_charges) || 0) * ratio);
+                        const items = [
+                          { label: 'Principal', value: bp },
+                          bh != null && bh > 0 ? { label: 'HIC',     value: bh } : null,
+                          bv > 0               ? { label: 'VAT',     value: bv } : null,
+                          bo > 0               ? { label: 'Charges', value: bo } : null,
+                        ].filter(Boolean) as { label: string; value: number }[];
+                        return (
+                          <div
+                            key={l.id}
+                            className="rounded-3xl bg-white overflow-hidden"
+                            style={{ border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}
+                          >
+                            <div className="flex items-center justify-between px-4 py-3">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-[#1C1C1E] truncate">{l.type_of_payment}</p>
+                                <p className="text-xs text-[#8E8E93] mt-0.5">Due {fmtDate(l.due_date)}</p>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0 ml-3">
+                                <p className="text-sm font-bold text-[#1C1C1E]">{fmtPeso(paidAmt)}</p>
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                                  style={{ background: 'rgba(52,199,89,0.12)', color: '#1A7F37' }}>
+                                  Partial Paid
+                                </span>
+                              </div>
+                            </div>
+                            {items.length > 1 && (
+                              <div className="border-t border-black/[0.06] px-4 py-2.5 bg-[#FAFAFA]">
+                                <div className="flex flex-wrap gap-x-5 gap-y-1.5">
+                                  {items.map(item => (
+                                    <div key={item.label}>
+                                      <p className="text-[9px] font-bold text-[#8E8E93] uppercase tracking-wider">{item.label}</p>
+                                      <p className="text-[11px] font-semibold text-[#3C3C43]">{fmtPeso(item.value)}</p>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            <div className="border-t border-black/[0.06] px-4 py-1.5 bg-[#FAFAFA]">
+                              <p className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wider">Prior schedule · restructured</p>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
-
-                  {/* Payment history from collections (new model) */}
-                  {(isPaid || isPartial) && lineCols.length > 0 && (
-                    <div className="px-4 py-2.5 space-y-2 bg-[#F9F9F9]">
-                      {lineCols.map(({ app, coll }) => (
-                        <div key={app.id}>
-                          <div className="flex justify-between text-xs">
-                            <span className="text-[#8E8E93]">{fmtDate(coll.posting_date)} · {coll.mode_of_payment}</span>
-                            <span className="font-semibold text-[#1C1C1E]">{fmtPeso(app.applied_amount)}</span>
-                          </div>
-                          {coll.acknowledgement_receipt_no && (
-                            <p className="text-[11px] text-[#8E8E93]">OR# {coll.acknowledgement_receipt_no}</p>
-                          )}
-                        </div>
-                      ))}
+                  {overdueLines.length > 0 && (
+                    <div className="space-y-2">
+                      <SectionDivider label={`Overdue · ${overdueLines.length}`} color="#C0001E" />
+                      {overdueLines.map(l => <LineCard key={l.id} line={l} />)}
                     </div>
                   )}
-
-                  {/* Legacy payment info (old-model lines with direct MOP on the line) */}
-                  {isPaid && lineCols.length === 0 && line.mode_of_payment && (
-                    <div className="px-4 py-2.5 space-y-1 bg-[#F9F9F9]">
-                      <div className="flex justify-between text-xs">
-                        <span className="text-[#8E8E93]">Mode</span>
-                        <span className="font-medium text-[#1C1C1E]">{line.mode_of_payment}</span>
-                      </div>
-                      {line.mode_of_payment === 'Check' && (
-                        <>
-                          <div className="flex justify-between text-xs">
-                            <span className="text-[#8E8E93]">Check No.</span>
-                            <span className="font-medium text-[#1C1C1E]">{line.check_no ?? '—'}</span>
-                          </div>
-                          <div className="flex justify-between text-xs">
-                            <span className="text-[#8E8E93]">Check Date</span>
-                            <span className="font-medium text-[#1C1C1E]">{line.check_date ? fmtDate(line.check_date) : '—'}</span>
-                          </div>
-                        </>
-                      )}
-                      <div className="flex justify-between text-xs">
-                        <span className="text-[#8E8E93]">OR / Ack No.</span>
-                        <span className="font-medium text-[#1C1C1E]">{line.acknowledgement_receipt_no ?? '—'}</span>
-                      </div>
-                      <div className="flex justify-between text-xs">
-                        <span className="text-[#8E8E93]">Posting Date</span>
-                        <span className="font-medium text-[#1C1C1E]">{line.posting_date ? fmtDate(line.posting_date) : '—'}</span>
-                      </div>
+                  {upcomingLines.length > 0 && (
+                    <div className="space-y-2">
+                      <SectionDivider label={`Upcoming · ${upcomingLines.length}`} color="#A05A00" />
+                      {upcomingLines.map(l => <LineCard key={l.id} line={l} />)}
                     </div>
                   )}
-                </div>
+                </>
               );
-            })}
+            })()}
 
-            {/* Payment History — new-model collections + legacy per-line payments */}
+            {/* Payment History */}
             {(() => {
-              const postedCollections = collections.filter(c =>
-                applications.some(a => a.collection_id === c.id)
+              const activeLineIds = new Set(
+                lines.filter(l => l.payment_status !== 'Superseded').map(l => String(l.id))
               );
+              const postedCollections = collections.filter(c =>
+                applications.some(a => a.collection_id === c.id && activeLineIds.has(String(a.receivable_line_id)))
+              ).sort((a, b) => (a.posting_date < b.posting_date ? 1 : -1));
 
               const legacyLines = lines.filter(l =>
                 l.payment_status === 'Paid' &&
-                l.mode_of_payment &&
+                (l.acknowledgement_receipt_no || l.posting_date) &&
                 !applications.some(a => String(a.receivable_line_id) === String(l.id))
-              );
+              ).sort((a, b) => ((a.posting_date ?? '') < (b.posting_date ?? '') ? 1 : -1));
 
               if (postedCollections.length === 0 && legacyLines.length === 0) return null;
 
-              type HistoryEntry =
-                | { kind: 'collection'; date: string; c: CollectionRecord }
-                | { kind: 'legacy';     date: string; l: ReceivableLine };
-
-              const entries: HistoryEntry[] = [
-                ...postedCollections.map(c => ({ kind: 'collection' as const, date: c.posting_date, c })),
-                ...legacyLines.map(l => ({ kind: 'legacy' as const, date: l.posting_date ?? '', l })),
-              ].sort((a, b) => (a.date < b.date ? 1 : -1));
-
               return (
-                <div className="pt-2 space-y-2">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-[#8E8E93] px-1">
-                    Payment History
-                  </p>
+                <div className="space-y-2 pt-2">
+                  <SectionDivider
+                    label={`Payment History · ${postedCollections.length + legacyLines.length}`}
+                    color="#3C3C43"
+                  />
 
-                  {entries.map((entry) => {
-                    if (entry.kind === 'collection') {
-                      const { c } = entry;
-                      const apps  = applications.filter(a => a.collection_id === c.id);
-                      const total = apps.reduce((sum, a) => sum + Number(a.applied_amount), 0);
-                      return (
-                        <div
-                          key={`coll-${c.id}`}
-                          className="rounded-2xl bg-white px-4 py-3 space-y-1.5"
-                          style={{ border: '1px solid rgba(0,0,0,0.07)', boxShadow: '0 1px 6px rgba(0,0,0,0.04)' }}
-                        >
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm font-bold text-[#1C1C1E]">{fmtPeso(c.amount_received)}</p>
-                            <span
-                              className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                              style={{ background: 'rgba(142,142,147,0.12)', color: '#3C3C43' }}
-                            >
-                              {c.mode_of_payment}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between text-xs text-[#8E8E93]">
-                            <span>{fmtDate(c.posting_date)}</span>
-                            {c.acknowledgement_receipt_no && (
-                              <span className="font-medium text-[#1C1C1E]">OR# {c.acknowledgement_receipt_no}</span>
-                            )}
-                          </div>
-                          <div className="pt-1.5 space-y-1.5" style={{ borderTop: '1px solid rgba(0,0,0,0.06)' }}>
-                            {apps.map(app => {
-                              const covLine  = lines.find(l => String(l.id) === String(app.receivable_line_id));
-                              const linePaid = covLine?.payment_status === 'Paid';
-                              return (
-                                <div key={app.id} className="flex items-center justify-between gap-2">
-                                  <span className="text-[11px] text-[#6C6C70] truncate flex-1">
-                                    {covLine?.type_of_payment ?? 'Unknown line'}
-                                  </span>
-                                  <div className="flex items-center gap-1.5 shrink-0">
-                                    <span className="text-[11px] font-semibold text-[#1C1C1E]">
-                                      {fmtPeso(Number(app.applied_amount))}
-                                    </span>
-                                    <span
-                                      className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
-                                      style={linePaid
-                                        ? { background: 'rgba(52,199,89,0.12)', color: '#1A7F37' }
-                                        : { background: 'rgba(0,122,255,0.10)', color: '#0058C9' }}
-                                    >
-                                      {linePaid ? 'Paid' : 'Partial'}
-                                    </span>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                            {c.amount_received > total + 0.005 && (
-                              <p className="text-[11px]" style={{ color: '#A05A00' }}>
-                                {fmtPeso(c.amount_received - total)} excess — all lines covered
-                              </p>
-                            )}
-                          </div>
-                          {c.sales_invoice_number && (
-                            <p className="text-[11px] text-[#8E8E93]">SI# {c.sales_invoice_number}</p>
-                          )}
-                        </div>
-                      );
-                    }
-
-                    // Legacy: single paid line, payment data on the line itself
-                    const { l } = entry;
+                  {postedCollections.map(c => {
+                    const apps  = applications.filter(a => a.collection_id === c.id && activeLineIds.has(String(a.receivable_line_id)));
+                    const total = apps.reduce((sum, a) => sum + Number(a.applied_amount), 0);
                     return (
                       <div
-                        key={`leg-${l.id}`}
-                        className="rounded-2xl bg-white px-4 py-3 space-y-1.5"
-                        style={{ border: '1px solid rgba(0,0,0,0.07)', boxShadow: '0 1px 6px rgba(0,0,0,0.04)' }}
+                        key={`coll-${c.id}`}
+                        className="rounded-3xl bg-white overflow-hidden"
+                        style={{ border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}
                       >
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-bold text-[#1C1C1E]">{fmtPeso(l.total_amount_due)}</p>
-                          <span
-                            className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                            style={{ background: 'rgba(142,142,147,0.12)', color: '#3C3C43' }}
-                          >
-                            {l.mode_of_payment}
-                          </span>
+                        <div className="flex items-start justify-between px-4 py-3">
+                          <div>
+                            <p className="text-base font-bold text-[#1C1C1E]">{fmtPeso(c.amount_received)}</p>
+                            <p className="text-[11px] text-[#8E8E93] mt-0.5">
+                              {fmtDate(c.posting_date)}
+                              {c.mode_of_payment ? ` · ${c.mode_of_payment}` : ''}
+                            </p>
+                          </div>
+                          <div className="text-right space-y-0.5">
+                            {c.acknowledgement_receipt_no && (
+                              <p className="text-[11px] font-semibold text-[#1C1C1E]">AR# {c.acknowledgement_receipt_no}</p>
+                            )}
+                            {c.sales_invoice_number && (
+                              <p className="text-[11px] text-[#8E8E93]">SI# {c.sales_invoice_number}</p>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex items-center justify-between text-xs text-[#8E8E93]">
-                          <span>{l.posting_date ? fmtDate(l.posting_date) : '—'}</span>
-                          {l.acknowledgement_receipt_no && (
-                            <span className="font-medium text-[#1C1C1E]">OR# {l.acknowledgement_receipt_no}</span>
+                        <div className="border-t border-black/[0.06] px-4 py-2.5 bg-[#FAFAFA] space-y-2">
+                          {apps.map(app => {
+                            const covLine = lines.find(l => String(l.id) === String(app.receivable_line_id));
+                            const linePaid = covLine?.payment_status === 'Paid';
+                            return (
+                              <div key={app.id} className="flex items-center justify-between gap-2">
+                                <span className="text-[11px] text-[#6C6C70] truncate flex-1">
+                                  {covLine?.type_of_payment ?? '—'}
+                                </span>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <span className="text-[11px] font-semibold text-[#1C1C1E]">
+                                    {fmtPeso(Number(app.applied_amount))}
+                                  </span>
+                                  <span
+                                    className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                                    style={linePaid
+                                      ? { background: 'rgba(52,199,89,0.12)', color: '#1A7F37' }
+                                      : { background: 'rgba(0,122,255,0.10)', color: '#0058C9' }}
+                                  >
+                                    {linePaid ? 'Paid' : 'Partial'}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {c.amount_received > total + 0.005 && (
+                            <p className="text-[11px]" style={{ color: '#A05A00' }}>
+                              {fmtPeso(c.amount_received - total)} excess — all outstanding lines covered
+                            </p>
                           )}
                         </div>
-                        <div className="pt-1.5 space-y-1.5" style={{ borderTop: '1px solid rgba(0,0,0,0.06)' }}>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-[11px] text-[#6C6C70] truncate flex-1">
-                              {l.type_of_payment}
-                            </span>
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              <span className="text-[11px] font-semibold text-[#1C1C1E]">
-                                {fmtPeso(l.total_amount_due)}
-                              </span>
-                              <span
-                                className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
-                                style={{ background: 'rgba(52,199,89,0.12)', color: '#1A7F37' }}
-                              >
-                                Paid
-                              </span>
-                            </div>
-                          </div>
-                          {l.mode_of_payment === 'Check' && l.check_no && (
+                        {c.mode_of_payment === 'Check' && (c.check_no || c.check_date) && (
+                          <div className="border-t border-black/[0.06] px-4 py-2 bg-[#FAFAFA]">
                             <p className="text-[11px] text-[#8E8E93]">
-                              Chk# {l.check_no}{l.check_date ? ` · ${fmtDate(l.check_date)}` : ''}
+                              {['Chk#', c.check_no, c.check_date ? fmtDate(c.check_date) : null]
+                                .filter(Boolean).join(' · ')}
                             </p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {legacyLines.map(l => (
+                    <div
+                      key={`leg-${l.id}`}
+                      className="rounded-3xl bg-white overflow-hidden"
+                      style={{ border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}
+                    >
+                      <div className="flex items-start justify-between px-4 py-3">
+                        <div>
+                          <p className="text-base font-bold text-[#1C1C1E]">{fmtPeso(l.total_amount_due)}</p>
+                          <p className="text-[11px] text-[#8E8E93] mt-0.5">
+                            {[l.posting_date ? fmtDate(l.posting_date) : null, l.mode_of_payment].filter(Boolean).join(' · ')}
+                          </p>
+                        </div>
+                        <div className="text-right space-y-0.5">
+                          {l.acknowledgement_receipt_no && (
+                            <p className="text-[11px] font-semibold text-[#1C1C1E]">AR# {l.acknowledgement_receipt_no}</p>
                           )}
                           {l.sales_invoice_number && (
                             <p className="text-[11px] text-[#8E8E93]">SI# {l.sales_invoice_number}</p>
                           )}
                         </div>
                       </div>
-                    );
-                  })}
+                      <div className="border-t border-black/[0.06] px-4 py-2.5 bg-[#FAFAFA]">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] text-[#6C6C70] flex-1">{l.type_of_payment}</span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="text-[11px] font-semibold text-[#1C1C1E]">{fmtPeso(l.total_amount_due)}</span>
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                              style={{ background: 'rgba(52,199,89,0.12)', color: '#1A7F37' }}>
+                              Paid
+                            </span>
+                          </div>
+                        </div>
+                        {l.mode_of_payment === 'Check' && l.check_no && (
+                          <p className="text-[11px] text-[#8E8E93] mt-1">
+                            {['Chk#', l.check_no, l.check_date ? fmtDate(l.check_date) : null]
+                              .filter(Boolean).join(' · ')}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               );
             })()}
+
+            {/* Superseded lines (collapsed by default) */}
+            {supersededLines.length > 0 && (
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowSuperseded(p => !p)}
+                  className="w-full flex items-center gap-2 py-2 px-1"
+                >
+                  <div className="flex-1 h-px bg-[#E5E5EA]" />
+                  <span className="text-[11px] font-semibold text-[#8E8E93] shrink-0">
+                    {showSuperseded ? 'Hide' : 'Show'} {supersededLines.length} superseded
+                  </span>
+                  <div className="flex-1 h-px bg-[#E5E5EA]" />
+                </button>
+                {showSuperseded && (
+                  <div className="space-y-2 mt-1 opacity-50">
+                    {supersededLines.map(line => (
+                      <div
+                        key={line.id}
+                        className="rounded-3xl bg-white overflow-hidden"
+                        style={{ border: '1px solid rgba(0,0,0,0.06)' }}
+                      >
+                        <div className="flex items-center justify-between px-4 py-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-[#8E8E93] truncate line-through">{line.type_of_payment}</p>
+                            <p className="text-xs text-[#C7C7CC] mt-0.5">Due {fmtDate(line.due_date)}</p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <p className="text-sm font-semibold text-[#8E8E93]">{fmtPeso(line.total_amount_due)}</p>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                              style={{ background: 'rgba(142,142,147,0.12)', color: '#8E8E93' }}>
+                              Superseded
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>
@@ -537,9 +780,11 @@ export default function BillingCollectionPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-sm font-bold text-[#1C1C1E] truncate">{s.reservation_id}</p>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0" style={STATUS_STYLE[s.status]}>
-                          {s.status}
-                        </span>
+                        {s.status !== 'Unpaid' && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0" style={STATUS_STYLE[s.status]}>
+                            {s.status}
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-1.5 mt-0.5">
                         <span className="text-xs text-[#6C6C70] truncate">{s.client_name}</span>
@@ -570,7 +815,7 @@ export default function BillingCollectionPage() {
         <div className="fixed inset-0 z-[45] bg-black/40" onClick={() => setFilterOpen(false)} />
       )}
       <div className={`fixed inset-x-0 bottom-0 z-[46] transition-transform duration-300 ease-out ${filterOpen ? 'translate-y-0' : 'translate-y-full'}`}>
-        <div className="bg-white rounded-t-3xl shadow-2xl max-h-[80vh] flex flex-col">
+        <div className="bg-white rounded-t-3xl shadow-2xl max-h-[92vh] flex flex-col">
           <div className="flex justify-center pt-3 pb-1 shrink-0">
             <div className="w-9 h-1 rounded-full bg-[#D1D1D6]" />
           </div>
@@ -584,28 +829,18 @@ export default function BillingCollectionPage() {
               <X size={14} className="text-[#8E8E93]" />
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-5 min-h-0">
+          <div className="px-5 pb-4 space-y-5 overflow-visible">
 
             {/* Status */}
             <div className="space-y-2">
               <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Status</p>
-              <div className="flex gap-2 flex-wrap">
-                {(['', 'Overdue', 'Unpaid', 'Complete']).map(s => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => setStatusFilter(s)}
-                    className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-colors flex items-center gap-1.5 ${
-                      statusFilter === s
-                        ? 'bg-[#C03D25] border-[#C03D25] text-white'
-                        : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
-                    }`}
-                  >
-                    {statusFilter === s && s && <Check size={11} />}
-                    {s || 'All'}
-                  </button>
-                ))}
-              </div>
+              <SearchableSelect
+                value={statusFilter}
+                onChange={setStatusFilter}
+                options={['Overdue', 'Unpaid', 'Complete']}
+                placeholder="All statuses"
+                dropUp
+              />
             </div>
 
             {/* Project */}
@@ -620,6 +855,7 @@ export default function BillingCollectionPage() {
                     onChange={setProjectFilter}
                     options={projects}
                     placeholder="All projects"
+                    dropUp
                   />
                 </div>
               );
@@ -636,6 +872,7 @@ export default function BillingCollectionPage() {
                     onChange={setClientFilter}
                     options={clients}
                     placeholder="All clients"
+                    dropUp
                   />
                 </div>
               );

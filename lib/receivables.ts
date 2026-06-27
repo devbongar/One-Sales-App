@@ -538,6 +538,7 @@ export interface ReceivableLine {
   sales_invoice_number: string | null;
   check_no: string | null;
   check_date: string | null;
+  superseded_by_request_id?: string | null;
 }
 
 export interface ReservationReceivableSummary {

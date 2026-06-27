@@ -14,18 +14,22 @@ export function isBrfType(t: string): t is BrfType {
 
 // ── Supersede ─────────────────────────────────────────────────────────────────
 
-export async function supersedeReceivableLines(reservationId: string): Promise<void> {
+// Supersede ALL active lines — full clean slate so reapplyCollections can replay
+// every collection onto the freshly generated schedule with no duplicates.
+// requestId is stamped on each superseded line so the display can show only the
+// immediately prior schedule instead of all historical BRF rounds.
+export async function supersedeReceivableLines(reservationId: string, requestId: string): Promise<void> {
   const { count: before } = await supabase
     .from('receivables_database')
     .select('id', { count: 'exact', head: true })
     .eq('reservation_id', reservationId)
-    .in('payment_status', ['Unpaid', 'Partial']);
+    .neq('payment_status', 'Superseded');
 
   const { error } = await supabase
     .from('receivables_database')
-    .update({ payment_status: 'Superseded' })
+    .update({ payment_status: 'Superseded', superseded_by_request_id: requestId })
     .eq('reservation_id', reservationId)
-    .in('payment_status', ['Unpaid', 'Partial']);
+    .neq('payment_status', 'Superseded');
   if (error) throw error;
 
   if (before && before > 0) {
@@ -33,7 +37,7 @@ export async function supersedeReceivableLines(reservationId: string): Promise<v
       .from('receivables_database')
       .select('id', { count: 'exact', head: true })
       .eq('reservation_id', reservationId)
-      .in('payment_status', ['Unpaid', 'Partial']);
+      .neq('payment_status', 'Superseded');
     if (after && after > 0) {
       throw new Error(
         `RLS blocked superseding: ${after} of ${before} active lines were not updated for ${reservationId}. ` +
@@ -80,25 +84,22 @@ export async function computeRemainingBalance(reservationId: string): Promise<nu
 
 // ── Regenerate receivable lines ───────────────────────────────────────────────
 
-// Installment line types that count as "elapsed months" — excludes one-off fees
-const INSTALLMENT_EXCLUDES = [
-  'Reservation Fee', 'Retention Fee', 'Downpayment',
-  'Cash Out Balance', 'Loan Take-out',
-];
-
+// Full clean-slate regeneration: creates every line from scratch using the new TCP.
+// Called after supersedeReceivableLines has marked ALL prior lines Superseded.
+// reapplyCollections then replays all posted collections onto these fresh lines.
 export async function regenerateReceivableLines(
   reservationId: string,
   newPaytermScheme: string,
   newTermMonths: number,
-  remainingBalance: number,
-  elapsedMonths: number = 0,
+  newTcp: number,
   dpPercent: number = 0,
 ): Promise<void> {
   const { data: res, error } = await supabase
     .from('reservations')
     .select(
       'client_id, client_name, inventory_code, project, tower, ' +
-      'net_list_price, vat, other_charges, total_contract_price, hic_discount, retention_fee'
+      'net_list_price, vat, other_charges, total_contract_price, hic_discount, ' +
+      'reservation_fee, retention_fee'
     )
     .eq('reservation_id', reservationId)
     .single();
@@ -106,7 +107,7 @@ export async function regenerateReceivableLines(
 
   const r = res as any;
 
-  // Anchor due-dates to the original RF payment date
+  // Anchor due-dates to the original RF payment date (found via Superseded RF line)
   const { data: rfLine } = await supabase
     .from('receivables_database')
     .select('due_date')
@@ -114,15 +115,6 @@ export async function regenerateReceivableLines(
     .eq('type_of_payment', 'Reservation Fee')
     .maybeSingle();
   const paymentDate: string = (rfLine as any)?.due_date ?? new Date().toISOString().split('T')[0];
-
-  // Is retention fee already paid? If so, exclude it from the new schedule.
-  const { data: retLine } = await supabase
-    .from('receivables_database')
-    .select('payment_status')
-    .eq('reservation_id', reservationId)
-    .eq('type_of_payment', 'Retention Fee')
-    .maybeSingle();
-  const retentionAlreadyPaid = (retLine as any)?.payment_status === 'Paid';
 
   // Due-date helpers (identical to generateReceivableLines)
   const [resYear, resMonth1, resDay] = paymentDate.split('-').map(Number);
@@ -152,7 +144,7 @@ export async function regenerateReceivableLines(
     return toDateStr(y, m, Math.min(turnoverDueDay, lastDayOf(y, m)));
   }
 
-  // Proportional breakdown — same TCP composition as original
+  // Proportional breakdown — uses newTcp composition from updated reservation
   const tcp = Number(r.total_contract_price) || 0;
   const tcpRatio = tcp > 0 ? 1 / tcp : 0;
   const hicNum = Number(r.hic_discount) || 0;
@@ -164,6 +156,9 @@ export async function regenerateReceivableLines(
       other_charges: Math.round(amount * Number(r.other_charges) * tcpRatio),
     };
   }
+
+  const resFeeNum = Number(r.reservation_fee) || 0;
+  const retFeeNum = Number(r.retention_fee)   || 0;
 
   const base = {
     reservation_id:             reservationId,
@@ -177,39 +172,48 @@ export async function regenerateReceivableLines(
     posting_date:               null,
   };
 
-  const retFee = retentionAlreadyPaid ? 0 : Number(r.retention_fee) || 0;
-  const installable = remainingBalance - retFee;
   const lines: Record<string, unknown>[] = [];
 
+  // RF line — always first, anchored to original RF date
+  lines.push({
+    ...base,
+    type_of_payment:  'Reservation Fee',
+    due_date:         paymentDate,
+    total_amount_due: resFeeNum,
+    principal:        resFeeNum,
+    hic:              null,
+    vat:              0,
+    other_charges:    0,
+  });
+
   if (newPaytermScheme === 'deferred_cash') {
-    const effectiveTerm = newTermMonths - elapsedMonths;
-    const monthly = effectiveTerm > 0 ? Math.round(installable / effectiveTerm) : 0;
-    for (let i = 0; i < effectiveTerm; i++) {
+    const installable = newTcp - resFeeNum - retFeeNum;
+    const monthly = newTermMonths > 0 ? Math.round(installable / newTermMonths) : 0;
+    for (let i = 0; i < newTermMonths; i++) {
       lines.push({
         ...base,
-        type_of_payment:  `Monthly Deferred ${i + 1}/${effectiveTerm}`,
-        due_date:         nthDueDate(elapsedMonths + i),
+        type_of_payment:  `Monthly Deferred ${i + 1}/${newTermMonths}`,
+        due_date:         nthDueDate(i),
         total_amount_due: monthly,
         ...breakdown(monthly),
       });
     }
-    if (!retentionAlreadyPaid) {
-      const retDue = newTermMonths > 12
-        ? nthDueDate(newTermMonths)
-        : turnoverDate ? applyDueDayToTurnover(turnoverDate) : nthDueDate(newTermMonths);
-      lines.push({
-        ...base,
-        type_of_payment:  'Retention Fee',
-        due_date:         retDue,
-        total_amount_due: Number(r.retention_fee) || 0,
-        principal:        Number(r.retention_fee) || 0,
-        hic:              null,
-        vat:              0,
-        other_charges:    0,
-      });
-    }
+    const retDue = newTermMonths > 12
+      ? nthDueDate(newTermMonths)
+      : turnoverDate ? applyDueDayToTurnover(turnoverDate) : nthDueDate(newTermMonths);
+    lines.push({
+      ...base,
+      type_of_payment:  'Retention Fee',
+      due_date:         retDue,
+      total_amount_due: retFeeNum,
+      principal:        retFeeNum,
+      hic:              null,
+      vat:              0,
+      other_charges:    0,
+    });
 
   } else if (newPaytermScheme === 'spot_cash') {
+    const installable = newTcp - resFeeNum - retFeeNum;
     lines.push({
       ...base,
       type_of_payment:  'Cash Out Balance',
@@ -217,53 +221,49 @@ export async function regenerateReceivableLines(
       total_amount_due: installable,
       ...breakdown(installable),
     });
-    if (!retentionAlreadyPaid) {
-      lines.push({
-        ...base,
-        type_of_payment:  'Retention Fee',
-        due_date:         turnoverDate ? applyDueDayToTurnover(turnoverDate) : nthDueDate(0),
-        total_amount_due: Number(r.retention_fee) || 0,
-        principal:        Number(r.retention_fee) || 0,
-        hic:              null,
-        vat:              0,
-        other_charges:    0,
-      });
-    }
-
-  } else if (newPaytermScheme === 'spot_dp') {
     lines.push({
       ...base,
-      type_of_payment:  'Downpayment',
-      due_date:         nthDueDate(0),
-      total_amount_due: installable,
-      ...breakdown(installable),
-    });
-    lines.push({
-      ...base,
-      type_of_payment:  'Loan Take-out',
+      type_of_payment:  'Retention Fee',
       due_date:         turnoverDate ? applyDueDayToTurnover(turnoverDate) : nthDueDate(0),
-      total_amount_due: 0,
-      principal:        0,
+      total_amount_due: retFeeNum,
+      principal:        retFeeNum,
       hic:              null,
       vat:              0,
       other_charges:    0,
     });
 
+  } else if (newPaytermScheme === 'spot_dp') {
+    const grossDp    = Math.round(newTcp * dpPercent / 100);
+    const loanAmount = newTcp - grossDp;
+    const netDp      = grossDp - resFeeNum;
+    lines.push({
+      ...base,
+      type_of_payment:  'Downpayment',
+      due_date:         nthDueDate(0),
+      total_amount_due: netDp,
+      ...breakdown(netDp),
+    });
+    lines.push({
+      ...base,
+      type_of_payment:  'Loan Take-out',
+      due_date:         turnoverDate ? applyDueDayToTurnover(turnoverDate) : nthDueDate(0),
+      total_amount_due: loanAmount,
+      ...breakdown(loanAmount),
+    });
+
   } else if (newPaytermScheme === 'stretched_dp') {
-    const effectiveTerm = newTermMonths - elapsedMonths;
-    const loanAmount   = Math.round(tcp * (1 - dpPercent / 100));
-    const remainingDp  = Math.max(0, remainingBalance - loanAmount);
-    if (remainingDp > 0 && effectiveTerm > 0) {
-      const monthly = Math.round(remainingDp / effectiveTerm);
-      for (let i = 0; i < effectiveTerm; i++) {
-        lines.push({
-          ...base,
-          type_of_payment:  `Monthly DP ${i + 1}/${effectiveTerm}`,
-          due_date:         nthDueDate(elapsedMonths + i),
-          total_amount_due: monthly,
-          ...breakdown(monthly),
-        });
-      }
+    const grossDp    = Math.round(newTcp * dpPercent / 100);
+    const loanAmount = newTcp - grossDp;
+    const netDp      = grossDp - resFeeNum;
+    const monthly    = newTermMonths > 0 ? Math.round(netDp / newTermMonths) : 0;
+    for (let i = 0; i < newTermMonths; i++) {
+      lines.push({
+        ...base,
+        type_of_payment:  `Monthly DP ${i + 1}/${newTermMonths}`,
+        due_date:         nthDueDate(i),
+        total_amount_due: monthly,
+        ...breakdown(monthly),
+      });
     }
     lines.push({
       ...base,
@@ -295,10 +295,15 @@ export interface BRFApprovalOptions {
   newPaytermDiscountPct:   number;
   newPaytermDiscountAmount: number;
   newDpPercent:            number;
+  newListPrice:            number;
+  newPromoAmount:          number;
+  newEmployeeAmount:       number;
   newNlp:                  number;
   newVat:                  number;
   newOtherCharges:         number;
+  newHicAmount:            number;
   newTcp:                  number;
+  newUnitArea?:            number;
   newInventoryCode?:       string;
   onStep?:                 (step: number) => void;
 }
@@ -308,8 +313,9 @@ export async function processBRF(opts: BRFApprovalOptions): Promise<void> {
     requestId, reservationId, typeOfRequest, approvedBy,
     newPaytermCode, newPaytermScheme, newSchemeName, newTermMonths, remainingBalance,
     newPaytermDiscountPct, newPaytermDiscountAmount, newDpPercent,
-    newNlp, newVat, newOtherCharges, newTcp,
-    newInventoryCode, onStep,
+    newListPrice, newPromoAmount, newEmployeeAmount,
+    newNlp, newVat, newOtherCharges, newHicAmount, newTcp,
+    newUnitArea, newInventoryCode, onStep,
   } = opts;
 
   // Idempotency guard
@@ -354,11 +360,17 @@ export async function processBRF(opts: BRFApprovalOptions): Promise<void> {
     term_months:             newTermMonths,
     payterm_discount_pct:    newPaytermDiscountPct,
     payterm_discount_amount: newPaytermDiscountAmount,
+    list_price:              newListPrice,
+    promo_discount_amount:   newPromoAmount,
+    employee_discount_amount: newEmployeeAmount,
     net_list_price:          newNlp,
     vat:                     newVat,
     other_charges:           newOtherCharges,
+    hic_discount:            newHicAmount,
     total_contract_price:    newTcp,
     net_amount:              newTcp - resFee - retFee,
+    dp_rate:                 newDpPercent > 0 ? `${newDpPercent}%` : null,
+    ...(typeOfRequest === 'Change of Unit' && newUnitArea != null ? { unit_area: newUnitArea } : {}),
   };
 
   await supabase.from('audit_log_reservation').insert({
@@ -379,41 +391,22 @@ export async function processBRF(opts: BRFApprovalOptions): Promise<void> {
     .eq('reservation_id', reservationId);
   onStep?.(2);
 
-  // ── Compute elapsed installment months ───────────────────────────────────
   const today = new Date().toISOString().split('T')[0];
-  const { data: activeLines } = await supabase
-    .from('receivables_database')
-    .select('type_of_payment, due_date')
-    .eq('reservation_id', reservationId)
-    .neq('payment_status', 'Superseded')
-    .lt('due_date', today);
-
-  const elapsedMonths = ((activeLines ?? []) as any[])
-    .filter(l => !INSTALLMENT_EXCLUDES.includes(l.type_of_payment))
-    .length;
-
-  if (
-    (newPaytermScheme === 'deferred_cash' || newPaytermScheme === 'stretched_dp') &&
-    elapsedMonths >= newTermMonths
-  ) {
-    throw new Error(
-      `Cannot restructure: ${elapsedMonths} month${elapsedMonths !== 1 ? 's' : ''} already elapsed. ` +
-      `New term (${newTermMonths}) must be greater than ${elapsedMonths}.`
-    );
-  }
 
   // ── Supersede receivables + commissions ───────────────────────────────────
-  await supersedeReceivableLines(reservationId);
+  // All active lines (including previously Paid ones) are superseded so
+  // reapplyCollections can replay every collection onto the fresh schedule.
+  await supersedeReceivableLines(reservationId, requestId);
   await supersedeCommissionLines(reservationId);
 
-  // Verify superseding actually worked — if active lines still exist, an RLS
-  // UPDATE policy silently blocked the update. Fail now before inserting new
-  // lines on top of the old ones (which would mix two schedules).
+  // Verify superseding actually worked — if any non-Superseded lines still exist,
+  // an RLS UPDATE policy silently blocked the update. Fail now before inserting
+  // new lines on top of the old ones (which would mix two schedules).
   const { count: stillActive } = await supabase
     .from('receivables_database')
     .select('id', { count: 'exact', head: true })
     .eq('reservation_id', reservationId)
-    .in('payment_status', ['Unpaid', 'Partial']);
+    .neq('payment_status', 'Superseded');
   if (stillActive && stillActive > 0) {
     throw new Error(
       `Superseding failed: ${stillActive} active line(s) remain for ${reservationId}. ` +
@@ -423,7 +416,7 @@ export async function processBRF(opts: BRFApprovalOptions): Promise<void> {
   onStep?.(3);
 
   // ── Regenerate payment schedule (uses updated TCP from reservation) ───────
-  await regenerateReceivableLines(reservationId, newPaytermScheme, newTermMonths, remainingBalance, elapsedMonths, newDpPercent);
+  await regenerateReceivableLines(reservationId, newPaytermScheme, newTermMonths, newTcp, newDpPercent);
   onStep?.(4);
 
   // ── Re-apply all existing collections against the new active lines ────────

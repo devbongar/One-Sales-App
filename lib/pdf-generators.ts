@@ -727,6 +727,7 @@ export async function generateReservationAgreement(reservationId: string | null,
   footerBlock(doc);
   const blobUrl1 = doc.output('bloburl') as unknown as string;
   if (!openInNewTab) return blobUrl1;
+  if (win) { win.location.href = blobUrl1; return; }
   const raFilename = res?.client_id && reservationId
     ? `RA-${res.client_id}${reservationId}.pdf`
     : 'reservation-agreement.pdf';
@@ -780,7 +781,7 @@ export async function generateBuyerInformationForm(reservationId: string | null,
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
   const L = 14, W = pageW - 28;
-  const CELL = 13, GAP = 0.6;
+  const CELL = 7, GAP = 0.5;
   const C2 = W / 2, C3 = W / 3;
   let pageNum = 1;
 
@@ -848,12 +849,12 @@ export async function generateBuyerInformationForm(reservationId: string | null,
   const drawCell = (label: string, value: string, x: number, y: number, w: number) => {
     doc.addImage(cellImg, 'PNG', x, y, w - GAP, CELL);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.5);
+    doc.setFontSize(5.5);
     doc.setTextColor(110, 110, 115);
-    doc.text(label.toUpperCase(), x + 2, y + 4);
-    doc.setFontSize(8);
+    doc.text(label.toUpperCase(), x + 1.5, y + 2.2);
+    doc.setFontSize(7);
     doc.setTextColor(28, 28, 30);
-    doc.text(value || '—', x + 2, y + 10);
+    doc.text(value || '—', x + 1.5, y + 5.8);
   };
   const addPage = () => {
     pageNum++;
@@ -876,10 +877,10 @@ export async function generateBuyerInformationForm(reservationId: string | null,
 
   const subLabel = (text: string, y: number): number => {
     doc.setFont('helvetica', 'italic');
-    doc.setFontSize(7.5);
+    doc.setFontSize(7);
     doc.setTextColor(80, 80, 85);
-    doc.text(text, L, y + 4);
-    return y + 7;
+    doc.text(text, L, y + 3);
+    return y + 5;
   };
 
   const renderPersonBlock = (
@@ -901,6 +902,13 @@ export async function generateBuyerInformationForm(reservationId: string | null,
       work_city_municipality?: string | null; work_barangay?: string | null;
       work_street?: string | null; work_building_unit?: string | null;
       mailing_type?: string | null;
+      // Emergency contact (buyer only)
+      emergency_contact_name?: string | null; emergency_contact_no?: string | null;
+      emergency_contact_relation?: string | null; emergency_contact_email?: string | null;
+      // Alternate address (buyer only)
+      alt_country?: string | null; alt_region_province?: string | null;
+      alt_city_municipality?: string | null; alt_barangay?: string | null;
+      alt_street?: string | null; alt_unit?: string | null;
     },
     currentY = 36,
     opts: { preamble?: string; employmentPrefix?: string; showCivilStatus?: boolean; showHomeOwnership?: boolean } = {}
@@ -922,15 +930,15 @@ export async function generateBuyerInformationForm(reservationId: string | null,
     y = drawSecBar(sectionTitle, y) + 2;
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7);
+    doc.setFontSize(6.5);
     doc.setTextColor(80, 80, 85);
-    doc.text('Full Name (As found in your valid government issued ID)', L, y + 4);
-    y += 7;
+    doc.text('Full Name (As found in your valid government issued ID)', L, y + 3);
+    y += 5;
 
     drawCell('Last name',    p.last_name    ?? '—', L,           y, C4);
     drawCell('First Name',   p.first_name   ?? '—', L + C4,      y, C4);
     drawCell('Middle Name',  p.middle_name  ?? '—', L + C4 * 2,  y, C4);
-    drawCell('Date of Birth', fmtDate(p.date_of_birth), L + C4 * 3, y, C4); y += CELL + 4;
+    drawCell('Date of Birth', fmtDate(p.date_of_birth), L + C4 * 3, y, C4); y += CELL + 2;
 
     if (showCivilStatus) {
       drawCell('Gender',                p.gender       ?? '—', L,           y, C4);
@@ -942,20 +950,30 @@ export async function generateBuyerInformationForm(reservationId: string | null,
       drawCell('Citizenship',           p.citizenship  ?? '—', L + C3,      y, C3);
       drawCell('Tax Identification No.', p.tin || (p.no_tin ? 'No TIN' : '—'), L + C3 * 2, y, C3);
     }
-    y += CELL + 7;
+    y += CELL + 4;
 
-    y = checkBreak(7 + (CELL + 4), y);
+    y = checkBreak(5 + (CELL + 2), y);
     y = subLabel('Contact Information', y);
     const mobileStr = p.mobile_code && p.mobile ? `${p.mobile_code} ${p.mobile}` : (p.mobile ?? '—');
     drawCell('Mobile Number',  mobileStr,          L,          y, C3);
     drawCell('Landline Number', p.landline ?? '—', L + C3,     y, C3);
-    drawCell('Email Address',  p.email    ?? '—',  L + C3 * 2, y, C3); y += CELL + 7;
+    drawCell('Email Address',  p.email    ?? '—',  L + C3 * 2, y, C3); y += CELL + 4;
 
-    y = checkBreak(7 + (CELL + 4) * 2, y);
+    if (p.emergency_contact_name || p.emergency_contact_no || p.emergency_contact_relation) {
+      y = checkBreak(5 + CELL + 2, y);
+      y = subLabel('Emergency Contact', y);
+      drawCell('Name',         p.emergency_contact_name     ?? '—', L,          y, C4);
+      drawCell('Contact No.',  p.emergency_contact_no       ?? '—', L + C4,     y, C4);
+      drawCell('Relationship', p.emergency_contact_relation ?? '—', L + C4 * 2, y, C4);
+      drawCell('Email',        p.emergency_contact_email    ?? '—', L + C4 * 3, y, C4);
+      y += CELL + 4;
+    }
+
+    y = checkBreak(5 + (CELL + 2) * 2, y);
     y = subLabel('Address', y);
     drawCell('Unit No. Building / House No. Block No.', p.home_unit    ?? '—', L,          y, C3);
     drawCell('Street, Subdivision / Village',           p.home_street  ?? '—', L + C3,     y, C3);
-    drawCell('Barangay',                                p.home_barangay ?? '—', L + C3 * 2, y, C3); y += CELL + 4;
+    drawCell('Barangay',                                p.home_barangay ?? '—', L + C3 * 2, y, C3); y += CELL + 2;
 
     if (showHomeOwnership) {
       drawCell('City / Municipality', p.home_city_municipality ?? '—', L,          y, C4);
@@ -967,38 +985,51 @@ export async function generateBuyerInformationForm(reservationId: string | null,
       drawCell('Province / Region',   p.home_region_province   ?? '—', L + C3,     y, C3);
       drawCell('Country',             p.home_country           ?? '—', L + C3 * 2, y, C3);
     }
-    y += CELL + 8;
+    y += CELL + 2;
 
-    y = checkBreak(7 + (CELL + 4) * 3, y);
+    if (p.alt_country || p.alt_region_province || p.alt_city_municipality || p.alt_barangay) {
+      y = checkBreak(5 + (CELL + 2) * 2, y);
+      y = subLabel('Alternate Address', y);
+      drawCell('Unit No. / Building No.', p.alt_unit     ?? '—', L,          y, C3);
+      drawCell('Street / Subdivision',    p.alt_street   ?? '—', L + C3,     y, C3);
+      drawCell('Barangay',                p.alt_barangay ?? '—', L + C3 * 2, y, C3); y += CELL + 2;
+      drawCell('City / Municipality', p.alt_city_municipality ?? '—', L,          y, C3);
+      drawCell('Province / Region',   p.alt_region_province   ?? '—', L + C3,     y, C3);
+      drawCell('Country',             p.alt_country            ?? '—', L + C3 * 2, y, C3); y += CELL + 2;
+    }
+
+    y += 3;
+
+    y = checkBreak(5 + (CELL + 2) * 3, y);
     const empTitle = employmentPrefix ? `${employmentPrefix} EMPLOYMENT / BUSINESS INFORMATION` : 'EMPLOYMENT / BUSINESS INFORMATION';
     y = drawSecBar(empTitle, y) + 2;
 
     drawCell('Employment Status',        p.employment_status  ?? '—', L,          y, C3);
     drawCell('Employment Sector',        p.employment_sector  ?? '—', L + C3,     y, C3);
-    drawCell('Employer / Business Name', p.employer           ?? '—', L + C3 * 2, y, C3); y += CELL + 4;
+    drawCell('Employer / Business Name', p.employer           ?? '—', L + C3 * 2, y, C3); y += CELL + 2;
 
     drawCell('Nature of Business',   p.nature_of_business ?? '—', L,           y, C4);
     drawCell('Rank',                  p.rank               ?? '—', L + C4,      y, C4);
     drawCell('Job Title / Position',  p.job_title          ?? '—', L + C4 * 2,  y, C4);
-    drawCell('Salary Range',          p.salary_range       ?? '—', L + C4 * 3,  y, C4); y += CELL + 7;
+    drawCell('Salary Range',          p.salary_range       ?? '—', L + C4 * 3,  y, C4); y += CELL + 4;
 
-    y = checkBreak(7 + (CELL + 4), y);
+    y = checkBreak(5 + (CELL + 2), y);
     y = subLabel('Contact Information', y);
     const workMobileStr = p.work_mobile_code && p.work_mobile ? `${p.work_mobile_code} ${p.work_mobile}` : (p.work_mobile ?? '—');
     drawCell('Mobile Number',  workMobileStr,           L,          y, C3);
     drawCell('Landline Number', p.work_landline ?? '—', L + C3,     y, C3);
-    drawCell('Email Address',  p.work_email    ?? '—',  L + C3 * 2, y, C3); y += CELL + 7;
+    drawCell('Email Address',  p.work_email    ?? '—',  L + C3 * 2, y, C3); y += CELL + 4;
 
-    y = checkBreak(7 + (CELL + 4) * 2, y);
+    y = checkBreak(5 + (CELL + 2) * 2, y);
     y = subLabel('Address', y);
     drawCell('Unit No. Building / House No. Block No.', p.work_building_unit ?? '—', L,          y, C3);
     drawCell('Street, Subdivision / Village',           p.work_street        ?? '—', L + C3,     y, C3);
-    drawCell('Barangay',                                p.work_barangay      ?? '—', L + C3 * 2, y, C3); y += CELL + 4;
+    drawCell('Barangay',                                p.work_barangay      ?? '—', L + C3 * 2, y, C3); y += CELL + 2;
 
-    y = checkBreak(CELL + 4, y);
+    y = checkBreak(CELL + 2, y);
     drawCell('City / Municipality', p.work_city_municipality ?? '—', L,          y, C3);
     drawCell('Province / Region',   p.work_region_province   ?? '—', L + C3,     y, C3);
-    drawCell('Country',             p.work_country           ?? '—', L + C3 * 2, y, C3); y += CELL + 8;
+    drawCell('Country',             p.work_country           ?? '—', L + C3 * 2, y, C3); y += CELL + 4;
 
     return y;
   };
@@ -1025,6 +1056,16 @@ export async function generateBuyerInformationForm(reservationId: string | null,
     work_city_municipality: buyerInfo?.work_city_municipality, work_barangay: buyerInfo?.work_barangay,
     work_street: buyerInfo?.work_street, work_building_unit: buyerInfo?.work_building_unit,
     mailing_type: buyerInfo?.mailing_type,
+    emergency_contact_name:     buyerInfo?.emergency_contact_name,
+    emergency_contact_no:       buyerInfo?.emergency_contact_no,
+    emergency_contact_relation: buyerInfo?.emergency_contact_relation,
+    emergency_contact_email:    buyerInfo?.emergency_contact_email,
+    alt_country:           buyerInfo?.alt_country,
+    alt_region_province:   buyerInfo?.alt_region_province,
+    alt_city_municipality: buyerInfo?.alt_city_municipality,
+    alt_barangay:          buyerInfo?.alt_barangay,
+    alt_street:            buyerInfo?.alt_street,
+    alt_unit:              buyerInfo?.alt_unit,
   };
   y = renderPersonBlock('BUYER INFORMATION', buyerPayload, y, { showCivilStatus: true, showHomeOwnership: true });
 
@@ -1223,11 +1264,6 @@ export async function generateBuyerInformationForm(reservationId: string | null,
   doc.text('Buyer Signature over Printed Name', cx2, pY + 4);
   doc.setFontSize(7.5); doc.setTextColor(28, 28, 30);
   doc.text(today2, cx2 + sigW2, pY - 1, { align: 'right' });
-
-  if (progress?.privacy_consent) {
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(34, 120, 34);
-    doc.text('✓ Data Privacy Policy consented', cx2, pY + 12);
-  }
 
   footerBlock(doc);
   const blobUrl2 = doc.output('bloburl') as unknown as string;

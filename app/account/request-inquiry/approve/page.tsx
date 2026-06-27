@@ -16,9 +16,7 @@ import {
 import type { RequestRecord } from '../page';
 import BrfLoadingScreen from '@/components/ui/BrfLoadingScreen';
 
-const SELECT_FIELDS = 'id, reservation_id, client_id, client_name, project_name, inventory_code, type_of_request, sub_type, description, submitted_at, approval_status, approved_by, date_approved, new_inventory_code, new_payterm_code, new_payterm_scheme, new_term_months, remaining_balance, requested_by_name, ticket_id';
-
-const OTHER_CHARGES_RATE = 0.07;
+const SELECT_FIELDS = 'id, reservation_id, client_id, client_name, project_name, inventory_code, type_of_request, sub_type, description, submitted_at, approval_status, approved_by, date_approved, new_inventory_code, new_payterm_code, new_payterm_scheme, new_term_months, remaining_balance, requested_by_name, ticket_id, new_list_price, new_promo_amt, new_employee_amt, new_payterm_amt, new_hic_amt, new_nlp, new_vat, new_oc, new_tcp';
 
 function fmt(d: string | null) {
   if (!d) return '—';
@@ -95,12 +93,11 @@ function ExecutePageInner() {
   const [brfStep,    setBrfStep]    = useState(0);
   const [done,       setDone]       = useState(false);
 
-  const [resFin,          setResFin]          = useState<ResFin | null>(null);
-  const [newUnitListPrice, setNewUnitListPrice] = useState(0);
-  const [newUnitArea,     setNewUnitArea]      = useState(0);
-  const [newUnitHic,      setNewUnitHic]       = useState(false);
-  const [newPayterm,      setNewPayterm]       = useState<NewPayterm | null>(null);
-  const [initialRemaining, setInitialRemaining] = useState(0);
+  const [resFin,           setResFin]           = useState<ResFin | null>(null);
+  const [newUnitArea,      setNewUnitArea]       = useState(0);
+  const [newUnitHic,       setNewUnitHic]        = useState(false);
+  const [newPayterm,       setNewPayterm]        = useState<NewPayterm | null>(null);
+  const [initialRemaining, setInitialRemaining]  = useState(0);
 
   useEffect(() => {
     if (!requestId) return;
@@ -119,7 +116,7 @@ function ExecutePageInner() {
       const [bal, { data: res }] = await Promise.all([
         computeRemainingBalance(r.reservation_id),
         supabase.from('reservations')
-          .select('list_price, promo_discount_amount, employee_discount_amount, hic_discount, payterm_discount_pct, net_list_price, vat, other_charges, total_contract_price, reservation_fee, retention_fee, unit_area, scheme_name, payment_scheme, term_months, dp_rate, project, tower')
+          .select('list_price, promo_discount_amount, employee_discount_amount, hic_discount, payterm_discount_pct, net_list_price, vat, other_charges, total_contract_price, reservation_fee, retention_fee, unit_area, scheme_name, payment_scheme, term_months, dp_rate, project, tower, unit_type')
           .eq('reservation_id', r.reservation_id)
           .single(),
       ]);
@@ -154,16 +151,15 @@ function ExecutePageInner() {
       };
       setResFin(fin);
 
-      // Change of Unit: fetch new unit info
+      // Change of Unit: fetch new unit area for display (financials come from stored r.new_*)
       if (r.type_of_request === 'Change of Unit' && r.new_inventory_code) {
         const { data: unit } = await supabase
           .from('Inventory')
-          .select('"Inventory Code", "Total List Price", "Unit Area", HIC')
+          .select('"Inventory Code", "Unit Area", HIC')
           .eq('"Inventory Code"', r.new_inventory_code.trim())
           .maybeSingle();
         if (unit) {
           const raw = unit as Record<string, unknown>;
-          setNewUnitListPrice(parseFloat(String(raw['Total List Price'] ?? '0').replace(/,/g, '')) || 0);
           setNewUnitArea(Number(raw['Unit Area']) || 0);
           setNewUnitHic(!!raw['HIC']);
         }
@@ -207,25 +203,26 @@ function ExecutePageInner() {
     load();
   }, [requestId]);
 
-  // ── Derived: new card financials ──────────────────────────────────────────
+  // ── Derived: new card financials (read from stored submission snapshot) ──────
 
   const newFin = useMemo(() => {
-    if (!resFin || !newPayterm) return null;
-    const isChangeOfUnit = request?.type_of_request === 'Change of Unit';
-    const lp         = isChangeOfUnit && newUnitListPrice > 0 ? newUnitListPrice : resFin.listPrice;
-    const promoAmt   = resFin.promoAmt;
-    const empAmt     = resFin.employeeAmt;
-    const paytermAmt = Math.round(lp * newPayterm.discPct / 100);
-    const hicAmt     = isChangeOfUnit ? (newUnitHic ? resFin.hicAmt : 0) : resFin.hicAmt;
-    const nlp        = lp - promoAmt - empAmt - paytermAmt - hicAmt;
-    const vat        = resFin.hasVat ? Math.round(nlp * 0.12) : 0;
-    const oc         = Math.round(nlp * OTHER_CHARGES_RATE);
-    const tcp        = nlp + vat + oc + hicAmt;
-    const totalPaid  = Math.max(0, resFin.tcp - initialRemaining);
-    const remaining  = Math.max(0, tcp - totalPaid);
-    const area       = isChangeOfUnit ? newUnitArea : resFin.unitArea;
+    if (!resFin || !newPayterm || !request) return null;
+    if (request.new_tcp == null) return null;   // old record without stored financials
+    const isChangeOfUnit = request.type_of_request === 'Change of Unit';
+    const lp        = Number(request.new_list_price)   || 0;
+    const promoAmt  = Number(request.new_promo_amt)    || 0;
+    const empAmt    = Number(request.new_employee_amt) || 0;
+    const paytermAmt = Number(request.new_payterm_amt) || 0;
+    const hicAmt    = Number(request.new_hic_amt)      || 0;
+    const nlp       = Number(request.new_nlp)          || 0;
+    const vat       = Number(request.new_vat)          || 0;
+    const oc        = Number(request.new_oc)           || 0;
+    const tcp       = Number(request.new_tcp)          || 0;
+    const totalPaid = Math.max(0, resFin.tcp - initialRemaining);
+    const remaining = Math.max(0, tcp - totalPaid);
+    const area      = isChangeOfUnit ? newUnitArea : resFin.unitArea;
     return { lp, promoAmt, empAmt, paytermAmt, hicAmt, nlp, vat, oc, tcp, remaining, area };
-  }, [resFin, newPayterm, request, newUnitListPrice, newUnitArea, newUnitHic, initialRemaining]);
+  }, [resFin, newPayterm, request, newUnitArea, initialRemaining]);
 
   const canExecute = !!newFin && !!newPayterm && !processing;
 
@@ -248,10 +245,15 @@ function ExecutePageInner() {
         newPaytermDiscountPct:    newPayterm.discPct,
         newPaytermDiscountAmount: newFin.paytermAmt,
         newDpPercent:             Number(newPayterm.dpRate) || 0,
+        newListPrice:             newFin.lp,
+        newPromoAmount:           newFin.promoAmt,
+        newEmployeeAmount:        newFin.empAmt,
         newNlp:                   newFin.nlp,
         newVat:                   newFin.vat,
         newOtherCharges:          newFin.oc,
+        newHicAmount:             newFin.hicAmt,
         newTcp:                   newFin.tcp,
+        newUnitArea:              isChangeOfUnit && newUnitArea > 0 ? newUnitArea : undefined,
         newInventoryCode:         request.new_inventory_code ?? undefined,
         onStep:                   setBrfStep,
       });
@@ -367,6 +369,7 @@ function ExecutePageInner() {
                   schemeName={resFin.schemeName}
                   termMonths={resFin.termMonths}
                   dpRate={resFin.dpRate}
+                  isHic={resFin.hicAmt > 0}
                   listPrice={resFin.listPrice}
                   promoAmt={resFin.promoAmt}
                   promoPct={resFin.promoRate}
@@ -389,11 +392,12 @@ function ExecutePageInner() {
                   schemeName={newPayterm.schemeName}
                   termMonths={newPayterm.termMonths}
                   dpRate={newPayterm.dpRate}
+                  isHic={newFin.hicAmt > 0}
                   listPrice={newFin.lp}
                   promoAmt={newFin.promoAmt}
-                  promoPct={resFin.promoRate}
+                  promoPct={newFin.lp > 0 ? newFin.promoAmt / newFin.lp * 100 : 0}
                   employeeAmt={newFin.empAmt}
-                  employeePct={resFin.employeeRate}
+                  employeePct={newFin.lp > 0 ? newFin.empAmt / newFin.lp * 100 : 0}
                   paytermAmt={newFin.paytermAmt}
                   paytermPct={newPayterm.discPct}
                   hicAmt={newFin.hicAmt}

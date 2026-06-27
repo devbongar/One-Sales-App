@@ -7,7 +7,8 @@ import GlassCard from '@/components/ui/GlassCard';
 import DatePickerInput from '@/components/ui/DatePickerInput';
 import { fetchAllClients, updateBuyerInfo, fetchBuyerInfo, updateClient, ClientRecord } from '@/lib/clients';
 import { supabase } from '@/lib/supabase';
-import { COUNTRY_CODES } from '@/lib/client-form-options';
+import { COUNTRY_CODES, CITIZENSHIP_LIST } from '@/lib/client-form-options';
+import { PH_PROVINCES, PH_CITIES } from '@/lib/ph-locations';
 import {
   Hash, Building2, Tag, User, Users, UserCheck,
   Check, CheckCircle2, ChevronDown, X, Phone, Mail, CreditCard,
@@ -77,17 +78,17 @@ function TextInput({ value, onChange, placeholder, disabled }: {
 function SelectInput({ value, options, onChange, placeholder, disabled }: {
   value: string; options: string[]; onChange: (v: string) => void; placeholder: string; disabled?: boolean;
 }) {
-  if (disabled) return (
-    <div className="w-full px-3 py-2.5 rounded-xl border border-black/[0.06] bg-[#F2F2F7]/50 text-sm text-[#6C6C70]">
-      {value || '—'}
-    </div>
-  );
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (open && ref.current)
       setTimeout(() => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 30);
   }, [open]);
+  if (disabled) return (
+    <div className="w-full px-3 py-2.5 rounded-xl border border-black/[0.06] bg-[#F2F2F7]/50 text-sm text-[#6C6C70]">
+      {value || '—'}
+    </div>
+  );
   return (
     <div>
       <div role="button" tabIndex={0}
@@ -119,11 +120,6 @@ function SearchableSelect({ value, options, onChange, placeholder, disabled }: {
   value: string; options: { label: string; flag?: string }[];
   onChange: (v: string) => void; placeholder: string; disabled?: boolean;
 }) {
-  if (disabled) return (
-    <div className="w-full px-3 py-2.5 rounded-xl border border-black/[0.06] bg-[#F2F2F7]/50 text-sm text-[#6C6C70]">
-      {value || '—'}
-    </div>
-  );
   const [open, setOpen]   = useState(false);
   const [query, setQuery] = useState('');
   const ref = useRef<HTMLDivElement>(null);
@@ -132,6 +128,11 @@ function SearchableSelect({ value, options, onChange, placeholder, disabled }: {
     if (open && ref.current)
       setTimeout(() => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 30);
   }, [open]);
+  if (disabled) return (
+    <div className="w-full px-3 py-2.5 rounded-xl border border-black/[0.06] bg-[#F2F2F7]/50 text-sm text-[#6C6C70]">
+      {value || '—'}
+    </div>
+  );
   return (
     <div>
       <div role="button" tabIndex={0}
@@ -173,11 +174,6 @@ function PhoneInputField({ code, onCodeChange, number, onNumberChange, disabled 
   code: string; onCodeChange: (v: string) => void;
   number: string; onNumberChange: (v: string) => void; disabled?: boolean;
 }) {
-  if (disabled) return (
-    <div className="w-full px-3 py-2.5 rounded-xl border border-black/[0.06] bg-[#F2F2F7]/50 text-sm text-[#6C6C70]">
-      {code} {number || '—'}
-    </div>
-  );
   const [open, setOpen]   = useState(false);
   const [query, setQuery] = useState('');
   const ref = useRef<HTMLDivElement>(null);
@@ -189,6 +185,11 @@ function PhoneInputField({ code, onCodeChange, number, onNumberChange, disabled 
     if (open && ref.current)
       setTimeout(() => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 30);
   }, [open]);
+  if (disabled) return (
+    <div className="w-full px-3 py-2.5 rounded-xl border border-black/[0.06] bg-[#F2F2F7]/50 text-sm text-[#6C6C70]">
+      {code} {number || '—'}
+    </div>
+  );
   return (
     <div>
       <div className="flex gap-2">
@@ -241,6 +242,7 @@ const RANK_OPTS                = ['Executive', 'Managerial', 'Supervisor', 'Rank
 const SALARY_RANGE_OPTS        = ['50,000 and Below', '50,001 to 80,000', '80,001 to 120,000', '120,001 to 150,000', '150,001 to 200,000', '200,001 and Above'];
 const MAILING_OPTS             = ['Home Address', 'Office Address', 'Others'];
 const COUNTRY_OPTIONS          = COUNTRY_CODES.map(c => ({ label: c.name, flag: c.flag }));
+const CITIZENSHIP_OPTIONS      = CITIZENSHIP_LIST.map(c => ({ label: c }));
 const LOCKED_STATUSES          = ['submitted', 'director-approved', 'amd-approved'];
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -278,6 +280,13 @@ export default function BuyerInfoPage() {
   const [tin,         setTin]         = useState('');
   const [noTin,       setNoTin]       = useState(false);
 
+  // ── Emergency Contact state ──
+  const [emergencyName,        setEmergencyName]        = useState('');
+  const [emergencyContactCode, setEmergencyContactCode] = useState('+63');
+  const [emergencyContact,     setEmergencyContact]     = useState('');
+  const [emergencyRelation,    setEmergencyRelation]    = useState('');
+  const [emergencyEmail,       setEmergencyEmail]       = useState('');
+
   // ── Step 1: Address Information state ──
   const [homeOwnership,    setHomeOwnership]    = useState('');
   const [country,          setCountry]          = useState('Philippines');
@@ -286,6 +295,14 @@ export default function BuyerInfoPage() {
   const [barangayLine1,    setBarangayLine1]    = useState('');
   const [streetLine2,      setStreetLine2]      = useState('');
   const [unitNo,           setUnitNo]           = useState('');
+
+  // ── Step 1: Alternate Address state ──
+  const [altCountry,          setAltCountry]          = useState('Philippines');
+  const [altRegionProvince,   setAltRegionProvince]   = useState('');
+  const [altCityMunicipality, setAltCityMunicipality] = useState('');
+  const [altBarangay,         setAltBarangay]         = useState('');
+  const [altStreet,           setAltStreet]           = useState('');
+  const [altUnit,             setAltUnit]             = useState('');
 
   // ── Step 2: Employment Information state ──
   const [employer,          setEmployer]          = useState('');
@@ -309,6 +326,9 @@ export default function BuyerInfoPage() {
   const [workBuildingUnit,     setWorkBuildingUnit]     = useState('');
   const [mailingType,          setMailingType]          = useState('');
   const [mailingOther,         setMailingOther]         = useState('');
+
+  // Fields pulled from client record are always read-only once a client is matched
+  const isClientLocked = !!clientRecord;
 
   // Derived mailing address text
   const homeAddressText   = [unitNo, barangayLine1, streetLine2, cityMunicipality, regionProvince, country].filter(Boolean).join(', ');
@@ -408,6 +428,24 @@ export default function BuyerInfoPage() {
       setWorkBuildingUnit(info.work_building_unit ?? '');
       setMailingType(info.mailing_type ?? '');
       setMailingOther(info.mailing_other ?? '');
+      setAltCountry(info.alt_country ?? 'Philippines');
+      setAltRegionProvince(info.alt_region_province ?? '');
+      setAltCityMunicipality(info.alt_city_municipality ?? '');
+      setAltBarangay(info.alt_barangay ?? '');
+      setAltStreet(info.alt_street ?? '');
+      setAltUnit(info.alt_unit ?? '');
+      setEmergencyName(info.emergency_contact_name ?? '');
+      if (info.emergency_contact_no) {
+        const parts = info.emergency_contact_no.split(' ');
+        if (parts.length > 1 && parts[0].startsWith('+')) {
+          setEmergencyContactCode(parts[0]);
+          setEmergencyContact(parts.slice(1).join(' '));
+        } else {
+          setEmergencyContact(info.emergency_contact_no);
+        }
+      }
+      setEmergencyRelation(info.emergency_contact_relation ?? '');
+      setEmergencyEmail(info.emergency_contact_email ?? '');
     })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -447,6 +485,16 @@ export default function BuyerInfoPage() {
         work_city_municipality: workCityMunicipality, work_barangay: workBarangay,
         work_street: workStreet, work_building_unit: workBuildingUnit,
         mailing_type: mailingType, mailing_other: mailingOther,
+        alt_country:           altCountry,
+        alt_region_province:   altRegionProvince,
+        alt_city_municipality: altCityMunicipality,
+        alt_barangay:          altBarangay,
+        alt_street:            altStreet,
+        alt_unit:              altUnit,
+        emergency_contact_name:     emergencyName,
+        emergency_contact_no:       emergencyContact ? `${emergencyContactCode} ${emergencyContact}` : '',
+        emergency_contact_relation: emergencyRelation,
+        emergency_contact_email:    emergencyEmail,
       });
       // Save editable personal fields back to the clients record
       if (clientRecord) {
@@ -518,17 +566,17 @@ export default function BuyerInfoPage() {
           <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Personal Information</p>
 
           <ReadOnlyField label="Client ID" icon={<UserCheck size={11} />} value={clientId} />
-          <InputRow label="Last Name" icon={<User size={11} />} required={!isSaved}>
-            <TextInput value={lastName} onChange={setLastName} placeholder="e.g. Santos" disabled={isSaved} />
+          <InputRow label="Last Name" icon={<User size={11} />} required={!isSaved && !isClientLocked}>
+            <TextInput value={lastName} onChange={setLastName} placeholder="e.g. Santos" disabled={isSaved || isClientLocked} />
           </InputRow>
-          <InputRow label="First Name" icon={<User size={11} />} required={!isSaved}>
-            <TextInput value={firstName} onChange={setFirstName} placeholder="e.g. Maria" disabled={isSaved} />
+          <InputRow label="First Name" icon={<User size={11} />} required={!isSaved && !isClientLocked}>
+            <TextInput value={firstName} onChange={setFirstName} placeholder="e.g. Maria" disabled={isSaved || isClientLocked} />
           </InputRow>
           <InputRow label="Middle Name" icon={<User size={11} />}>
-            <TextInput value={middleName} onChange={setMiddleName} placeholder="e.g. Cruz" disabled={isSaved} />
+            <TextInput value={middleName} onChange={setMiddleName} placeholder="e.g. Cruz" disabled={isSaved || isClientLocked} />
           </InputRow>
           <InputRow label="Suffix" icon={<User size={11} />}>
-            <TextInput value={suffix} onChange={setSuffix} placeholder="e.g. Jr., Sr., III" disabled={isSaved} />
+            <TextInput value={suffix} onChange={setSuffix} placeholder="e.g. Jr., Sr., III" disabled={isSaved || isClientLocked} />
           </InputRow>
 
           <InputRow label="Gender" icon={<User size={11} />} required={!isSaved}>
@@ -539,19 +587,19 @@ export default function BuyerInfoPage() {
           </InputRow>
 
           <InputRow label="Citizenship" icon={<Globe size={11} />}>
-            <SearchableSelect value={citizenship} options={COUNTRY_OPTIONS} onChange={setCitizenship} placeholder="Select citizenship" disabled={isSaved} />
+            <SearchableSelect value={citizenship} options={CITIZENSHIP_OPTIONS} onChange={setCitizenship} placeholder="Select citizenship" disabled={isSaved || isClientLocked} />
           </InputRow>
           <InputRow label="Date of Birth" icon={<Calendar size={11} />}>
-            <DatePickerInput value={dateOfBirth} onChange={setDateOfBirth} disabled={isSaved} />
+            <DatePickerInput value={dateOfBirth} onChange={setDateOfBirth} disabled={isSaved || isClientLocked} />
           </InputRow>
-          <InputRow label="Mobile No." icon={<Phone size={11} />} required={!isSaved}>
-            <PhoneInputField code={mobileCode} onCodeChange={setMobileCode} number={mobileNumber} onNumberChange={setMobileNumber} disabled={isSaved} />
+          <InputRow label="Mobile No." icon={<Phone size={11} />} required={!isSaved && !isClientLocked}>
+            <PhoneInputField code={mobileCode} onCodeChange={setMobileCode} number={mobileNumber} onNumberChange={setMobileNumber} disabled={isSaved || isClientLocked} />
           </InputRow>
           <InputRow label="Landline No." icon={<Phone size={11} />}>
-            <TextInput value={landline} onChange={setLandline} placeholder="e.g. 028XXXXXXX" disabled={isSaved} />
+            <TextInput value={landline} onChange={setLandline} placeholder="e.g. 028XXXXXXX" disabled={isSaved || isClientLocked} />
           </InputRow>
           <InputRow label="Email Address" icon={<Mail size={11} />}>
-            <TextInput value={email} onChange={setEmail} placeholder="e.g. name@email.com" disabled={isSaved} />
+            <TextInput value={email} onChange={setEmail} placeholder="e.g. name@email.com" disabled={isSaved || isClientLocked} />
           </InputRow>
 
           <InputRow label="Tax ID No. (TIN)" icon={<CreditCard size={11} />} required={!noTin && !isSaved}>
@@ -583,6 +631,24 @@ export default function BuyerInfoPage() {
               </p>
             </div>
           )}
+        </GlassCard>
+
+        {/* ── Emergency Contact Information ── */}
+        <GlassCard className="p-4 space-y-4">
+          <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Emergency Contact Information</p>
+
+          <InputRow label="Name" icon={<User size={11} />}>
+            <TextInput value={emergencyName} onChange={setEmergencyName} placeholder="e.g. Juan Dela Cruz" disabled={isSaved} />
+          </InputRow>
+          <InputRow label="Contact No." icon={<Phone size={11} />}>
+            <PhoneInputField code={emergencyContactCode} onCodeChange={setEmergencyContactCode} number={emergencyContact} onNumberChange={setEmergencyContact} disabled={isSaved} />
+          </InputRow>
+          <InputRow label="Relationship" icon={<Users size={11} />}>
+            <TextInput value={emergencyRelation} onChange={setEmergencyRelation} placeholder="e.g. Spouse, Parent, Sibling" disabled={isSaved} />
+          </InputRow>
+          <InputRow label="Email Address" icon={<Mail size={11} />}>
+            <TextInput value={emergencyEmail} onChange={setEmergencyEmail} placeholder="e.g. name@email.com" disabled={isSaved} />
+          </InputRow>
         </GlassCard>
 
         {step0Error && (
@@ -621,13 +687,28 @@ export default function BuyerInfoPage() {
             <SelectInput value={homeOwnership} options={HOME_OWNERSHIP_OPTIONS} onChange={setHomeOwnership} placeholder="Select home ownership" disabled={isSaved} />
           </InputRow>
           <InputRow label="Country" icon={<Globe size={11} />}>
-            <SearchableSelect value={country} options={COUNTRY_OPTIONS} onChange={setCountry} placeholder="Select country" disabled={isSaved} />
+            <SearchableSelect value={country} options={COUNTRY_OPTIONS}
+              onChange={v => { setCountry(v); if (v !== 'Philippines') { setRegionProvince(''); setCityMunicipality(''); } }}
+              placeholder="Select country" disabled={isSaved} />
           </InputRow>
           <InputRow label="Region / Province" icon={<MapPin size={11} />}>
-            <TextInput value={regionProvince} onChange={setRegionProvince} placeholder="e.g. Metro Manila" disabled={isSaved} />
+            {country === 'Philippines'
+              ? <SearchableSelect value={regionProvince}
+                  options={PH_PROVINCES.map(p => ({ label: p }))}
+                  onChange={v => { setRegionProvince(v); setCityMunicipality(''); }}
+                  placeholder="Select region / province" disabled={isSaved} />
+              : <TextInput value={regionProvince} onChange={setRegionProvince} placeholder="e.g. Metro Manila" disabled={isSaved} />
+            }
           </InputRow>
           <InputRow label="City / Municipality" icon={<MapPin size={11} />}>
-            <TextInput value={cityMunicipality} onChange={setCityMunicipality} placeholder="e.g. Quezon City" disabled={isSaved} />
+            {country === 'Philippines'
+              ? <SearchableSelect value={cityMunicipality}
+                  options={(PH_CITIES[regionProvince] ?? []).map(c => ({ label: c }))}
+                  onChange={setCityMunicipality}
+                  placeholder={regionProvince ? 'Select city / municipality' : 'Select region first'}
+                  disabled={isSaved || !regionProvince} />
+              : <TextInput value={cityMunicipality} onChange={setCityMunicipality} placeholder="e.g. Quezon City" disabled={isSaved} />
+            }
           </InputRow>
           <InputRow label="Barangay / Address Line 1" icon={<MapPin size={11} />}>
             <TextInput value={barangayLine1} onChange={setBarangayLine1} placeholder="e.g. Brgy. Commonwealth" disabled={isSaved} />
@@ -637,6 +718,45 @@ export default function BuyerInfoPage() {
           </InputRow>
           <InputRow label="Unit / Building / House / Block No." icon={<Building2 size={11} />}>
             <TextInput value={unitNo} onChange={setUnitNo} placeholder="e.g. Unit 12B" disabled={isSaved} />
+          </InputRow>
+        </GlassCard>
+
+        {/* ── Alternate Address Information ── */}
+        <GlassCard className="p-4 space-y-4">
+          <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Alternate Address Information</p>
+
+          <InputRow label="Country" icon={<Globe size={11} />}>
+            <SearchableSelect value={altCountry} options={COUNTRY_OPTIONS}
+              onChange={v => { setAltCountry(v); if (v !== 'Philippines') { setAltRegionProvince(''); setAltCityMunicipality(''); } }}
+              placeholder="Select country" disabled={isSaved} />
+          </InputRow>
+          <InputRow label="Region / Province" icon={<MapPin size={11} />}>
+            {altCountry === 'Philippines'
+              ? <SearchableSelect value={altRegionProvince}
+                  options={PH_PROVINCES.map(p => ({ label: p }))}
+                  onChange={v => { setAltRegionProvince(v); setAltCityMunicipality(''); }}
+                  placeholder="Select region / province" disabled={isSaved} />
+              : <TextInput value={altRegionProvince} onChange={setAltRegionProvince} placeholder="e.g. Metro Manila" disabled={isSaved} />
+            }
+          </InputRow>
+          <InputRow label="City / Municipality" icon={<MapPin size={11} />}>
+            {altCountry === 'Philippines'
+              ? <SearchableSelect value={altCityMunicipality}
+                  options={(PH_CITIES[altRegionProvince] ?? []).map(c => ({ label: c }))}
+                  onChange={setAltCityMunicipality}
+                  placeholder={altRegionProvince ? 'Select city / municipality' : 'Select region first'}
+                  disabled={isSaved || !altRegionProvince} />
+              : <TextInput value={altCityMunicipality} onChange={setAltCityMunicipality} placeholder="e.g. Quezon City" disabled={isSaved} />
+            }
+          </InputRow>
+          <InputRow label="Barangay / Address Line 1" icon={<MapPin size={11} />}>
+            <TextInput value={altBarangay} onChange={setAltBarangay} placeholder="e.g. Brgy. Commonwealth" disabled={isSaved} />
+          </InputRow>
+          <InputRow label="Street / Subdivision / Village / Address Line 2" icon={<MapPin size={11} />}>
+            <TextInput value={altStreet} onChange={setAltStreet} placeholder="e.g. Batangas St." disabled={isSaved} />
+          </InputRow>
+          <InputRow label="Unit / Building / House / Block No." icon={<Building2 size={11} />}>
+            <TextInput value={altUnit} onChange={setAltUnit} placeholder="e.g. Unit 12B" disabled={isSaved} />
           </InputRow>
         </GlassCard>
 
@@ -709,13 +829,28 @@ export default function BuyerInfoPage() {
           <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Work Address Information</p>
 
           <InputRow label="Country" icon={<Globe size={11} />}>
-            <SearchableSelect value={workCountry} options={COUNTRY_OPTIONS} onChange={setWorkCountry} placeholder="Select country" disabled={isSaved} />
+            <SearchableSelect value={workCountry} options={COUNTRY_OPTIONS}
+              onChange={v => { setWorkCountry(v); if (v !== 'Philippines') { setWorkRegionProvince(''); setWorkCityMunicipality(''); } }}
+              placeholder="Select country" disabled={isSaved} />
           </InputRow>
           <InputRow label="Region / Province" icon={<MapPin size={11} />}>
-            <TextInput value={workRegionProvince} onChange={setWorkRegionProvince} placeholder="e.g. Metro Manila" disabled={isSaved} />
+            {workCountry === 'Philippines'
+              ? <SearchableSelect value={workRegionProvince}
+                  options={PH_PROVINCES.map(p => ({ label: p }))}
+                  onChange={v => { setWorkRegionProvince(v); setWorkCityMunicipality(''); }}
+                  placeholder="Select region / province" disabled={isSaved} />
+              : <TextInput value={workRegionProvince} onChange={setWorkRegionProvince} placeholder="e.g. Metro Manila" disabled={isSaved} />
+            }
           </InputRow>
           <InputRow label="City / Municipality" icon={<MapPin size={11} />}>
-            <TextInput value={workCityMunicipality} onChange={setWorkCityMunicipality} placeholder="e.g. Makati City" disabled={isSaved} />
+            {workCountry === 'Philippines'
+              ? <SearchableSelect value={workCityMunicipality}
+                  options={(PH_CITIES[workRegionProvince] ?? []).map(c => ({ label: c }))}
+                  onChange={setWorkCityMunicipality}
+                  placeholder={workRegionProvince ? 'Select city / municipality' : 'Select region first'}
+                  disabled={isSaved || !workRegionProvince} />
+              : <TextInput value={workCityMunicipality} onChange={setWorkCityMunicipality} placeholder="e.g. Makati City" disabled={isSaved} />
+            }
           </InputRow>
           <InputRow label="Barangay" icon={<MapPin size={11} />}>
             <TextInput value={workBarangay} onChange={setWorkBarangay} placeholder="e.g. Brgy. Poblacion" disabled={isSaved} />

@@ -232,6 +232,18 @@ export interface BuyerInfoPayload {
   // Mailing
   mailing_type: string;
   mailing_other: string;
+  // Emergency Contact
+  emergency_contact_name?: string;
+  emergency_contact_no?: string;
+  emergency_contact_relation?: string;
+  emergency_contact_email?: string;
+  // Alternate Address
+  alt_country?: string;
+  alt_region_province?: string;
+  alt_city_municipality?: string;
+  alt_barangay?: string;
+  alt_street?: string;
+  alt_unit?: string;
 }
 
 export async function updateBuyerInfo(clientUuid: string, payload: BuyerInfoPayload): Promise<void> {
@@ -267,8 +279,18 @@ export async function updateBuyerInfo(clientUuid: string, payload: BuyerInfoPayl
     p_work_barangay:          payload.work_barangay         || null,
     p_work_street:            payload.work_street           || null,
     p_work_building_unit:     payload.work_building_unit    || null,
-    p_mailing_type:           payload.mailing_type          || null,
-    p_mailing_other:          payload.mailing_other         || null,
+    p_mailing_type:                payload.mailing_type              || null,
+    p_mailing_other:               payload.mailing_other             || null,
+    p_emergency_contact_name:      payload.emergency_contact_name    || null,
+    p_emergency_contact_no:        payload.emergency_contact_no      || null,
+    p_emergency_contact_relation:  payload.emergency_contact_relation|| null,
+    p_emergency_contact_email:     payload.emergency_contact_email   || null,
+    p_alt_country:                 payload.alt_country               || null,
+    p_alt_region_province:         payload.alt_region_province       || null,
+    p_alt_city_municipality:       payload.alt_city_municipality     || null,
+    p_alt_barangay:                payload.alt_barangay              || null,
+    p_alt_street:                  payload.alt_street                || null,
+    p_alt_unit:                    payload.alt_unit                  || null,
   });
   if (error) throw error;
 }
@@ -290,12 +312,23 @@ export interface BuyerInfoRecord {
   work_city_municipality: string | null; work_barangay: string | null;
   work_street: string | null; work_building_unit: string | null;
   mailing_type: string | null; mailing_other: string | null;
+  emergency_contact_name:     string | null;
+  emergency_contact_no:       string | null;
+  emergency_contact_relation: string | null;
+  emergency_contact_email:    string | null;
+  alt_country:                string | null;
+  alt_region_province:        string | null;
+  alt_city_municipality:      string | null;
+  alt_barangay:               string | null;
+  alt_street:                 string | null;
+  alt_unit:                   string | null;
 }
 
 export async function fetchBuyerInfo(clientUuid: string): Promise<BuyerInfoRecord | null> {
   const { data, error } = await supabase.rpc('get_buyer_info', { p_id: clientUuid });
   if (error) throw error;
-  return data as BuyerInfoRecord | null;
+  const rows = (data ?? []) as BuyerInfoRecord[];
+  return rows.length > 0 ? rows[0] : null;
 }
 
 export async function fetchAllClients(): Promise<ClientRecord[]> {

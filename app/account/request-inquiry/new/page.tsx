@@ -9,6 +9,7 @@ import { getSession } from '@/lib/auth';
 import { isBrfType } from '@/lib/brf';
 import { fetchInventoryUnits, type InventoryUnit } from '@/lib/inventory';
 import { fetchAllPayterms, type PaytermRecord } from '@/lib/paytems';
+import { fetchHicTarget, fetchVatThreshold, computeVat } from '@/lib/admin';
 import InventoryChart from '@/components/ui/InventoryChart';
 import CalcCard from '@/components/ui/CalcCard';
 import {
@@ -196,6 +197,11 @@ export default function NewRequestPage() {
   const [chartTower,       setChartTower]       = useState<string | null>(null);
   const [resFinancials,    setResFinancials]    = useState<ResFinancials | null>(null);
 
+  // VAT threshold for restructuring (current unit); HIC+VAT for COU new unit
+  const [vatThreshold,    setVatThreshold]    = useState<number | null>(null);
+  const [newHicTarget,    setNewHicTarget]    = useState<number | null>(null);
+  const [newVatThreshold, setNewVatThreshold] = useState<number | null>(null);
+
   // Live timestamp
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -225,13 +231,14 @@ export default function NewRequestPage() {
     const promoAmt     = Math.round(newLP * promoRate);
     const employeeAmt  = Math.round(newLP * employeeRate);
     const paytermAmt   = Math.round(newLP * resFinancials.paytermDiscountPct / 100);
-    const hicAmt       = newUnit.hic ? resFinancials.hicDiscount : 0;
-    const nlpRaw       = newLP - promoAmt - employeeAmt - paytermAmt - hicAmt;
-    const vat          = resFinancials.hasVat ? Math.round(nlpRaw * 0.12) : 0;
+    const nlpBeforeHIC = newLP - promoAmt - employeeAmt - paytermAmt;
+    const hicAmt       = (newUnit.hic && newHicTarget != null) ? Math.max(0, nlpBeforeHIC - newHicTarget) : 0;
+    const nlpRaw       = nlpBeforeHIC - hicAmt;
+    const vat          = newVatThreshold != null ? computeVat(nlpRaw, newVatThreshold) : 0;
     const oc           = Math.round(nlpRaw * 0.07);
     const tcp          = nlpRaw + vat + oc + hicAmt;
     return { newLP, promoAmt, employeeAmt, paytermAmt, hicAmt, nlp: nlpRaw, vat, oc, tcp };
-  }, [newUnit, resFinancials]);
+  }, [newUnit, resFinancials, newHicTarget, newVatThreshold]);
 
   // Payment Schedule Restructuring: derived paytems options + new TCP
   const isRestructuring = typeOfRequest === 'Payment Schedule Restructuring';
@@ -275,19 +282,36 @@ export default function NewRequestPage() {
     });
     if (!match) return null;
 
-    const lp          = resFinancials.listPrice;
-    const discPct     = Number(match.discount) || 0;
-    const paytermAmt  = Math.round(lp * discPct / 100);
-    const promoAmt    = resFinancials.promoDiscountAmount;
-    const employeeAmt = resFinancials.employeeDiscountAmount;
-    const hicAmt      = resFinancials.hicDiscount;
-    const nlp         = lp - promoAmt - employeeAmt - paytermAmt - hicAmt;
-    const vat         = resFinancials.hasVat ? Math.round(nlp * 0.12) : 0;
-    const oc          = Math.round(nlp * OTHER_CHARGES_RATE);
-    const tcp         = nlp + vat + oc + hicAmt;
-    const termMonths  = parseInt(match.term ?? '') || 0;
+    const lp           = resFinancials.listPrice;
+    const discPct      = Number(match.discount) || 0;
+    const paytermAmt   = Math.round(lp * discPct / 100);
+    const promoAmt     = resFinancials.promoDiscountAmount;
+    const employeeAmt  = resFinancials.employeeDiscountAmount;
+    const nlpBeforeHIC = lp - promoAmt - employeeAmt - paytermAmt;
+    // hicTarget = resFinancials.netListPrice: NLP after HIC is exactly the configured target
+    const hicAmt       = resFinancials.hicDiscount > 0
+      ? Math.max(0, nlpBeforeHIC - resFinancials.netListPrice) : 0;
+    const nlp          = nlpBeforeHIC - hicAmt;
+    const vat          = vatThreshold != null ? computeVat(nlp, vatThreshold) : resFinancials.hasVat ? Math.round(nlp * 0.12) : 0;
+    const oc           = Math.round(nlp * OTHER_CHARGES_RATE);
+    const tcp          = nlp + vat + oc + hicAmt;
+    const termMonths   = parseInt(match.term ?? '') || 0;
     return { match, discPct, paytermAmt, promoAmt, employeeAmt, hicAmt, nlp, vat, oc, tcp, termMonths };
-  }, [isRestructuring, rPaymentScheme, rDpRate, rTermStr, paytems, resFinancials]);
+  }, [isRestructuring, rPaymentScheme, rDpRate, rTermStr, paytems, resFinancials, vatThreshold]);
+
+  // Fetch HIC target + VAT threshold for new unit (Change of Unit)
+  useEffect(() => {
+    setNewHicTarget(null);
+    setNewVatThreshold(null);
+    if (!newUnit?.product_type) return;
+    Promise.all([
+      fetchHicTarget(newUnit.product_type),
+      fetchVatThreshold(newUnit.product_type),
+    ]).then(([h, v]) => {
+      setNewHicTarget(h);
+      setNewVatThreshold(v);
+    }).catch(() => {});
+  }, [newUnit]);
 
   // Lock chart tower to buyer's own tower
   useEffect(() => {
@@ -356,10 +380,10 @@ export default function NewRequestPage() {
       ).catch(() => {}).finally(() => setPaytermLoading(false));
     }
 
-    // Fetch reservation financials
+    // Fetch reservation financials + unit_type for HIC/VAT product type derivation
     supabase
       .from('reservations')
-      .select('list_price, promo_discount_amount, employee_discount_amount, hic_discount, payterm_discount_pct, net_list_price, vat, other_charges, total_contract_price, reservation_fee, retention_fee, unit_area, scheme_name, payment_scheme, term_months, dp_rate')
+      .select('list_price, promo_discount_amount, employee_discount_amount, hic_discount, payterm_discount_pct, net_list_price, vat, other_charges, total_contract_price, reservation_fee, retention_fee, unit_area, scheme_name, payment_scheme, term_months, dp_rate, unit_type')
       .eq('reservation_id', b.reservation_id)
       .single()
       .then(({ data }) => {
@@ -384,7 +408,12 @@ export default function NewRequestPage() {
           termMonths:             Number(d.term_months)             || 0,
           dpRate:                 (d.dp_rate ?? '').replace('%', ''),
         });
+        // Derive product_type for VAT threshold (restructuring uses same unit, no HIC fetch needed)
+        const pt = (d.unit_type as string | null)?.toLowerCase().includes('parking')
+          ? 'Parking' : 'Residential';
+        fetchVatThreshold(pt).then(setVatThreshold).catch(() => {});
       });
+
   }
 
   function clearSearch() {
@@ -394,6 +423,8 @@ export default function NewRequestPage() {
     setShowResults(false);
     setLookupErr('');
     setResFinancials(null);
+    setVatThreshold(null);
+    setNewHicTarget(null); setNewVatThreshold(null);
     setPaytems([]); setPaytermLoading(false);
     setRPaymentScheme(''); setRDpRate(''); setRTermStr(''); setRComputed(false);
   }
@@ -424,6 +455,16 @@ export default function NewRequestPage() {
         new_payterm_code:    isRestructuring ? (restructureDerived?.match.payterm_code ?? null) : null,
         new_payterm_scheme:  isRestructuring ? rPaymentScheme || null : null,
         new_term_months:     isRestructuring ? (restructureDerived?.termMonths ?? null) : null,
+        // Snapshot the computed new financials so previews match exactly what was shown
+        new_list_price:   typeOfRequest === 'Change of Unit' ? (newCalc?.newLP ?? null)          : (restructureDerived ? resFinancials?.listPrice ?? null : null),
+        new_promo_amt:    typeOfRequest === 'Change of Unit' ? (newCalc?.promoAmt ?? null)        : (restructureDerived?.promoAmt ?? null),
+        new_employee_amt: typeOfRequest === 'Change of Unit' ? (newCalc?.employeeAmt ?? null)     : (restructureDerived?.employeeAmt ?? null),
+        new_payterm_amt:  typeOfRequest === 'Change of Unit' ? (newCalc?.paytermAmt ?? null)      : (restructureDerived?.paytermAmt ?? null),
+        new_hic_amt:      typeOfRequest === 'Change of Unit' ? (newCalc?.hicAmt ?? null)          : (restructureDerived?.hicAmt ?? null),
+        new_nlp:          typeOfRequest === 'Change of Unit' ? (newCalc?.nlp ?? null)             : (restructureDerived?.nlp ?? null),
+        new_vat:          typeOfRequest === 'Change of Unit' ? (newCalc?.vat ?? null)             : (restructureDerived?.vat ?? null),
+        new_oc:           typeOfRequest === 'Change of Unit' ? (newCalc?.oc ?? null)              : (restructureDerived?.oc ?? null),
+        new_tcp:          typeOfRequest === 'Change of Unit' ? (newCalc?.tcp ?? null)             : (restructureDerived?.tcp ?? null),
       }).select('ticket_id').single();
       if (error) throw error;
       setTicketId((inserted as { ticket_id: string | null } | null)?.ticket_id ?? null);
@@ -707,6 +748,7 @@ export default function NewRequestPage() {
                     unitArea={resFinancials.unitArea}
                     schemeName={resFinancials.schemeName}
                     category={newUnit.product_type}
+                    isHic={resFinancials.hicDiscount > 0}
                     listPrice={resFinancials.listPrice}
                     promoAmt={resFinancials.promoDiscountAmount}
                     promoPct={resFinancials.listPrice > 0 ? resFinancials.promoDiscountAmount / resFinancials.listPrice * 100 : 0}
@@ -728,6 +770,7 @@ export default function NewRequestPage() {
                     unitArea={newUnit.unit_area}
                     schemeName={resFinancials.schemeName}
                     category={newUnit.product_type}
+                    isHic={!!newUnit.hic}
                     listPrice={newCalc.newLP}
                     promoAmt={newCalc.promoAmt}
                     promoPct={newCalc.newLP > 0 ? newCalc.promoAmt / newCalc.newLP * 100 : 0}
@@ -777,6 +820,7 @@ export default function NewRequestPage() {
                       category={null}
                       termMonths={resFinancials.termMonths || undefined}
                       dpRate={resFinancials.dpRate || undefined}
+                      isHic={resFinancials.hicDiscount > 0}
                       listPrice={resFinancials.listPrice}
                       promoAmt={resFinancials.promoDiscountAmount}
                       promoPct={resFinancials.listPrice > 0 ? resFinancials.promoDiscountAmount / resFinancials.listPrice * 100 : 0}
@@ -800,6 +844,7 @@ export default function NewRequestPage() {
                       category={null}
                       termMonths={restructureDerived.termMonths}
                       dpRate={rDpRate || undefined}
+                      isHic={resFinancials.hicDiscount > 0}
                       listPrice={resFinancials.listPrice}
                       promoAmt={restructureDerived.promoAmt}
                       promoPct={resFinancials.listPrice > 0 ? restructureDerived.promoAmt / resFinancials.listPrice * 100 : 0}

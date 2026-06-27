@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import { COUNTRY_CODES } from '@/lib/client-form-options';
+import { PH_PROVINCES, PH_CITIES } from '@/lib/ph-locations';
 import { saveCoOwner, fetchCoOwner } from '@/lib/co-owners';
 import { supabase } from '@/lib/supabase';
 import { fetchSpouseInfo, SpouseInfoRecord } from '@/lib/spouse-info';
@@ -50,17 +51,17 @@ function TextInput({ value, onChange, placeholder, disabled }: {
 function SelectInput({ value, options, onChange, placeholder, disabled }: {
   value: string; options: string[]; onChange: (v: string) => void; placeholder: string; disabled?: boolean;
 }) {
-  if (disabled) return (
-    <div className="w-full px-3 py-2.5 rounded-xl border border-black/[0.06] bg-[#F2F2F7]/50 text-sm text-[#6C6C70]">
-      {value || '—'}
-    </div>
-  );
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (open && ref.current)
       setTimeout(() => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 30);
   }, [open]);
+  if (disabled) return (
+    <div className="w-full px-3 py-2.5 rounded-xl border border-black/[0.06] bg-[#F2F2F7]/50 text-sm text-[#6C6C70]">
+      {value || '—'}
+    </div>
+  );
   return (
     <div>
       <div role="button" tabIndex={0}
@@ -92,11 +93,6 @@ function SearchableSelect({ value, options, onChange, placeholder, disabled }: {
   value: string; options: { label: string; flag?: string }[];
   onChange: (v: string) => void; placeholder: string; disabled?: boolean;
 }) {
-  if (disabled) return (
-    <div className="w-full px-3 py-2.5 rounded-xl border border-black/[0.06] bg-[#F2F2F7]/50 text-sm text-[#6C6C70]">
-      {value || '—'}
-    </div>
-  );
   const [open, setOpen]   = useState(false);
   const [query, setQuery] = useState('');
   const ref = useRef<HTMLDivElement>(null);
@@ -105,6 +101,11 @@ function SearchableSelect({ value, options, onChange, placeholder, disabled }: {
     if (open && ref.current)
       setTimeout(() => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 30);
   }, [open]);
+  if (disabled) return (
+    <div className="w-full px-3 py-2.5 rounded-xl border border-black/[0.06] bg-[#F2F2F7]/50 text-sm text-[#6C6C70]">
+      {value || '—'}
+    </div>
+  );
   return (
     <div>
       <div role="button" tabIndex={0}
@@ -146,11 +147,6 @@ function PhoneInputField({ code, onCodeChange, number, onNumberChange, disabled 
   code: string; onCodeChange: (v: string) => void;
   number: string; onNumberChange: (v: string) => void; disabled?: boolean;
 }) {
-  if (disabled) return (
-    <div className="w-full px-3 py-2.5 rounded-xl border border-black/[0.06] bg-[#F2F2F7]/50 text-sm text-[#6C6C70]">
-      {code} {number || '—'}
-    </div>
-  );
   const [open, setOpen]   = useState(false);
   const [query, setQuery] = useState('');
   const ref = useRef<HTMLDivElement>(null);
@@ -162,6 +158,11 @@ function PhoneInputField({ code, onCodeChange, number, onNumberChange, disabled 
     if (open && ref.current)
       setTimeout(() => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 30);
   }, [open]);
+  if (disabled) return (
+    <div className="w-full px-3 py-2.5 rounded-xl border border-black/[0.06] bg-[#F2F2F7]/50 text-sm text-[#6C6C70]">
+      {code} {number || '—'}
+    </div>
+  );
   return (
     <div>
       <div className="flex gap-2">
@@ -584,13 +585,28 @@ export default function CoOwnerPage() {
             <SelectInput value={homeOwnership} options={HOME_OWNERSHIP_OPTIONS} onChange={setHomeOwnership} placeholder="Select home ownership" disabled={isSaved || sameAsSpouse} />
           </InputRow>
           <InputRow label="Country" icon={<Globe size={11} />}>
-            <SearchableSelect value={country} options={COUNTRY_OPTIONS} onChange={setCountry} placeholder="Select country" disabled={isSaved || sameAsSpouse} />
+            <SearchableSelect value={country} options={COUNTRY_OPTIONS}
+              onChange={v => { setCountry(v); if (v !== 'Philippines') { setRegionProvince(''); setCityMunicipality(''); } }}
+              placeholder="Select country" disabled={isSaved || sameAsSpouse} />
           </InputRow>
           <InputRow label="Region / Province" icon={<MapPin size={11} />}>
-            <TextInput value={regionProvince} onChange={setRegionProvince} placeholder="e.g. Metro Manila" disabled={isSaved || sameAsSpouse} />
+            {country === 'Philippines'
+              ? <SearchableSelect value={regionProvince}
+                  options={PH_PROVINCES.map(p => ({ label: p }))}
+                  onChange={v => { setRegionProvince(v); setCityMunicipality(''); }}
+                  placeholder="Select region / province" disabled={isSaved || sameAsSpouse} />
+              : <TextInput value={regionProvince} onChange={setRegionProvince} placeholder="e.g. Metro Manila" disabled={isSaved || sameAsSpouse} />
+            }
           </InputRow>
           <InputRow label="City / Municipality" icon={<MapPin size={11} />}>
-            <TextInput value={cityMunicipality} onChange={setCityMunicipality} placeholder="e.g. Quezon City" disabled={isSaved || sameAsSpouse} />
+            {country === 'Philippines'
+              ? <SearchableSelect value={cityMunicipality}
+                  options={(PH_CITIES[regionProvince] ?? []).map(c => ({ label: c }))}
+                  onChange={setCityMunicipality}
+                  placeholder={regionProvince ? 'Select city / municipality' : 'Select region first'}
+                  disabled={isSaved || sameAsSpouse || !regionProvince} />
+              : <TextInput value={cityMunicipality} onChange={setCityMunicipality} placeholder="e.g. Quezon City" disabled={isSaved || sameAsSpouse} />
+            }
           </InputRow>
           <InputRow label="Barangay / Address Line 1" icon={<MapPin size={11} />}>
             <TextInput value={barangayLine1} onChange={setBarangayLine1} placeholder="e.g. Brgy. Commonwealth" disabled={isSaved || sameAsSpouse} />
@@ -659,13 +675,28 @@ export default function CoOwnerPage() {
           <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Work Address Information</p>
 
           <InputRow label="Country" icon={<Globe size={11} />}>
-            <SearchableSelect value={workCountry} options={COUNTRY_OPTIONS} onChange={setWorkCountry} placeholder="Select country" disabled={isSaved || sameAsSpouse} />
+            <SearchableSelect value={workCountry} options={COUNTRY_OPTIONS}
+              onChange={v => { setWorkCountry(v); if (v !== 'Philippines') { setWorkRegionProvince(''); setWorkCityMunicipality(''); } }}
+              placeholder="Select country" disabled={isSaved || sameAsSpouse} />
           </InputRow>
           <InputRow label="Region / Province" icon={<MapPin size={11} />}>
-            <TextInput value={workRegionProvince} onChange={setWorkRegionProvince} placeholder="e.g. Metro Manila" disabled={isSaved || sameAsSpouse} />
+            {workCountry === 'Philippines'
+              ? <SearchableSelect value={workRegionProvince}
+                  options={PH_PROVINCES.map(p => ({ label: p }))}
+                  onChange={v => { setWorkRegionProvince(v); setWorkCityMunicipality(''); }}
+                  placeholder="Select region / province" disabled={isSaved || sameAsSpouse} />
+              : <TextInput value={workRegionProvince} onChange={setWorkRegionProvince} placeholder="e.g. Metro Manila" disabled={isSaved || sameAsSpouse} />
+            }
           </InputRow>
           <InputRow label="City / Municipality" icon={<MapPin size={11} />}>
-            <TextInput value={workCityMunicipality} onChange={setWorkCityMunicipality} placeholder="e.g. Makati City" disabled={isSaved || sameAsSpouse} />
+            {workCountry === 'Philippines'
+              ? <SearchableSelect value={workCityMunicipality}
+                  options={(PH_CITIES[workRegionProvince] ?? []).map(c => ({ label: c }))}
+                  onChange={setWorkCityMunicipality}
+                  placeholder={workRegionProvince ? 'Select city / municipality' : 'Select region first'}
+                  disabled={isSaved || sameAsSpouse || !workRegionProvince} />
+              : <TextInput value={workCityMunicipality} onChange={setWorkCityMunicipality} placeholder="e.g. Makati City" disabled={isSaved || sameAsSpouse} />
+            }
           </InputRow>
           <InputRow label="Barangay" icon={<MapPin size={11} />}>
             <TextInput value={workBarangay} onChange={setWorkBarangay} placeholder="e.g. Brgy. Poblacion" disabled={isSaved || sameAsSpouse} />

@@ -6,8 +6,8 @@ import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import { supabase } from '@/lib/supabase';
 import {
-  FilePlus, ChevronRight, Building2, User,
-  CheckCircle2, Clock, ShieldCheck, ListChecks, BookmarkCheck,
+  FilePlus, ChevronRight, Building2,
+  CheckCircle2, Clock, ShieldCheck, ListChecks,
 } from 'lucide-react';
 import { getSession } from '@/lib/auth';
 
@@ -164,30 +164,6 @@ export default function ReservationPage() {
             <div>
               <p className="text-sm font-semibold text-[#1C1C1E]">Reserved Units</p>
               <p className="text-[11px] text-[#8E8E93]">{loading ? '…' : `${counts.total} total reservations`}</p>
-            </div>
-          </div>
-          <ChevronRight size={16} className="text-[#C7C7CC]" />
-        </button>
-
-        {/* ── Saved Quotations shortcut ───────────────────── */}
-        <button
-          type="button"
-          onClick={() => router.push('/sales/quotations')}
-          className="w-full flex items-center justify-between px-4 py-3.5 rounded-2xl active:scale-[0.98] transition-transform"
-          style={{
-            background: 'rgba(255,255,255,0.80)',
-            backdropFilter: 'blur(12px)',
-            border: '1px solid rgba(0,0,0,0.07)',
-            boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
-          }}
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'rgba(192,61,37,0.10)' }}>
-              <BookmarkCheck size={18} style={{ color: '#C03D25' }} />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-[#1C1C1E]">Saved Quotations</p>
-              <p className="text-[11px] text-[#8E8E93]">Proceed quotations to reservation</p>
             </div>
           </div>
           <ChevronRight size={16} className="text-[#C7C7CC]" />

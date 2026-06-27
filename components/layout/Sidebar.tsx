@@ -7,7 +7,7 @@ import {
   UserPlus, CalendarCheck, BookOpen, DollarSign,
   ShieldCheck, FolderOpen, MessageSquare, Receipt, CreditCard,
   Wallet, Banknote, BookMarked, Users, UserCog, LayoutDashboard,
-  X, ChevronDown, LogOut, Home, Settings, Database, Mail, Paperclip, BookmarkCheck,
+  X, ChevronDown, LogOut, Home, Settings, Database, Mail, Paperclip, BookmarkCheck, Monitor,
 } from 'lucide-react';
 import { NavGroup } from '@/types';
 import { signOut } from '@/lib/auth';
@@ -18,6 +18,7 @@ const NAV: NavGroup[] = [
     title: 'Sales Transaction',
     items: [
       { label: 'Client Registration',         href: '/sales/client-registration', icon: 'UserPlus' },
+      { label: 'Presentation',               href: '/sales/presentation',         icon: 'Monitor' },
       { label: 'Reservation',                 href: '/sales/reservation',         icon: 'CalendarCheck' },
       { label: 'Booking',                     href: '/sales/booking',             icon: 'BookOpen' },
       { label: 'Sales Commission',            href: '/sales/sales-commission',    icon: 'DollarSign' },
@@ -56,6 +57,7 @@ const PRIVILEGED_ROLES = ['All Access', 'Sales Director', 'Account Management', 
 
 const SELLER_ALLOWED_HREFS = new Set([
   '/sales/client-registration',
+  '/sales/presentation',
   '/sales/reservation',
   '/sales/booking',
   '/sales/quotations',
@@ -66,6 +68,7 @@ const SELLER_ALLOWED_HREFS = new Set([
 
 const DIRECTOR_ALLOWED_HREFS = new Set([
   '/sales/client-registration',
+  '/sales/presentation',
   '/sales/reservation',
   '/sales/booking',
   '/sales/quotations',
@@ -91,7 +94,7 @@ const FINANCE_ALLOWED_HREFS = new Set([
 const ICONS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
   UserPlus, CalendarCheck, BookOpen, DollarSign,
   ShieldCheck, FolderOpen, MessageSquare, Receipt, CreditCard,
-  Wallet, Banknote, BookMarked, Users, UserCog, LayoutDashboard, Database, Paperclip, BookmarkCheck,
+  Wallet, Banknote, BookMarked, Users, UserCog, LayoutDashboard, Database, Paperclip, BookmarkCheck, Monitor,
 };
 
 interface SidebarProps {

@@ -43,9 +43,19 @@ export interface RequestRecord {
   remaining_balance:  number | null;
   requested_by:       string | null;
   requested_by_name:  string | null;
+  // Stored computed financials (snapshot at submission time)
+  new_list_price:     number | null;
+  new_promo_amt:      number | null;
+  new_employee_amt:   number | null;
+  new_payterm_amt:    number | null;
+  new_hic_amt:        number | null;
+  new_nlp:            number | null;
+  new_vat:            number | null;
+  new_oc:             number | null;
+  new_tcp:            number | null;
 }
 
-const SELECT_FIELDS = 'id, ticket_id, reservation_id, client_id, client_name, project_name, inventory_code, type_of_request, sub_type, request_category, turnaround_days, description, status, submitted_at, approval_status, resolution_status, approved_by, date_approved, new_inventory_code, new_payterm_code, new_payterm_scheme, new_term_months, remaining_balance, requested_by, requested_by_name';
+const SELECT_FIELDS = 'id, ticket_id, reservation_id, client_id, client_name, project_name, inventory_code, type_of_request, sub_type, request_category, turnaround_days, description, status, submitted_at, approval_status, resolution_status, approved_by, date_approved, new_inventory_code, new_payterm_code, new_payterm_scheme, new_term_months, remaining_balance, requested_by, requested_by_name, new_list_price, new_promo_amt, new_employee_amt, new_payterm_amt, new_hic_amt, new_nlp, new_vat, new_oc, new_tcp';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -153,32 +163,19 @@ function ComparisonCards({ r, resFin, newUnitFin, newPayterm, isChangeOfUnit }: 
   r: RequestRecord; resFin: ResFin; newUnitFin: NewUnitFin | null;
   newPayterm: SheetNewPayterm | null; isChangeOfUnit: boolean;
 }) {
-  const couNew = (() => {
-    if (!isChangeOfUnit || !newUnitFin || newUnitFin.listPrice === 0) return null;
-    const newLP    = newUnitFin.listPrice;
-    const promoAmt = Math.round(newLP * resFin.promoRate / 100);
-    const empAmt   = Math.round(newLP * resFin.employeeRate / 100);
-    const ptAmt    = Math.round(newLP * resFin.paytermDiscPct / 100);
-    const hicAmt   = newUnitFin.hic ? resFin.hicAmt : 0;
-    const nlp      = newLP - promoAmt - empAmt - ptAmt - hicAmt;
-    const vat      = resFin.hasVat ? Math.round(nlp * 0.12) : 0;
-    const oc       = Math.round(nlp * 0.07);
-    const tcp      = nlp + vat + oc + hicAmt;
-    return { newLP, promoAmt, empAmt, ptAmt, hicAmt, nlp, vat, oc, tcp };
-  })();
+  // Use stored financials — these are the exact values computed at submission time
+  const hasStoredNewFin = r.new_tcp != null && r.new_nlp != null;
+  const newLP      = Number(r.new_list_price)   || 0;
+  const newPromo   = Number(r.new_promo_amt)    || 0;
+  const newEmp     = Number(r.new_employee_amt) || 0;
+  const newPtAmt   = Number(r.new_payterm_amt)  || 0;
+  const newHicAmt  = Number(r.new_hic_amt)      || 0;
+  const newNlp     = Number(r.new_nlp)          || 0;
+  const newVat     = Number(r.new_vat)          || 0;
+  const newOc      = Number(r.new_oc)           || 0;
+  const newTcp     = Number(r.new_tcp)          || 0;
 
-  const rsNew = (() => {
-    if (isChangeOfUnit || !newPayterm) return null;
-    const lp    = resFin.listPrice;
-    const ptAmt = Math.round(lp * newPayterm.discPct / 100);
-    const nlp   = lp - resFin.promoAmt - resFin.employeeAmt - ptAmt - resFin.hicAmt;
-    const vat   = resFin.hasVat ? Math.round(nlp * 0.12) : 0;
-    const oc    = Math.round(nlp * 0.07);
-    const tcp   = nlp + vat + oc + resFin.hicAmt;
-    return { ptAmt, nlp, vat, oc, tcp };
-  })();
-
-  const showNew = isChangeOfUnit ? !!couNew : !!rsNew;
+  const showNew = hasStoredNewFin && (isChangeOfUnit ? !!newUnitFin : !!newPayterm);
 
   return (
     <div className="grid grid-cols-2 [grid-template-rows:auto_1fr] gap-2 overflow-x-auto -mx-5 px-5">
@@ -189,6 +186,7 @@ function ComparisonCards({ r, resFin, newUnitFin, newPayterm, isChangeOfUnit }: 
         schemeName={resFin.schemeName}
         dpRate={resFin.dpRate || undefined}
         termMonths={resFin.termMonths || undefined}
+        isHic={resFin.hicAmt > 0}
         listPrice={resFin.listPrice}
         promoAmt={resFin.promoAmt}
         promoPct={resFin.promoRate}
@@ -204,7 +202,7 @@ function ComparisonCards({ r, resFin, newUnitFin, newPayterm, isChangeOfUnit }: 
         reservationFee={resFin.resFee}
         retentionFee={resFin.retFee}
       />
-      {showNew && isChangeOfUnit && couNew ? (
+      {showNew && isChangeOfUnit ? (
         <CalcCard
           title="New Unit"
           unitCode={r.new_inventory_code}
@@ -212,23 +210,24 @@ function ComparisonCards({ r, resFin, newUnitFin, newPayterm, isChangeOfUnit }: 
           schemeName={resFin.schemeName}
           dpRate={resFin.dpRate || undefined}
           termMonths={resFin.termMonths || undefined}
-          listPrice={couNew.newLP}
-          promoAmt={couNew.promoAmt}
-          promoPct={resFin.promoRate}
-          employeeAmt={couNew.empAmt}
-          employeePct={resFin.employeeRate}
-          paytermAmt={couNew.ptAmt}
+          isHic={newHicAmt > 0}
+          listPrice={newLP}
+          promoAmt={newPromo}
+          promoPct={newLP > 0 ? newPromo / newLP * 100 : 0}
+          employeeAmt={newEmp}
+          employeePct={newLP > 0 ? newEmp / newLP * 100 : 0}
+          paytermAmt={newPtAmt}
           paytermPct={resFin.paytermDiscPct}
-          hicAmt={couNew.hicAmt}
-          nlp={couNew.nlp}
-          vat={couNew.vat}
-          otherCharges={couNew.oc}
-          tcp={couNew.tcp}
+          hicAmt={newHicAmt}
+          nlp={newNlp}
+          vat={newVat}
+          otherCharges={newOc}
+          tcp={newTcp}
           reservationFee={resFin.resFee}
           retentionFee={resFin.retFee}
           highlight
         />
-      ) : showNew && !isChangeOfUnit && rsNew && newPayterm ? (
+      ) : showNew && !isChangeOfUnit && newPayterm ? (
         <CalcCard
           title="New Terms"
           unitCode={r.inventory_code}
@@ -236,18 +235,19 @@ function ComparisonCards({ r, resFin, newUnitFin, newPayterm, isChangeOfUnit }: 
           schemeName={newPayterm.schemeName}
           dpRate={newPayterm.dpRate || undefined}
           termMonths={newPayterm.termMonths || undefined}
-          listPrice={resFin.listPrice}
-          promoAmt={resFin.promoAmt}
-          promoPct={resFin.promoRate}
-          employeeAmt={resFin.employeeAmt}
-          employeePct={resFin.employeeRate}
-          paytermAmt={rsNew.ptAmt}
+          isHic={newHicAmt > 0}
+          listPrice={newLP}
+          promoAmt={newPromo}
+          promoPct={newLP > 0 ? newPromo / newLP * 100 : 0}
+          employeeAmt={newEmp}
+          employeePct={newLP > 0 ? newEmp / newLP * 100 : 0}
+          paytermAmt={newPtAmt}
           paytermPct={newPayterm.discPct}
-          hicAmt={resFin.hicAmt}
-          nlp={rsNew.nlp}
-          vat={rsNew.vat}
-          otherCharges={rsNew.oc}
-          tcp={rsNew.tcp}
+          hicAmt={newHicAmt}
+          nlp={newNlp}
+          vat={newVat}
+          otherCharges={newOc}
+          tcp={newTcp}
           reservationFee={resFin.resFee}
           retentionFee={resFin.retFee}
           highlight
@@ -327,17 +327,17 @@ export function RequestDetailSheet({
       };
       setResFin(fin);
 
+      // For COU: only need unit area for display (financials come from stored r.new_*)
       if (isChangeOfUnit && r.new_inventory_code) {
         const code = r.new_inventory_code.trim();
         const { data: unit } = await supabase
           .from('Inventory')
-          .select('"Inventory Code", "Total List Price", "Unit Area", HIC')
+          .select('"Inventory Code", "Unit Area", HIC')
           .eq('"Inventory Code"', code)
           .maybeSingle();
         if (unit) {
           const raw = unit as Record<string, unknown>;
-          const lp = parseFloat(String(raw['Total List Price'] ?? '0').replace(/,/g, '')) || 0;
-          setNewUnitFin({ listPrice: lp, unitArea: Number(raw['Unit Area']) || 0, hic: !!raw['HIC'] });
+          setNewUnitFin({ listPrice: 0, unitArea: Number(raw['Unit Area']) || 0, hic: !!raw['HIC'] });
         }
       }
 
