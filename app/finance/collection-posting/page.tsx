@@ -928,11 +928,9 @@ function LinesOverlay({
 
   useEffect(() => { load(); }, [load]);
 
-  const [showSuperseded, setShowSuperseded] = useState(false);
 
   const today           = localToday();
   const activeLines     = lines.filter(l => l.payment_status !== 'Superseded');
-  const supersededLines = lines.filter(l => l.payment_status === 'Superseded');
   const unpaidLines     = activeLines.filter(l => l.payment_status !== 'Paid');
 
   function lineStatusStyle(line: ReceivableLine): React.CSSProperties {
@@ -1071,19 +1069,6 @@ function LinesOverlay({
                 .sort((a, b) => a.due_date.localeCompare(b.due_date));
               const paidLines     = activeLines.filter(l => l.payment_status === 'Paid')
                 .sort((a, b) => a.due_date.localeCompare(b.due_date));
-              // Superseded lines from the immediately preceding schedule only.
-              // latestBrfRequestId filters out lines from older BRF rounds so the
-              // "Prior Schedule" section doesn't accumulate across multiple restructurings.
-              // RF is excluded — it never changes across restructurings and belongs
-              // in the active Paid section (new RF line), not in history.
-              const priorPaidLines = supersededLines.filter(l =>
-                Number(l.amount_paid) > 0 &&
-                l.type_of_payment !== 'Reservation Fee' &&
-                (latestBrfRequestId
-                  ? l.superseded_by_request_id === latestBrfRequestId
-                  : true)
-              ).sort((a, b) => a.due_date.localeCompare(b.due_date));
-
               function LineCard({ line }: { line: ReceivableLine }) {
                 const isPaid    = line.payment_status === 'Paid';
                 const isPartial = line.payment_status === 'Partial';
@@ -1209,60 +1194,10 @@ function LinesOverlay({
 
               return (
                 <>
-                  {(paidLines.length > 0 || priorPaidLines.length > 0) && (
+                  {paidLines.length > 0 && (
                     <div className="space-y-2">
-                      <SectionDivider label={`Paid · ${paidLines.length + priorPaidLines.length}`} color="#1A7F37" />
+                      <SectionDivider label={`Paid · ${paidLines.length}`} color="#1A7F37" />
                       {paidLines.map(l => <LineCard key={l.id} line={l} />)}
-                      {priorPaidLines.map(l => {
-                        const paidAmt = Number(l.amount_paid) || 0;
-                        const ratio   = l.total_amount_due > 0 ? paidAmt / l.total_amount_due : 0;
-                        const bp = Math.round((Number(l.principal)     || 0) * ratio);
-                        const bh = l.hic != null ? Math.round(Number(l.hic) * ratio) : null;
-                        const bv = Math.round((Number(l.vat)           || 0) * ratio);
-                        const bo = Math.round((Number(l.other_charges) || 0) * ratio);
-                        const items = [
-                          { label: 'Principal', value: bp },
-                          bh != null && bh > 0 ? { label: 'HIC',     value: bh } : null,
-                          bv > 0               ? { label: 'VAT',     value: bv } : null,
-                          bo > 0               ? { label: 'Charges', value: bo } : null,
-                        ].filter(Boolean) as { label: string; value: number }[];
-                        return (
-                          <div
-                            key={l.id}
-                            className="rounded-3xl bg-white overflow-hidden"
-                            style={{ border: '1px solid rgba(0,0,0,0.08)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}
-                          >
-                            <div className="flex items-center justify-between px-4 py-3">
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-semibold text-[#1C1C1E] truncate">{l.type_of_payment}</p>
-                                <p className="text-xs text-[#8E8E93] mt-0.5">Due {fmtDate(l.due_date)}</p>
-                              </div>
-                              <div className="flex items-center gap-2 shrink-0 ml-3">
-                                <p className="text-sm font-bold text-[#1C1C1E]">{fmtPeso(paidAmt)}</p>
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                                  style={{ background: 'rgba(52,199,89,0.12)', color: '#1A7F37' }}>
-                                  Partial Paid
-                                </span>
-                              </div>
-                            </div>
-                            {items.length > 1 && (
-                              <div className="border-t border-black/[0.06] px-4 py-2.5 bg-[#FAFAFA]">
-                                <div className="flex flex-wrap gap-x-5 gap-y-1.5">
-                                  {items.map(item => (
-                                    <div key={item.label}>
-                                      <p className="text-[9px] font-bold text-[#8E8E93] uppercase tracking-wider">{item.label}</p>
-                                      <p className="text-[11px] font-semibold text-[#3C3C43]">{fmtPeso(item.value)}</p>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                            <div className="border-t border-black/[0.06] px-4 py-1.5 bg-[#FAFAFA]">
-                              <p className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wider">Prior schedule · restructured</p>
-                            </div>
-                          </div>
-                        );
-                      })}
                     </div>
                   )}
                   {overdueLines.length > 0 && (
@@ -1437,47 +1372,6 @@ function LinesOverlay({
               );
             })()}
 
-            {/* Superseded lines (collapsed by default) */}
-            {supersededLines.length > 0 && (
-              <div className="pt-1">
-                <button
-                  type="button"
-                  onClick={() => setShowSuperseded(p => !p)}
-                  className="w-full flex items-center gap-2 py-2 px-1"
-                >
-                  <div className="flex-1 h-px bg-[#E5E5EA]" />
-                  <span className="text-[11px] font-semibold text-[#8E8E93] shrink-0">
-                    {showSuperseded ? 'Hide' : 'Show'} {supersededLines.length} superseded
-                  </span>
-                  <div className="flex-1 h-px bg-[#E5E5EA]" />
-                </button>
-                {showSuperseded && (
-                  <div className="space-y-2 mt-1 opacity-50">
-                    {supersededLines.map(line => (
-                      <div
-                        key={line.id}
-                        className="rounded-3xl bg-white overflow-hidden"
-                        style={{ border: '1px solid rgba(0,0,0,0.06)' }}
-                      >
-                        <div className="flex items-center justify-between px-4 py-3">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-[#8E8E93] truncate line-through">{line.type_of_payment}</p>
-                            <p className="text-xs text-[#C7C7CC] mt-0.5">Due {fmtDate(line.due_date)}</p>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <p className="text-sm font-semibold text-[#8E8E93]">{fmtPeso(line.total_amount_due)}</p>
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                              style={{ background: 'rgba(142,142,147,0.12)', color: '#8E8E93' }}>
-                              Superseded
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
           </>
         )}
       </div>
