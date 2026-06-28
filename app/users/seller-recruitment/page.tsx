@@ -933,7 +933,7 @@ function AddSheet({ onClose, onAdded }: {
       const { data: dup } = await supabase
         .from('Salesperson')
         .select('seller_name')
-        .ilike('"Email Address"', form.email_address.trim())
+        .ilike('"Email Address"', (form.email_address ?? '').trim())
         .limit(1);
       if (dup && dup.length > 0) {
         setError(`Email address is already used by ${(dup[0] as any).seller_name}.`);
