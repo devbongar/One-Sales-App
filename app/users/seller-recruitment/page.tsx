@@ -9,6 +9,7 @@ import { fetchAllSellerRecruits, fetchAllSalespersons, addSellerRecruit, updateS
 import { fetchProjects } from '@/lib/inventory';
 import { fetchDropdownOptions } from '@/lib/admin';
 import { supabase } from '@/lib/supabase';
+import { recomputeSellerTaxes } from '@/lib/commission';
 import SavingOverlay from '@/components/ui/SavingOverlay';
 
 async function fetchProfileEmails(): Promise<string[]> {
@@ -71,7 +72,7 @@ function DetailRow({ label, value, icon }: { label: string; value: string; icon?
   );
 }
 
-function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
+function SectionCard({ title, required, children }: { title: string; required?: boolean; children: React.ReactNode }) {
   return (
     <div
       className="rounded-3xl p-4 space-y-4"
@@ -83,7 +84,9 @@ function SectionCard({ title, children }: { title: string; children: React.React
         boxShadow: '0 2px 16px rgba(0, 0, 0, 0.08)',
       }}
     >
-      <p className="text-xs font-bold text-[#6C6C70] uppercase tracking-wider">{title}</p>
+      <p className="text-xs font-bold text-[#6C6C70] uppercase tracking-wider">
+        {title}{required && <span style={{ color: '#C03D25' }}> *</span>}
+      </p>
       {children}
     </div>
   );
@@ -94,10 +97,12 @@ function SectionCard({ title, children }: { title: string; children: React.React
 const inputCls = 'w-full px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/70 text-sm text-[#1C1C1E] outline-none focus:border-black/20 focus:bg-white/90 transition-colors placeholder:text-[#C7C7CC]';
 const readCls  = 'w-full px-3 py-2.5 rounded-xl bg-white/60 text-sm text-[#1C1C1E]';
 
-function ERow({ label, icon, children }: { label: string; icon?: React.ReactNode; children: React.ReactNode }) {
+function ERow({ label, icon, required, children }: { label: string; icon?: React.ReactNode; required?: boolean; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <p className="text-[10px] font-semibold text-[#6C6C70] uppercase tracking-wider flex items-center gap-1">{icon}{label}</p>
+      <p className="text-[10px] font-semibold text-[#6C6C70] uppercase tracking-wider flex items-center gap-1">
+        {icon}{label}{required && <span style={{ color: '#C03D25' }}>*</span>}
+      </p>
       {children}
     </div>
   );
@@ -205,10 +210,14 @@ const PAGE_GRADIENT = 'linear-gradient(to bottom, #FFFFFF 0%, #8E8E93 50%, #3A3A
 // ─── Detail Sheet ─────────────────────────────────────────────────────────────
 
 const SELLER_STATUS_OPTIONS  = ['Active', 'Inactive'];
+
 const POSITION_CODE_OPTIONS  = ['Property Specialist', 'Sales Manager', 'Sales Director', 'Sales Division Head', 'Sales Head'];
 const POSITION_RANK_MAP: Record<string, string> = {
   'Property Specialist': 'PS', 'Sales Manager': 'SM', 'Sales Director': 'SD',
   'Sales Division Head': 'SDH', 'Sales Head': 'SH',
+};
+const POSITION_DEFAULT_ROLE: Record<string, string> = {
+  PS: 'Seller', SM: 'Sales Manager', SD: 'Sales Director', SDH: 'Sales Director', SH: 'All Access',
 };
 
 function DetailSheet({ seller, onClose, onSaved }: {
@@ -380,6 +389,20 @@ function DetailSheet({ seller, onClose, onSaved }: {
   }
 
   async function handleSave() {
+    const missing: string[] = [];
+    if (!form.first_name?.trim() && !form.last_name?.trim()) missing.push('First & Last Name');
+    if (!form.email_address?.trim())          missing.push('Email Address');
+    if (!form.hired_date)                     missing.push('Hired Date');
+    if (!form.seller_status)                  missing.push('Seller Status');
+    if (!form.position_code)                  missing.push('Position');
+    if (!form.sales_team?.trim())             missing.push('Sales Team');
+    if (!form.payroll_code?.trim())           missing.push('Payroll Code');
+    if (!form.payroll_account_number?.trim()) missing.push('Payroll Account Number');
+    if (!form.vat_registration_type)          missing.push('VAT Registration Type');
+    if (!form.tin?.trim())                    missing.push('Tax Identification No.');
+    if (!form.ewt_rate)                        missing.push('EWT/WT Rate');
+    if (!form.bir_cor_address?.trim())        missing.push('BIR COR Address');
+    if (missing.length > 0) { setError(`Required: ${missing.join(', ')}`); return; }
     setSaving(true);
     setError('');
     const saveStart = Date.now();
@@ -401,13 +424,16 @@ function DetailSheet({ seller, onClose, onSaved }: {
       if (sigPreview !== (seller.signature_base64 ?? null)) {
         await updateSellerSignature(seller.seller_name, sigPreview);
       }
+      if (savedForm.seller_id && (form.ewt_rate !== seller.ewt_rate || form.vat_registration_type !== seller.vat_registration_type)) {
+        await recomputeSellerTaxes(savedForm.seller_id, form.ewt_rate ?? '', form.vat_registration_type ?? null);
+      }
       onSaved({ ...savedForm, signature_base64: sigPreview });
       setEditMode(false);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to save. Please try again.');
     } finally {
       const elapsed = Date.now() - saveStart;
-      if (elapsed < 1500) await new Promise(r => setTimeout(r, 1500 - elapsed));
+      if (elapsed < 2800) await new Promise(r => setTimeout(r, 2800 - elapsed));
       setSaving(false);
     }
   }
@@ -507,7 +533,7 @@ function DetailSheet({ seller, onClose, onSaved }: {
             <ERow label="Focus Project" icon={<Briefcase size={10} />}>
               <ESelect value={form.focus_project ?? ''} options={projects} onChange={set('focus_project')} disabled={!editMode} />
             </ERow>
-            <ERow label="Seller Status" icon={<User size={10} />}>
+            <ERow label="Seller Status" icon={<User size={10} />} required>
               <ESelect value={form.seller_status ?? ''} options={SELLER_STATUS_OPTIONS} onChange={set('seller_status')} disabled={!editMode} />
             </ERow>
             <ERow label="First Name" icon={<User size={10} />}>
@@ -530,7 +556,7 @@ function DetailSheet({ seller, onClose, onSaved }: {
                 ? <input className={inputCls} type="email" inputMode="email" value={form.email_address ?? ''} onChange={e => set('email_address')(e.target.value)} />
                 : <div className={readCls}>{fmt(form.email_address)}</div>}
             </ERow>
-            <ERow label="Hired Date" icon={<Calendar size={10} />}>
+            <ERow label="Hired Date" icon={<Calendar size={10} />} required>
               {editMode
                 ? <input className={inputCls} type="date" max={new Date().toISOString().split('T')[0]} value={form.hired_date ?? ''} onChange={e => set('hired_date')(e.target.value)} />
                 : <div className={readCls}>{fmtDate(form.hired_date)}</div>}
@@ -539,16 +565,19 @@ function DetailSheet({ seller, onClose, onSaved }: {
 
           {/* Sales Hierarchy */}
           <SectionCard title="Sales Hierarchy">
-            <ERow label="Position" icon={<Briefcase size={10} />}>
+            <ERow label="Position" icon={<Briefcase size={10} />} required>
               <ESelect
                 value={form.position_code ?? ''}
                 options={POSITION_CODE_OPTIONS}
                 onChange={v => {
                   const rank = POSITION_RANK_MAP[v] ?? null;
+                  const roleName = rank ? POSITION_DEFAULT_ROLE[rank] : null;
+                  const roleId = roleName ? (roles.find(r => r.role_name === roleName)?.id ?? null) : null;
                   setForm(f => ({
                     ...f,
                     position_code: v || null,
                     position_rank: rank,
+                    app_role_id: v ? (roleId ?? f.app_role_id) : null,
                     sales_head: f.sales_head || (rank && rank !== 'SH' ? 'Amy Rose Tagalicud' : f.sales_head),
                   }));
                 }}
@@ -579,7 +608,7 @@ function DetailSheet({ seller, onClose, onSaved }: {
                   onChange={set('sales_head')} disabled={!editMode || cascadeSource === 'sm' || cascadeSource === 'sd' || cascadeSource === 'sdh'} />
               </ERow>
             )}
-            <ERow label="Sales Team" icon={<Users size={10} />}>
+            <ERow label="Sales Team" icon={<Users size={10} />} required>
               {editMode
                 ? <ECombobox value={form.sales_team ?? ''} options={teamOptions} onChange={v => setForm(f => ({ ...f, sales_team: v || null }))} />
                 : <div className={readCls}>{fmt(form.sales_team)}</div>}
@@ -588,32 +617,35 @@ function DetailSheet({ seller, onClose, onSaved }: {
 
           {/* Payroll Information */}
           <SectionCard title="Payroll Information">
-            <ERow label="Payroll Code">
+            <ERow label="Payroll Code" required>
               {editMode
                 ? <input className={inputCls} value={form.payroll_code ?? ''} onChange={e => set('payroll_code')(e.target.value)} />
                 : <div className={readCls}>{fmt(form.payroll_code)}</div>}
             </ERow>
-            <ERow label="Payroll Account Number">
+            <ERow label="Payroll Account Number" required>
               {editMode
                 ? <input className={inputCls} value={form.payroll_account_number ?? ''} onChange={e => set('payroll_account_number')(e.target.value)} />
                 : <div className={readCls}>{fmt(form.payroll_account_number)}</div>}
             </ERow>
-            <ERow label="VAT Registration Type">
+            <ERow label="VAT Registration Type" required>
               {editMode
                 ? <ESelect value={form.vat_registration_type ?? ''} options={['VAT', 'Non-VAT']} onChange={set('vat_registration_type')} />
                 : <div className={readCls}>{fmt(form.vat_registration_type)}</div>}
             </ERow>
-            <ERow label="Tax Identification No.">
+            <ERow label="Tax Identification No." required>
               {editMode
                 ? <input className={inputCls} value={form.tin ?? ''} onChange={e => set('tin')(e.target.value)} />
                 : <div className={readCls}>{fmt(form.tin)}</div>}
             </ERow>
-            <ERow label="EWT/WT Rate">
+            <ERow label="EWT/WT Rate" required>
               {editMode
-                ? <input className={inputCls} value={form.ewt_rate ?? ''} onChange={e => set('ewt_rate')(e.target.value)} />
-                : <div className={readCls}>{fmt(form.ewt_rate)}</div>}
+                ? <input className={inputCls} value={form.ewt_rate ?? ''}
+                    onChange={e => set('ewt_rate')(e.target.value.replace(/[^\d.%]/g, ''))}
+                    onBlur={e => { const v = e.target.value.trim(); if (v && !v.endsWith('%')) set('ewt_rate')(v + '%'); }}
+                    placeholder="e.g. 10%" />
+                : <div className={readCls}>{form.ewt_rate || '—'}</div>}
             </ERow>
-            <ERow label="BIR COR Address">
+            <ERow label="BIR COR Address" required>
               {editMode
                 ? <textarea className={`${inputCls} resize-none`} rows={3} value={form.bir_cor_address ?? ''} onChange={e => set('bir_cor_address')(e.target.value)} />
                 : <div className={readCls}>{fmt(form.bir_cor_address)}</div>}
@@ -623,21 +655,13 @@ function DetailSheet({ seller, onClose, onSaved }: {
           {/* App Account */}
           <SectionCard title="App Account">
             <ERow label="App Role" icon={<Shield size={10} />}>
-              {(() => {
-                const SELLER_ROLE_KEYWORDS = ['broker network', 'sales director', 'sales manager', 'seller'];
-                const sellerRoles = roles.filter(r =>
-                  SELLER_ROLE_KEYWORDS.some(kw => r.role_name.toLowerCase().includes(kw))
-                );
-                return (
-                  <ESelect
-                    value={sellerRoles.find(r => r.id === form.app_role_id)?.role_name ?? ''}
-                    options={sellerRoles.map(r => r.role_name)}
-                    onChange={v => setForm(f => ({ ...f, app_role_id: sellerRoles.find(r => r.role_name === v)?.id ?? null }))}
-                    disabled={!editMode}
-                    upward
-                  />
-                );
-              })()}
+              <ESelect
+                value={roles.find(r => r.id === form.app_role_id)?.role_name ?? ''}
+                options={[]}
+                onChange={() => {}}
+                disabled
+                upward
+              />
             </ERow>
 
             {!editMode && seller.email_address && (
@@ -887,9 +911,21 @@ function AddSheet({ onClose, onAdded }: {
   }
 
   async function handleSave() {
-    if (!form.first_name?.trim() && !form.last_name?.trim()) { setError('First and Last Name are required.'); return; }
-    if (!form.email_address?.trim()) { setError('Email Address is required.');  return; }
-    if (!form.app_role_id)           { setError('App Role is required.');        return; }
+    const missing: string[] = [];
+    if (!form.first_name?.trim() && !form.last_name?.trim()) missing.push('First & Last Name');
+    if (!form.email_address?.trim())       missing.push('Email Address');
+    if (!form.hired_date)                  missing.push('Hired Date');
+    if (!form.seller_status)               missing.push('Seller Status');
+    if (!form.position_code)               missing.push('Position');
+    if (!form.sales_team?.trim())          missing.push('Sales Team');
+    if (!form.payroll_code?.trim())        missing.push('Payroll Code');
+    if (!form.payroll_account_number?.trim()) missing.push('Payroll Account Number');
+    if (!form.vat_registration_type)       missing.push('VAT Registration Type');
+    if (!form.tin?.trim())                 missing.push('Tax Identification No.');
+    if (!form.ewt_rate?.trim())            missing.push('EWT/WT Rate');
+    if (!form.bir_cor_address?.trim())     missing.push('BIR COR Address');
+    if (!form.app_role_id)                 missing.push('App Role');
+    if (missing.length > 0) { setError(`Required: ${missing.join(', ')}`); return; }
     setSaving(true);
     setError('');
     const saveStart = Date.now();
@@ -911,7 +947,7 @@ function AddSheet({ onClose, onAdded }: {
       setError(e instanceof Error ? e.message : 'Failed to save. Please try again.');
     } finally {
       const elapsed = Date.now() - saveStart;
-      if (elapsed < 1500) await new Promise(r => setTimeout(r, 1500 - elapsed));
+      if (elapsed < 2800) await new Promise(r => setTimeout(r, 2800 - elapsed));
       setSaving(false);
     }
   }
@@ -957,13 +993,13 @@ function AddSheet({ onClose, onAdded }: {
 
           {/* Seller Information */}
         <SectionCard title="Seller Information">
-          <ERow label="First Name *" icon={<User size={10} />}>
+          <ERow label="First Name" icon={<User size={10} />} required>
             <input className={inputCls} value={form.first_name ?? ''} onChange={e => setNameField('first_name', e.target.value)} />
           </ERow>
           <ERow label="Middle Name" icon={<User size={10} />}>
             <input className={inputCls} value={form.middle_name ?? ''} onChange={e => setNameField('middle_name', e.target.value)} />
           </ERow>
-          <ERow label="Last Name *" icon={<User size={10} />}>
+          <ERow label="Last Name" icon={<User size={10} />} required>
             <input className={inputCls} value={form.last_name ?? ''} onChange={e => setNameField('last_name', e.target.value)} />
           </ERow>
           <ERow label="Seller Name" icon={<User size={10} />}>
@@ -974,10 +1010,10 @@ function AddSheet({ onClose, onAdded }: {
           <ERow label="Seller Code" icon={<Tag size={10} />}>
             <div className={`${readCls} text-[#8E8E93] italic`}>Auto-generated</div>
           </ERow>
-          <ERow label="Email Address *" icon={<Mail size={10} />}>
+          <ERow label="Email Address" icon={<Mail size={10} />} required>
             <input className={inputCls} type="email" inputMode="email" value={form.email_address ?? ''} onChange={e => set('email_address')(e.target.value)} />
           </ERow>
-          <ERow label="Hired Date" icon={<Calendar size={10} />}>
+          <ERow label="Hired Date" icon={<Calendar size={10} />} required>
             <input className={inputCls} type="date" max={new Date().toISOString().split('T')[0]} value={form.hired_date ?? ''} onChange={e => set('hired_date')(e.target.value)} />
           </ERow>
           <ERow label="Business Units" icon={<Building2 size={10} />}>
@@ -986,23 +1022,26 @@ function AddSheet({ onClose, onAdded }: {
           <ERow label="Focus Project" icon={<Briefcase size={10} />}>
             <ESelect value={form.focus_project ?? ''} options={projects} onChange={set('focus_project')} />
           </ERow>
-          <ERow label="Seller Status" icon={<User size={10} />}>
+          <ERow label="Seller Status" icon={<User size={10} />} required>
             <ESelect value={form.seller_status ?? ''} options={SELLER_STATUS_OPTIONS} onChange={set('seller_status')} />
           </ERow>
         </SectionCard>
 
         {/* Sales Hierarchy */}
         <SectionCard title="Sales Hierarchy">
-          <ERow label="Position" icon={<Briefcase size={10} />}>
+          <ERow label="Position" icon={<Briefcase size={10} />} required>
             <ESelect
               value={form.position_code ?? ''}
               options={POSITION_CODE_OPTIONS}
               onChange={v => {
                 const rank = POSITION_RANK_MAP[v] ?? null;
+                const roleName = rank ? POSITION_DEFAULT_ROLE[rank] : null;
+                const roleId = roleName ? (roles.find(r => r.role_name === roleName)?.id ?? null) : null;
                 setForm(f => ({
                   ...f,
                   position_code: v || null,
                   position_rank: rank,
+                  app_role_id: v ? (roleId ?? f.app_role_id) : null,
                   sales_head: f.sales_head || (rank && rank !== 'SH' ? 'Amy Rose Tagalicud' : f.sales_head),
                 }));
               }}
@@ -1031,50 +1070,46 @@ function AddSheet({ onClose, onAdded }: {
                 disabled={cascadeSource === 'sm' || cascadeSource === 'sd' || cascadeSource === 'sdh'} />
             </ERow>
           )}
-          <ERow label="Sales Team" icon={<Users size={10} />}>
+          <ERow label="Sales Team" icon={<Users size={10} />} required>
             <ECombobox value={form.sales_team ?? ''} options={teamOptions} onChange={v => setForm(f => ({ ...f, sales_team: v || null }))} />
           </ERow>
         </SectionCard>
 
         {/* Payroll Information */}
         <SectionCard title="Payroll Information">
-          <ERow label="Payroll Code">
+          <ERow label="Payroll Code" required>
             <input className={inputCls} value={form.payroll_code ?? ''} onChange={e => set('payroll_code')(e.target.value)} />
           </ERow>
-          <ERow label="Payroll Account Number">
+          <ERow label="Payroll Account Number" required>
             <input className={inputCls} value={form.payroll_account_number ?? ''} onChange={e => set('payroll_account_number')(e.target.value)} />
           </ERow>
-          <ERow label="VAT Registration Type">
+          <ERow label="VAT Registration Type" required>
             <ESelect value={form.vat_registration_type ?? ''} options={['VAT', 'Non-VAT']} onChange={set('vat_registration_type')} />
           </ERow>
-          <ERow label="Tax Identification No.">
+          <ERow label="Tax Identification No." required>
             <input className={inputCls} value={form.tin ?? ''} onChange={e => set('tin')(e.target.value)} />
           </ERow>
-          <ERow label="EWT/WT Rate">
-            <input className={inputCls} value={form.ewt_rate ?? ''} onChange={e => set('ewt_rate')(e.target.value)} />
+          <ERow label="EWT/WT Rate" required>
+            <input className={inputCls} value={form.ewt_rate ?? ''}
+              onChange={e => set('ewt_rate')(e.target.value.replace(/[^\d.%]/g, ''))}
+              onBlur={e => { const v = e.target.value.trim(); if (v && !v.endsWith('%')) set('ewt_rate')(v + '%'); }}
+              placeholder="e.g. 10%" />
           </ERow>
-          <ERow label="BIR COR Address">
+          <ERow label="BIR COR Address" required>
             <textarea className={`${inputCls} resize-none`} rows={3} value={form.bir_cor_address ?? ''} onChange={e => set('bir_cor_address')(e.target.value)} />
           </ERow>
         </SectionCard>
 
         {/* App Account */}
         <SectionCard title="App Account">
-          <ERow label="App Role *" icon={<Shield size={10} />}>
-            {(() => {
-              const SELLER_ROLE_KEYWORDS = ['broker network', 'sales director', 'sales manager', 'seller'];
-              const sellerRoles = roles.filter(r =>
-                SELLER_ROLE_KEYWORDS.some(kw => r.role_name.toLowerCase().includes(kw))
-              );
-              return (
-                <ESelect
-                  value={sellerRoles.find(r => r.id === form.app_role_id)?.role_name ?? ''}
-                  options={sellerRoles.map(r => r.role_name)}
-                  onChange={v => setForm(f => ({ ...f, app_role_id: sellerRoles.find(r => r.role_name === v)?.id ?? null }))}
-                  upward
-                />
-              );
-            })()}
+          <ERow label="App Role" icon={<Shield size={10} />} required>
+            <ESelect
+              value={roles.find(r => r.id === form.app_role_id)?.role_name ?? ''}
+              options={[]}
+              onChange={() => {}}
+              disabled
+              upward
+            />
           </ERow>
         </SectionCard>
 

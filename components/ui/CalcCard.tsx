@@ -57,8 +57,8 @@ export default function CalcCard({
   // Payment summary computations — mirror payment calculator exactly
   const grossDp         = dpPct > 0 ? Math.round(tcp * dpPct / 100) : 0;
   const netDp           = grossDp - reservationFee;
-  const balanceForFin   = tcp - grossDp;
-  const monthlyDp       = termMonths && termMonths > 0 && netDp > 0 ? Math.round(netDp / termMonths) : 0;
+  const monthlyDp       = termMonths && termMonths > 0 && netDp > 0 ? Math.floor(netDp / termMonths) : 0;
+  const balanceForFin   = tcp - reservationFee - (monthlyDp * (termMonths ?? 0));
   const netInstallable  = tcp - reservationFee - retentionFee;
   const monthlyDeferred = termMonths && termMonths > 0 ? Math.round(netInstallable / termMonths) : 0;
   const bankMonthly     = calcMonthlyAmort(balanceForFin, 0.065, 20);

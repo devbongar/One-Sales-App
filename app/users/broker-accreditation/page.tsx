@@ -320,7 +320,7 @@ function DetailSheet({ broker, onClose, onSaved, businessUnits }: {
       setError(e instanceof Error ? e.message : 'Failed to save. Please try again.');
     } finally {
       const elapsed = Date.now() - saveStart;
-      if (elapsed < 1500) await new Promise(r => setTimeout(r, 1500 - elapsed));
+      if (elapsed < 2800) await new Promise(r => setTimeout(r, 2800 - elapsed));
       setSaving(false);
     }
   }
@@ -712,7 +712,7 @@ function AddSheet({ onClose, onAdded, businessUnits }: {
       setError(e instanceof Error ? e.message : 'Failed to save. Please try again.');
     } finally {
       const elapsed = Date.now() - saveStart;
-      if (elapsed < 1500) await new Promise(r => setTimeout(r, 1500 - elapsed));
+      if (elapsed < 2800) await new Promise(r => setTimeout(r, 2800 - elapsed));
       setSaving(false);
     }
   }

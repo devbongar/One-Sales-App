@@ -253,9 +253,9 @@ export async function regenerateReceivableLines(
 
   } else if (newPaytermScheme === 'stretched_dp') {
     const grossDp    = Math.round(newTcp * dpPercent / 100);
-    const loanAmount = newTcp - grossDp;
     const netDp      = grossDp - resFeeNum;
-    const monthly    = newTermMonths > 0 ? Math.round(netDp / newTermMonths) : 0;
+    const monthly    = newTermMonths > 0 ? Math.floor(netDp / newTermMonths) : 0;
+    const loanAmount = newTcp - resFeeNum - (monthly * newTermMonths);
     for (let i = 0; i < newTermMonths; i++) {
       lines.push({
         ...base,

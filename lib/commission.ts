@@ -489,3 +489,36 @@ export async function fetchCommissionTranches(
   if (error) throw error;
   return (data ?? []) as CommissionTranche[];
 }
+
+export async function recomputeSellerTaxes(
+  sellerId:    string,
+  ewtRateRaw:  string,
+  vatType:     string | null,
+): Promise<void> {
+  const n = parseFloat(String(ewtRateRaw).replace('%', '').trim());
+  const ewtRate = isNaN(n) ? 0 : n > 1 ? n / 100 : n;
+  const vatRate = vatType?.toUpperCase() === 'VAT' ? 0.12 : 0;
+
+  const { data: lines, error } = await supabase
+    .from('commission_schedule')
+    .select('id, gross_commission')
+    .eq('seller_id', sellerId)
+    .eq('status', 'For Release');
+  if (error) throw error;
+  if (!lines || lines.length === 0) return;
+
+  await Promise.all(
+    (lines as { id: number; gross_commission: number }[]).map(line => {
+      const vatAmt = line.gross_commission * vatRate;
+      const ewtAmt = line.gross_commission * ewtRate;
+      return supabase
+        .from('commission_schedule')
+        .update({
+          vat_amount:     vatAmt,
+          ewt_amount:     ewtAmt,
+          net_commission: line.gross_commission - vatAmt - ewtAmt,
+        })
+        .eq('id', line.id);
+    }),
+  );
+}

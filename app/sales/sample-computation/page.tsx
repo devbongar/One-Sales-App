@@ -1840,8 +1840,8 @@ export default function SampleComputationPage() {
         const dpRateDecimal       = parseFloat(dpRate) / 100;
         const dpAmount            = Math.round(totalContractPrice * dpRateDecimal);
         const netSpotDP           = dpAmount - reservationFee;
-        const balanceForFinancing = totalContractPrice - reservationFee - netSpotDP;
-        const monthlyStretchedDP  = Math.round(netSpotDP / stretchedTermMonths);
+        const monthlyStretchedDP  = stretchedTermMonths > 0 ? Math.floor(netSpotDP / stretchedTermMonths) : 0;
+        const balanceForFinancing = totalContractPrice - reservationFee - (monthlyStretchedDP * stretchedTermMonths);
         const bankMonthly         = calcMonthlyAmort(balanceForFinancing, 0.065, 20);
         const hdmfMonthly         = calcMonthlyAmort(balanceForFinancing, 0.0625, 25);
 
