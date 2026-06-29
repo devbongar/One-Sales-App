@@ -351,7 +351,7 @@ export async function generateTermsOfPayment(reservationId: string | null, openI
 
   await headerBlock(doc, 'Terms of Payment', res?.reservation_id ?? '', res?.client_id ?? '');
 
-  const fmtN   = (n: number | null | undefined) => n != null ? n.toLocaleString('en-PH', { minimumFractionDigits: 2 }) : '—';
+  const fmtN   = (n: number | null | undefined) => n != null ? n.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '—';
   const fmtD   = (d: string) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-PH', { month: '2-digit', day: '2-digit', year: 'numeric' }) : '—';
   const fmtPct = (n: number | null | undefined) => n != null ? `${n}%` : '';
 

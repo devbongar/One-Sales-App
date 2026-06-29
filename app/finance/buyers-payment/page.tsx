@@ -26,6 +26,7 @@ interface FinanceBooking {
   vat:                   number | null;
   other_charges:         number | null;
   scheme_name:           string | null;
+  payment_scheme:        string | null;
   payment_term:          string | null;
   director_reviewed_at:  string | null;
   payment_proof_url:          string | null;
@@ -127,7 +128,7 @@ export default function BuyersPaymentPage() {
         reservation_id, client_name, project, inventory_code, unit_type,
         seller_name, status, booking_review_status, director_reviewed_at,
         net_list_price, vat, other_charges, total_contract_price,
-        scheme_name, payment_term, signature_base64, created_at,
+        scheme_name, payment_scheme, payment_term, signature_base64, created_at,
         tower, floor, unit_no, unit_area, payment_proof_url, proof_of_valid_id_urls,
         finance_verified_at, acknowledgement_receipt_no, sales_invoice_no, date_of_reservation_fee,
         proof_of_1st_dp_urls, dp_acknowledgement_receipt_no, dp_sales_invoice_no, date_of_1st_dp, dp_verified_at,

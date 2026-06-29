@@ -37,6 +37,7 @@ interface FinanceBooking {
   other_charges:         number | null;
   total_contract_price:  number | null;
   scheme_name:           string | null;
+  payment_scheme:        string | null;
   payment_term:          string | null;
   payment_proof_url:          string | null;
   proof_of_valid_id_urls:     string | null;
@@ -79,7 +80,7 @@ function daysElapsedLabel(createdAt: string | null): string {
 
 function peso(n: number | null | undefined): string {
   if (n == null) return '—';
-  return '₱' + n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return '₱' + n.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 
 function parseJson(s: string | null): string[] {
@@ -235,7 +236,7 @@ export default function FinanceVerifyPage() {
       .from('receivables_database')
       .select('due_date')
       .eq('reservation_id', b.reservation_id)
-      .or('type_of_payment.like.Monthly Deferred%,type_of_payment.like.Monthly DP%')
+      .or('type_of_payment.like.Monthly Deferred%,type_of_payment.like.Monthly DP%,type_of_payment.eq.Downpayment,type_of_payment.eq.Spot Cash')
       .order('due_date', { ascending: true })
       .then(({ data: rcv }) => {
         if (rcv && rcv.length > 0) {
@@ -737,8 +738,14 @@ export default function FinanceVerifyPage() {
                 { label: 'DP Amount',            value: peso(booking.dp_amount) },
                 { label: 'Monthly Amount Due',   value: (booking.monthly_deferred || booking.monthly_stretched_dp) ? `${peso(booking.monthly_deferred || booking.monthly_stretched_dp)}/mo` : '—' },
                 { label: 'Payterm Scheme',       value: booking.scheme_name ?? '—' },
-                { label: 'DP Start Date',        value: dpStartDate ?? '—' },
-                { label: 'DP End Date',          value: dpEndDate   ?? '—' },
+                ...(booking.payment_scheme === 'spot_cash'
+                  ? [{ label: 'Spot Cash Due Date', value: dpStartDate ? new Date(dpStartDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '—' }]
+                  : booking.payment_scheme === 'spot_dp'
+                  ? [{ label: 'Spot DP Due Date',   value: dpStartDate ? new Date(dpStartDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '—' }]
+                  : [
+                      { label: 'DP Start Date', value: dpStartDate ? new Date(dpStartDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '—' },
+                      { label: 'DP End Date',   value: dpEndDate   ? new Date(dpEndDate   + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '—' },
+                    ]),
               ].map(({ label, value }) => (
                 <div key={label} className="flex items-center justify-between gap-4">
                   <span className="text-[11px] text-[#8E8E93]">{label}</span>

@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import {
-  AlertTriangle, Building2, Check, CheckCircle2, ChevronLeft, ChevronRight,
+  AlertTriangle, Building2, Check, CheckCircle2, ChevronLeft, ChevronRight, ChevronUp,
   Download, FileText, Loader2, Search, SlidersHorizontal, Upload, X,
 } from 'lucide-react';
 import PageShell from '@/components/layout/PageShell';
@@ -1396,6 +1396,24 @@ function LinesOverlay({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CollectionPostingPage() {
+  const [showBackToTop, setShowBackToTop] = useState(false);
+
+  useEffect(() => {
+    // scroll events on <main> don't bubble, so event listeners on window/document
+    // never fire. Use a rAF loop to read main.scrollTop directly each frame —
+    // works regardless of when <main> appears in the DOM.
+    let rafId: number;
+    let last = false;
+    const tick = () => {
+      const top = document.querySelector('main')?.scrollTop ?? 0;
+      const next = top > 300;
+      if (next !== last) { last = next; setShowBackToTop(next); }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, []);
+
   const [summaries,    setSummaries]    = useState<ReservationReceivableSummary[]>([]);
   const [loading,      setLoading]      = useState(true);
   const [search,       setSearch]       = useState('');
@@ -1944,6 +1962,17 @@ export default function CollectionPostingPage() {
           onClose={() => setImportResult(null)}
         />
       )}
+
+      {/* Back to top */}
+      <button
+        type="button"
+        onClick={() => document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' })}
+        aria-label="Back to top"
+        style={{ bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))' }}
+        className={`fixed right-4 z-50 w-12 h-12 rounded-full flex items-center justify-center bg-[#C03D25] shadow-xl text-white transition-all duration-200 ${showBackToTop ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 translate-y-4 pointer-events-none'}`}
+      >
+        <ChevronUp size={22} />
+      </button>
     </>
   );
 }

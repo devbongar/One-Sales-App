@@ -59,18 +59,12 @@ interface SelectedReservation {
 
 function peso(n: number | null | undefined): string {
   if (n == null) return '—';
-  return '₱' + n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return '₱' + n.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 
 function daysElapsedLabel(createdAt: string | null): string {
   if (!createdAt) return '';
-  const days = Math.floor((Date.now() - new Date(createdAt).getTime()) / 86_400_000);
-  if (days === 0) return 'Reserved today';
-  if (days === 1) return '1 day reserved';
-  if (days < 7)  return `${days} days reserved`;
-  if (days < 30) { const w = Math.floor(days / 7); return `${w} wk${w > 1 ? 's' : ''} reserved`; }
-  if (days < 365) { const m = Math.floor(days / 30); return `${m} mo reserved`; }
-  const y = Math.floor(days / 365); return `${y} yr${y > 1 ? 's' : ''} reserved`;
+  return new Date(createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function today() {
@@ -164,6 +158,7 @@ export default function ProofOfPaymentPage() {
   const [dpAmount,           setDpAmount]           = useState<number | null>(null);
   const [monthlyAmountDue,   setMonthlyAmountDue]   = useState<number | null>(null);
   const [paytermScheme,      setPaytermScheme]      = useState<string | null>(null);
+  const [paymentScheme,      setPaymentScheme]      = useState<string | null>(null);
   const [dpStartDate,        setDpStartDate]        = useState<string | null>(null);
   const [dpEndDate,          setDpEndDate]          = useState<string | null>(null);
   const [showOptions,         setShowOptions]         = useState(false);
@@ -225,6 +220,7 @@ export default function ProofOfPaymentPage() {
           setDpAmount(payload.dp_amount ?? null);
           setMonthlyAmountDue(payload.monthly_deferred || payload.monthly_stretched_dp || null);
           setPaytermScheme(payload.scheme_name ?? null);
+          setPaymentScheme(payload.payment_scheme ?? null);
         } catch {}
       }
     }
@@ -262,7 +258,7 @@ export default function ProofOfPaymentPage() {
   async function loadExistingData(id: string) {
     const { data, error } = await supabase
       .from('reservations')
-      .select('subsequent_mode, ada_bank, payment_proof_url, proof_of_billing_urls, proof_of_income_urls, proof_of_valid_id_urls, payment_date, rf_payment_mode, proof_of_fdp_urls, fdp_payment_date, finance_rejection_reason, total_contract_price, dp_amount, monthly_deferred, monthly_stretched_dp, scheme_name, end_user_financing')
+      .select('subsequent_mode, ada_bank, payment_proof_url, proof_of_billing_urls, proof_of_income_urls, proof_of_valid_id_urls, payment_date, rf_payment_mode, proof_of_fdp_urls, fdp_payment_date, finance_rejection_reason, total_contract_price, dp_amount, monthly_deferred, monthly_stretched_dp, scheme_name, payment_scheme, end_user_financing')
       .eq('reservation_id', id)
       .single();
     if (error) throw error;
@@ -284,6 +280,7 @@ export default function ProofOfPaymentPage() {
     setDpAmount(data.dp_amount ?? null);
     setMonthlyAmountDue(data.monthly_deferred || data.monthly_stretched_dp || null);
     setPaytermScheme(data.scheme_name ?? null);
+    setPaymentScheme(data.payment_scheme ?? null);
     if (data.end_user_financing) setEndUserFinancing(data.end_user_financing);
     if (data.fdp_payment_date)   setFdpPaymentDate(data.fdp_payment_date);
 
@@ -292,7 +289,7 @@ export default function ProofOfPaymentPage() {
       .from('receivables_database')
       .select('due_date')
       .eq('reservation_id', id)
-      .or('type_of_payment.like.Monthly Deferred%,type_of_payment.like.Monthly DP%')
+      .or('type_of_payment.like.Monthly Deferred%,type_of_payment.like.Monthly DP%,type_of_payment.eq.Downpayment,type_of_payment.eq.Spot Cash')
       .order('due_date', { ascending: true });
     if (rcv && rcv.length > 0) {
       setDpStartDate(rcv[0].due_date);
@@ -693,8 +690,14 @@ export default function ProofOfPaymentPage() {
               { label: 'DP Amount',             value: peso(dpAmount) },
               { label: 'Monthly Amount Due',    value: monthlyAmountDue ? `${peso(monthlyAmountDue)}/mo` : '—' },
               { label: 'Payterm Scheme',        value: paytermScheme ?? '—' },
-              { label: 'DP Start Date',         value: dpStartDate ?? '—' },
-              { label: 'DP End Date',           value: dpEndDate   ?? '—' },
+              ...(paymentScheme === 'spot_cash'
+                ? [{ label: 'Spot Cash Due Date', value: dpStartDate ? new Date(dpStartDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '—' }]
+                : paymentScheme === 'spot_dp'
+                ? [{ label: 'Spot DP Due Date',   value: dpStartDate ? new Date(dpStartDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '—' }]
+                : [
+                    { label: 'DP Start Date', value: dpStartDate ? new Date(dpStartDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '—' },
+                    { label: 'DP End Date',   value: dpEndDate   ? new Date(dpEndDate   + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '—' },
+                  ]),
             ].map(({ label, value }) => (
               <div key={label} className="flex items-center justify-between gap-4">
                 <span className="text-[11px] text-[#8E8E93]">{label}</span>
