@@ -13,8 +13,6 @@ export async function submitForReview(reservationId: string): Promise<void> {
     p_reservation_id: reservationId,
   });
   if (error) throw error;
-  // Clear rejection timestamp on resubmit so auto-cancel clock stops
-  await supabase.from('reservations').update({ amd_rejected_at: null }).eq('reservation_id', reservationId);
 }
 
 export async function directorReview(

@@ -217,6 +217,15 @@ export default function BookingDetailPage() {
   const [amdRejectComment,       setAmdRejectComment]       = useState('');
   const [reviewing,              setReviewing]              = useState(false);
 
+  // Scroll to top whenever timer becomes visible (page load or live rejection)
+  useEffect(() => {
+    if (!amdRejectedAt) return;
+    const t = setTimeout(() => {
+      document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' });
+    }, 400);
+    return () => clearTimeout(t);
+  }, [amdRejectedAt]);
+
   // Countdown timer for AMD rejection 24h window
   useEffect(() => {
     if (countdownRef.current) clearInterval(countdownRef.current);
@@ -362,8 +371,9 @@ export default function BookingDetailPage() {
     setSubmitting(true);
     try {
       await directorReview(reservation.reservation_id, true);
-      await supabase.from('reservations').update({ director_filled: true }).eq('reservation_id', reservation.reservation_id);
+      await supabase.from('reservations').update({ director_filled: true, amd_rejected_at: null }).eq('reservation_id', reservation.reservation_id);
       setDirectorFilled(true);
+      setAmdRejectedAt(null);
       await addActivityLog(reservation.reservation_id, 'director-approved', displayName).catch(e => console.error('[activity-log]', e));
       triggerEmails('on_docs_submitted', reservation.reservation_id).catch(e => console.error('[email-trigger]', e));
       setProgress(prev => prev ? { ...prev, booking_review_status: 'director-approved' } : prev);
@@ -380,6 +390,11 @@ export default function BookingDetailPage() {
     setReviewing(true);
     try {
       await directorReview(reservation.reservation_id, true);
+      // If approving a re-submitted AMD-rejected booking, clear the countdown
+      if (amdRejectedAt) {
+        await supabase.from('reservations').update({ amd_rejected_at: null }).eq('reservation_id', reservation.reservation_id);
+        setAmdRejectedAt(null);
+      }
       await addActivityLog(reservation.reservation_id, 'director-approved', displayName).catch(e => console.error('[activity-log]', e));
       setProgress(prev => prev ? { ...prev, booking_review_status: 'director-approved' } : prev);
       getActivityLog(reservation.reservation_id).then(setActivityLog).catch(e => console.error('[activity-log]', e));
@@ -426,6 +441,7 @@ export default function BookingDetailPage() {
       await amdReview(reservation.reservation_id, false, amdRejectComment.trim());
       await addActivityLog(reservation.reservation_id, 'amd-rejected', displayName, amdRejectComment.trim()).catch(e => console.error('[activity-log]', e));
       setProgress(prev => prev ? { ...prev, booking_review_status: 'amd-rejected', amd_notes: amdRejectComment.trim() } : null);
+      setAmdRejectedAt(new Date().toISOString());
       getActivityLog(reservation.reservation_id).then(setActivityLog).catch(e => console.error('[activity-log]', e));
       setShowAMDRejectSheet(false);
       setAmdRejectComment('');
@@ -538,7 +554,7 @@ export default function BookingDetailPage() {
   // Stage 1 locked for pure AMD role only — All Access can still fill the form
   const stage1Locked   = userRoleName === 'Account Management' || rs === 'submitted' || dirApproved;
   const stage2Complete = docsReady;
-  const currentStage   = !stage1Complete ? 1 : !stage2Complete ? 2 : !dirApproved ? 3 : !amdApproved ? 4 : 5;
+  const currentStage   = rs === 'amd-rejected' ? 1 : (!stage1Complete ? 1 : !stage2Complete ? 2 : !dirApproved ? 3 : !amdApproved ? 4 : 5);
 
   function goToBuyerInfo() {
     if (stage1Locked) sessionStorage.setItem('booking_view_only', '1');
@@ -621,9 +637,10 @@ export default function BookingDetailPage() {
         )}
 
         {/* ── AMD rejection countdown ── */}
+        {/* Stays visible until amd_rejected_at is cleared (only on submitToAmd) */}
         {/* Path 1/3 (agent-submitted): visible to seller, director, AMD */}
         {/* Path 2 (director-filled): visible to director and AMD only   */}
-        {rs === 'amd-rejected' && !isCancelled && (!directorFilled || isDirector || isAMD) && (
+        {!!amdRejectedAt && !isCancelled && (!directorFilled || isDirector || isAMD) && (
           <div
             className="bk-pulse-card rounded-2xl overflow-hidden border"
             style={{
@@ -818,8 +835,8 @@ export default function BookingDetailPage() {
               {/* Main sequential track */}
               <div className="flex items-center justify-between px-1">
                 {[
-                  { label: 'Buyer Info', icon: <User size={14} />,         done: stage1Complete },
-                  { label: 'Documents',  icon: <FileText size={14} />,     done: stage2Complete },
+                  { label: 'Buyer Info', icon: <User size={14} />,         done: stage1Complete && rs !== 'amd-rejected' },
+                  { label: 'Documents',  icon: <FileText size={14} />,     done: stage2Complete && rs !== 'amd-rejected' },
                   { label: 'Director',   icon: <ShieldCheck size={14} />,  done: dirApproved },
                   { label: 'AMD',        icon: <CheckCircle2 size={14} />, done: amdApproved },
                 ].map((s, i, arr) => {
