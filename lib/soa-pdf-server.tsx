@@ -40,10 +40,10 @@ export interface SOALine {
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 const fmtN = (n: number | null | undefined) =>
-  n != null ? n.toLocaleString('en-PH', { minimumFractionDigits: 2 }) : '—';
+  n != null ? n.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '—';
 
 const fmtD = (d: string | null | undefined) =>
-  d ? new Date(d + 'T00:00:00').toLocaleDateString('en-PH', { day: '2-digit', month: 'short', year: '2-digit' }) : '—';
+  d ? new Date(d + 'T00:00:00').toLocaleDateString('en-PH', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 
 const coral   = '#EE434E';
 const darkBg  = '#37373C';
@@ -152,11 +152,30 @@ const SOADocument: React.FC<Props> = ({ res, lines, mailingAddress, logoSrc, gen
   const statusColIdx = isHIC ? 9 : 8;
 
   const isPenaltyLine = (l: SOALine) => l.type_of_payment.toLowerCase().includes('penalty');
-  const schedLines   = lines.filter(l => !isPenaltyLine(l));
 
-  const today       = new Date();
-  const todayStr    = today.toISOString().split('T')[0];
-  const totalBilled = schedLines.reduce((s, l) => s + l.total_amount_due, 0);
+  // Active non-penalty lines only (excludes Superseded + Cancelled)
+  const schedLines = lines.filter(l =>
+    !isPenaltyLine(l) &&
+    l.payment_status !== 'Superseded' &&
+    l.payment_status !== 'Cancelled'
+  );
+
+  const today    = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+
+  // Next calendar month
+  const nextMonthDate = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+  const nextMonthYear = nextMonthDate.getFullYear();
+  const nextMonthNum  = nextMonthDate.getMonth() + 1;
+
+  // Total billed = past due + next calendar month only
+  const billedLines = schedLines.filter(l => {
+    if (l.due_date <= todayStr) return true;
+    const [y, m] = l.due_date.split('-').map(Number);
+    return y === nextMonthYear && m === nextMonthNum;
+  });
+  const totalBilled = billedLines.reduce((s, l) => s + l.total_amount_due, 0);
+  const schedTotal  = schedLines.reduce((s, l) => s + l.total_amount_due, 0);
   const totalPaid   = schedLines.reduce((s, l) => s + (l.amount_paid ?? 0), 0);
   const amountDue   = Math.max(0, totalBilled - totalPaid);
   const creditBal   = Math.max(0, totalPaid - totalBilled);
@@ -183,8 +202,8 @@ const SOADocument: React.FC<Props> = ({ res, lines, mailingAddress, logoSrc, gen
 
   // Totals values: start after Description + Due Date columns
   const totVals = isHIC
-    ? [fmtN(schedLines.reduce((s,l)=>s+(l.principal??0),0)), fmtN(schedLines.reduce((s,l)=>s+(l.vat??0),0)), fmtN(schedLines.reduce((s,l)=>s+(l.other_charges??0),0)), fmtN(schedLines.reduce((s,l)=>s+(l.hic??0),0)), fmtN(totalBilled), fmtN(totalPaid)]
-    : [fmtN(schedLines.reduce((s,l)=>s+(l.principal??0),0)), fmtN(schedLines.reduce((s,l)=>s+(l.vat??0),0)), fmtN(schedLines.reduce((s,l)=>s+(l.other_charges??0),0)), fmtN(totalBilled), fmtN(totalPaid)];
+    ? [fmtN(schedLines.reduce((s,l)=>s+(l.principal??0),0)), fmtN(schedLines.reduce((s,l)=>s+(l.vat??0),0)), fmtN(schedLines.reduce((s,l)=>s+(l.other_charges??0),0)), fmtN(schedLines.reduce((s,l)=>s+(l.hic??0),0)), fmtN(schedTotal), fmtN(totalPaid)]
+    : [fmtN(schedLines.reduce((s,l)=>s+(l.principal??0),0)), fmtN(schedLines.reduce((s,l)=>s+(l.vat??0),0)), fmtN(schedLines.reduce((s,l)=>s+(l.other_charges??0),0)), fmtN(schedTotal), fmtN(totalPaid)];
 
   const totDataStart = 2; // skip Description + Due Date
   const totDataEnd   = totDataStart + totVals.length;

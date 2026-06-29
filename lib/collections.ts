@@ -129,7 +129,17 @@ export async function postCollection(
   for (const upd of lineUpdates) {
     const { error } = await supabase
       .from('receivables_database')
-      .update({ amount_paid: upd.amount_paid, payment_status: upd.payment_status })
+      .update({
+        amount_paid:                upd.amount_paid,
+        payment_status:             upd.payment_status,
+        mode_of_payment:            payload.mode_of_payment,
+        acknowledgement_receipt_no: payload.acknowledgement_receipt_no ?? null,
+        sales_invoice_number:       payload.sales_invoice_number       ?? null,
+        posting_date:               payload.posting_date,
+        transaction_date:           payload.transaction_date           ?? null,
+        check_no:                   payload.check_no   ?? null,
+        check_date:                 payload.check_date ?? null,
+      })
       .eq('id', upd.id);
     if (error) throw error;
   }
@@ -206,23 +216,39 @@ export async function reapplyCollections(reservationId: string): Promise<void> {
   // 1. Fetch all collections chronologically — oldest posting date first
   const { data: collections, error: colErr } = await supabase
     .from('collections')
-    .select('id, amount_received')
+    .select('id, amount_received, mode_of_payment, acknowledgement_receipt_no, sales_invoice_number, posting_date, transaction_date, check_no, check_date')
     .eq('reservation_id', reservationId)
     .order('posting_date', { ascending: true })
     .order('created_at',   { ascending: true });
   if (colErr) throw colErr;
   if (!collections || collections.length === 0) return;
 
-  // 2. Reset all active (non-superseded) lines to Unpaid / amount_paid = 0
+  // 2. Reset all active (non-superseded) lines to Unpaid / amount_paid = 0, clear payment stamps
   const { error: resetErr } = await supabase
     .from('receivables_database')
-    .update({ amount_paid: 0, payment_status: 'Unpaid' })
+    .update({
+      amount_paid:                0,
+      payment_status:             'Unpaid',
+      mode_of_payment:            null,
+      acknowledgement_receipt_no: null,
+      sales_invoice_number:       null,
+      posting_date:               null,
+      transaction_date:           null,
+      check_no:                   null,
+      check_date:                 null,
+    })
     .eq('reservation_id', reservationId)
     .neq('payment_status', 'Superseded');
   if (resetErr) throw resetErr;
 
   // 3. Replay each collection oldest-first against the current active lines
-  for (const col of collections as { id: string; amount_received: number }[]) {
+  for (const col of collections as {
+    id: string; amount_received: number;
+    mode_of_payment: string; acknowledgement_receipt_no: string | null;
+    sales_invoice_number: string | null; posting_date: string;
+    transaction_date: string | null;
+    check_no: string | null; check_date: string | null;
+  }[]) {
     const { data: lines, error: linesErr } = await supabase
       .from('receivables_database')
       .select('id, total_amount_due, amount_paid, payment_status')
@@ -259,7 +285,17 @@ export async function reapplyCollections(reservationId: string): Promise<void> {
     for (const upd of lineUpdates) {
       const { error } = await supabase
         .from('receivables_database')
-        .update({ amount_paid: upd.amount_paid, payment_status: upd.payment_status })
+        .update({
+          amount_paid:                upd.amount_paid,
+          payment_status:             upd.payment_status,
+          mode_of_payment:            col.mode_of_payment,
+          acknowledgement_receipt_no: col.acknowledgement_receipt_no,
+          sales_invoice_number:       col.sales_invoice_number,
+          posting_date:               col.posting_date,
+          transaction_date:           col.transaction_date,
+          check_no:                   col.check_no,
+          check_date:                 col.check_date,
+        })
         .eq('id', upd.id);
       if (error) throw error;
     }

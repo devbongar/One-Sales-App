@@ -168,20 +168,26 @@ export async function generateReceivableLines(
     });
     lines.push({
       ...base,
-      type_of_payment:  'Cash Out Balance',
+      type_of_payment:  'Spot Cash',
       due_date:         nthDueDate(0),
       total_amount_due: net_amount,
       ...breakdown(net_amount),
     });
 
   } else if (payment_scheme === 'deferred_cash') {
+    // Last installment absorbs the Math.floor remainder so sum of lines = TCP exactly
+    const deferredTotal = net_amount; // TCP - RF - retention
     for (let i = 0; i < term_months; i++) {
+      const isLast = i === term_months - 1;
+      const amount = isLast
+        ? deferredTotal - (term_months - 1) * monthly_deferred
+        : monthly_deferred;
       lines.push({
         ...base,
         type_of_payment:  `Monthly Deferred ${i + 1}/${term_months}`,
         due_date:         installmentDueDate(i),
-        total_amount_due: monthly_deferred,
-        ...breakdown(monthly_deferred),
+        total_amount_due: amount,
+        ...breakdown(amount),
       });
     }
     // Retention due date:
@@ -237,6 +243,29 @@ export async function generateReceivableLines(
       total_amount_due: balance_for_financing,
       ...breakdown(balance_for_financing),
     });
+  }
+
+  // ── Adjust last breakdown line so column sums match contract values exactly ──
+  // Each line's breakdown() uses Math.round which causes cumulative drift.
+  // RF and Retention contribute vat=0, oc=0 so only breakdown lines affect those totals.
+  const breakdownIdxs = lines
+    .map((_, i) => i)
+    .filter(i => {
+      const t = lines[i].type_of_payment as string;
+      return t !== 'Reservation Fee' && t !== 'Retention Fee';
+    });
+  if (breakdownIdxs.length > 0) {
+    const last = breakdownIdxs[breakdownIdxs.length - 1];
+    const sumP = lines.reduce((s, l) => s + ((l.principal     as number) ?? 0), 0);
+    const sumV = lines.reduce((s, l) => s + ((l.vat           as number) ?? 0), 0);
+    const sumO = lines.reduce((s, l) => s + ((l.other_charges as number) ?? 0), 0);
+    lines[last].principal     = ((lines[last].principal     as number) ?? 0) + (net_list_price - sumP);
+    lines[last].vat           = ((lines[last].vat           as number) ?? 0) + (vat            - sumV);
+    lines[last].other_charges = ((lines[last].other_charges as number) ?? 0) + (other_charges  - sumO);
+    if (hic_discount > 0) {
+      const sumH = lines.reduce((s, l) => s + ((l.hic as number) ?? 0), 0);
+      lines[last].hic = ((lines[last].hic as number) ?? 0) + (hic_discount - sumH);
+    }
   }
 
   // ── Insert all lines ──────────────────────────────────────────────────────
@@ -320,7 +349,7 @@ export async function computeExpectedSchedule(reservationId: string): Promise<Ex
       type_of_payment: 'Retention Fee',
       expected_due_date: turnoverDate ? applyDueDayToTurnover(turnoverDate) : nthDueDate(0),
     });
-    lines.push({ type_of_payment: 'Cash Out Balance', expected_due_date: nthDueDate(0) });
+    lines.push({ type_of_payment: 'Spot Cash', expected_due_date: nthDueDate(0) });
 
   } else if (payment_scheme === 'deferred_cash') {
     for (let i = 0; i < term_months; i++) {
@@ -439,7 +468,7 @@ async function _buildRepairPlan(reservationId: string): Promise<RepairPlan> {
   expected.push({ type_of_payment: 'Reservation Fee', due_date: paymentDate, total_amount_due: reservation_fee, principal: reservation_fee, hic: null, vat: 0, other_charges: 0 });
   if (payment_scheme === 'spot_cash') {
     expected.push({ type_of_payment: 'Retention Fee', due_date: turnoverDate ? applyDueDayToTurnover(turnoverDate) : nthDueDate(0), total_amount_due: retention_fee, principal: retention_fee, hic: null, vat: 0, other_charges: 0 });
-    expected.push({ type_of_payment: 'Cash Out Balance', due_date: nthDueDate(0), total_amount_due: net_amount, ...breakdown(net_amount) });
+    expected.push({ type_of_payment: 'Spot Cash', due_date: nthDueDate(0), total_amount_due: net_amount, ...breakdown(net_amount) });
   } else if (payment_scheme === 'deferred_cash') {
     for (let i = 0; i < term_months; i++) expected.push({ type_of_payment: `Monthly Deferred ${i+1}/${term_months}`, due_date: installmentDueDate(i), total_amount_due: monthly_deferred, ...breakdown(monthly_deferred) });
     const retSlot = term_months;
@@ -535,6 +564,7 @@ export interface ReceivableLine {
   mode_of_payment: string | null;
   acknowledgement_receipt_no: string | null;
   posting_date: string | null;
+  transaction_date: string | null;
   sales_invoice_number: string | null;
   check_no: string | null;
   check_date: string | null;

@@ -1327,9 +1327,9 @@ export async function generateSOA(reservationId: string | null): Promise<void> {
   if (!reservationId) return;
   const win = window.open('', '_blank');
 
-  const doc   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-  const pageW = doc.internal.pageSize.getWidth();   // 297mm landscape
-  const pageH = doc.internal.pageSize.getHeight();  // 210mm landscape
+  const doc   = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageW = doc.internal.pageSize.getWidth();   // 210mm portrait
+  const pageH = doc.internal.pageSize.getHeight();  // 297mm portrait
   const L = 12, R = pageW - 12, W = R - L;
   let pageNum = 1;
 
@@ -1338,7 +1338,7 @@ export async function generateSOA(reservationId: string | null): Promise<void> {
     supabase
       .from('reservations')
       .select(`reservation_id, client_id, client_name, project, tower, inventory_code,
-               scheme_name, term_months,
+               scheme_name, term_months, payment_scheme,
                net_list_price, vat, other_charges, total_contract_price,
                hic_discount, employee_discount_amount`)
       .eq('reservation_id', reservationId)
@@ -1371,15 +1371,68 @@ export async function generateSOA(reservationId: string | null): Promise<void> {
   const lines: ReceivableLine[] = linesRaw;
   const isPenalty = (l: ReceivableLine) =>
     l.type_of_payment.toLowerCase().includes('penalty');
-  const schedLines  = lines.filter((l) => !isPenalty(l));
-  const today       = new Date();
-  const todayStr    = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
-  // Billing detail calculations
-  const totalBilled  = schedLines.reduce((s, l) => s + l.total_amount_due, 0);
-  const totalPaid    = schedLines.reduce((s, l) => s + (l.amount_paid ?? 0), 0);
-  const amountDue    = Math.max(0, totalBilled - totalPaid);
-  const creditBal    = Math.max(0, totalPaid - totalBilled);
+  // Active non-penalty lines only (excludes Superseded + Cancelled)
+  const schedLines = lines.filter(l =>
+    !isPenalty(l) &&
+    (l.payment_status as string) !== 'Superseded' &&
+    (l.payment_status as string) !== 'Cancelled'
+  );
+
+  // Build AR map: lineId → [{pmt_date, ar_no, ar_date}] sorted oldest-first
+  // Pmt Date = transaction_date ?? posting_date, AR Date = posting_date
+  type ArEntry = { pmt_date: string | null; ar_no: string | null; ar_date: string | null };
+  const arMap: Record<string, ArEntry[]> = {};
+  if (schedLines.length > 0) {
+    const lineIds = schedLines.map(l => l.id);
+    const { data: apps } = await supabase
+      .from('collection_applications')
+      .select('receivable_line_id, collection_id')
+      .in('receivable_line_id', lineIds);
+    if (apps && (apps as any[]).length > 0) {
+      const colIds = [...new Set((apps as any[]).map((a: any) => a.collection_id as string))];
+      const { data: cols } = await supabase
+        .from('collections')
+        .select('id, acknowledgement_receipt_no, posting_date, transaction_date')
+        .in('id', colIds);
+      const colById: Record<string, any> = {};
+      for (const c of (cols ?? []) as any[]) colById[c.id] = c;
+      for (const app of apps as any[]) {
+        const col = colById[app.collection_id];
+        if (!col) continue;
+        if (!arMap[app.receivable_line_id]) arMap[app.receivable_line_id] = [];
+        arMap[app.receivable_line_id].push({
+          pmt_date: col.transaction_date ?? col.posting_date ?? null,
+          ar_no:    col.acknowledgement_receipt_no ?? null,
+          ar_date:  col.posting_date ?? null,
+        });
+      }
+      for (const id of Object.keys(arMap)) {
+        arMap[id].sort((a, b) => (a.ar_date ?? '').localeCompare(b.ar_date ?? ''));
+      }
+    }
+  }
+
+
+  const today    = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+  // Next calendar month
+  const nextMonthDate = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+  const nextMonthYear = nextMonthDate.getFullYear();
+  const nextMonthNum  = nextMonthDate.getMonth() + 1;
+
+  // Billing detail calculations — past due + next calendar month only
+  const billedLines = schedLines.filter(l => {
+    if (l.due_date <= todayStr) return true;
+    const [y, m] = l.due_date.split('-').map(Number);
+    return y === nextMonthYear && m === nextMonthNum;
+  });
+  const totalBilled = billedLines.reduce((s, l) => s + l.total_amount_due, 0);
+  const schedTotal  = schedLines.reduce((s, l) => s + l.total_amount_due, 0);
+  const totalPaid   = schedLines.reduce((s, l) => s + (l.amount_paid ?? 0), 0);
+  const amountDue   = Math.max(0, totalBilled - totalPaid);
+  const creditBal   = Math.max(0, totalPaid - totalBilled);
 
   // Penalty lines — overdue unpaid/partial schedule lines
   const overdueLines = schedLines.filter(
@@ -1403,9 +1456,9 @@ export async function generateSOA(reservationId: string | null): Promise<void> {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const fmtN = (n: number | null | undefined, prefix = '') =>
-    n != null ? prefix + n.toLocaleString('en-PH', { minimumFractionDigits: 2 }) : '—';
+    n != null ? prefix + n.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '-';
   const fmtD = (d: string | null | undefined) =>
-    d ? new Date(d + 'T00:00:00').toLocaleDateString('en-PH', { day: '2-digit', month: 'short', year: '2-digit' }) : '—';
+    d ? new Date(d + 'T00:00:00').toLocaleDateString('en-PH', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
 
   const hdrImg  = makeColorDataURL(238, 67, 78);
   const darkImg = makeColorDataURL(55, 55, 60);
@@ -1522,50 +1575,43 @@ export async function generateSOA(reservationId: string | null): Promise<void> {
   doc.text('CONTRACT DETAILS', L + 3, y + 5);
   y += 9;
 
-  // Left column: price items stacked vertically; right column: payterm info
-  const CD_LEFT_W  = W * 0.62;
-  const CD_RIGHT_W = W * 0.34;
-  const CD_RIGHT_X = R - CD_RIGHT_W;
-  const CD_ROW_H   = 11;
-
-  const cdLeftRows: [string, string, boolean][] = [
-    ['Net List Price (incl. VAT)',   fmtN((res?.net_list_price ?? 0) + (res?.vat ?? 0), 'PHP '), false],
-    ['Other Charges',                fmtN(res?.other_charges, 'PHP '),                            false],
+  // Two-column horizontal key-value layout
+  const isNoTerm = res?.payment_scheme === 'spot_cash' || res?.payment_scheme === 'spot_dp';
+  const cdLeft: [string, string, boolean][] = [
+    ['Net List Price (incl. VAT)', fmtN((res?.net_list_price ?? 0) + (res?.vat ?? 0), 'PHP '), false],
+    ['Other Charges',              fmtN(res?.other_charges, 'PHP '),                            false],
     ...(isHIC ? [['Home Improvement Contract', fmtN(res?.hic_discount, 'PHP '), false] as [string, string, boolean]] : []),
-    ['Total Contract Price',         fmtN(res?.total_contract_price, 'PHP '),                     true ],
-    ['Remaining Balance',            fmtN(Math.max(0, (res?.total_contract_price ?? 0) - totalPaid), 'PHP '), false],
+    ['Total Contract Price',       fmtN(res?.total_contract_price, 'PHP '),                     true ],
   ];
-  const cdRightRows: [string, string][] = [
-    ['Payterm Scheme', res?.scheme_name ?? '—'],
-    ['Term',           res?.term_months != null ? `${res.term_months} months` : '—'],
+  const cdRight: [string, string, boolean][] = [
+    ['Remaining Balance', fmtN(Math.max(0, (res?.total_contract_price ?? 0) - totalPaid), 'PHP '), false],
+    ['Payterm Scheme',    res?.scheme_name ?? '—',                                                  false],
+    ...(!isNoTerm ? [['Term', res?.term_months != null ? `${res.term_months} months` : '—', false] as [string, string, boolean]] : []),
   ];
 
-  const cdStartY = y;
-  cdLeftRows.forEach((row, i) => {
-    const ry2 = cdStartY + i * CD_ROW_H;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7);
-    doc.setTextColor(110, 110, 115);
-    doc.text(row[0], L, ry2);
-    doc.setFont('helvetica', row[2] ? 'bold' : 'normal');
-    doc.setFontSize(row[2] ? 9 : 8.5);
-    doc.setTextColor(28, 28, 30);
-    doc.text(row[1], L, ry2 + 5);
-  });
-  cdRightRows.forEach((row, i) => {
-    const ry2 = cdStartY + i * CD_ROW_H;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7);
-    doc.setTextColor(110, 110, 115);
-    doc.text(row[0], CD_RIGHT_X, ry2);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.5);
-    doc.setTextColor(28, 28, 30);
-    doc.text(row[1], CD_RIGHT_X, ry2 + 5);
-  });
-  void CD_LEFT_W;
+  const CD_ROW_H  = 7;
+  const CD_COL_GAP = 8;
+  const CD_COL_W   = (W - CD_COL_GAP) / 2;
+  const CD_MID     = L + CD_COL_W;
 
-  y += cdLeftRows.length * CD_ROW_H + 4;
+  const drawCdCol = (rows: [string, string, boolean][], lx: number, rx: number) => {
+    rows.forEach((row, i) => {
+      const ry2 = y + i * CD_ROW_H;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(110, 110, 115);
+      doc.text(row[0], lx, ry2 + 4.5);
+      doc.setFont('helvetica', row[2] ? 'bold' : 'normal');
+      doc.setFontSize(row[2] ? 8.5 : 8);
+      doc.setTextColor(28, 28, 30);
+      doc.text(row[1], rx, ry2 + 4.5, { align: 'right' });
+    });
+  };
+
+  drawCdCol(cdLeft,  L,            CD_MID);
+  drawCdCol(cdRight, CD_MID + CD_COL_GAP, R);
+
+  y += Math.max(cdLeft.length, cdRight.length) * CD_ROW_H + 4;
 
   // ── Schedule of Payment table ──────────────────────────────────────────────
   y = checkBreak(20, y);
@@ -1576,21 +1622,28 @@ export async function generateSOA(reservationId: string | null): Promise<void> {
   doc.text('SCHEDULE OF PAYMENT', L + 3, y + 5);
   y += 7;
 
-  // Column layout: Description | Due Date | Principal | VAT | OC | [HIC] | Total | Collection | Pmt Date | Status | AR No. | AR Date
+  // Columns: static section | stacked section (Pmt Date, AR No., AR Date)
+  // Status is in static so the 3 stacked cols are contiguous at the right edge
   const schedCols = isHIC
-    ? ['Description', 'Due Date', 'Principal', 'VAT', 'Other Chgs', 'HIC', 'Total', 'Collection', 'Pmt Date', 'Status', 'AR No.', 'AR Date']
-    : ['Description', 'Due Date', 'Principal', 'VAT', 'Other Chgs', 'Total', 'Collection', 'Pmt Date', 'Status', 'AR No.', 'AR Date'];
+    ? ['Description', 'Due Date', 'Principal', 'VAT', 'Oth.Chg', 'HIC', 'Total', 'Collection', 'Status', 'Pmt Date', 'AR No.', 'AR Date']
+    : ['Description', 'Due Date', 'Principal', 'VAT', 'Oth.Chg', 'Total', 'Collection', 'Status', 'Pmt Date', 'AR No.', 'AR Date'];
+  // Portrait A4: W = 186mm
   const schedColW = isHIC
-    ? [40, 18, 20, 18, 18, 18, 22, 22, 18, 16, 25, 20]
-    : [48, 20, 22, 20, 20, 24, 24, 20, 18, 28, 20];
+    ? [24, 19, 13, 10, 11, 11, 16, 16, 11, 17, 17, 21] // sum = 186
+    : [24, 20, 15, 11, 13, 18, 18, 12, 17, 18, 20];    // sum = 186
 
-  const tblHdrH = 6;
+  const tblHdrH  = 7;
+  const AR_LINE_H = 4.5;
+  const AR_PAD_T  = 1.5;
+  const staticColCount = isHIC ? 9 : 8; // cols before the 3 stacked AR cols
+
   let cx2 = L;
   schedCols.forEach((col, i) => {
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6.5);
+    doc.setFontSize(6);
     doc.setTextColor(28, 28, 30);
-    doc.text(col, cx2 + 1, y + 4.5);
+    const truncatedHdr = doc.splitTextToSize(col, schedColW[i] - 1)[0] ?? '';
+    doc.text(truncatedHdr, cx2 + 1, y + 5);
     cx2 += schedColW[i];
   });
   y += tblHdrH;
@@ -1598,14 +1651,21 @@ export async function generateSOA(reservationId: string | null): Promise<void> {
   doc.setLineWidth(0.2);
   doc.line(L, y, R, y);
 
-  const rowH = 6.5;
   schedLines.forEach((ln, idx) => {
+    const arEntries: ArEntry[] = arMap[ln.id]?.length > 0
+      ? arMap[ln.id]
+      : [{ pmt_date: ln.transaction_date ?? ln.posting_date ?? null, ar_no: ln.acknowledgement_receipt_no ?? null, ar_date: ln.posting_date ?? null }];
+
+    const rowH = Math.max(7.5, AR_PAD_T + arEntries.length * AR_LINE_H + 1);
     y = checkBreak(rowH + 2, y);
+
     if (idx % 2 === 0) {
       doc.setFillColor(248, 248, 250);
       doc.rect(L, y, W, rowH, 'F');
     }
-    const cols = isHIC
+
+    // Static columns
+    const staticCols = isHIC
       ? [
           ln.type_of_payment,
           fmtD(ln.due_date),
@@ -1615,10 +1675,7 @@ export async function generateSOA(reservationId: string | null): Promise<void> {
           fmtN(ln.hic),
           fmtN(ln.total_amount_due),
           fmtN(ln.amount_paid),
-          fmtD(ln.posting_date),
           ln.payment_status,
-          ln.acknowledgement_receipt_no ?? '—',
-          fmtD(ln.check_date),
         ]
       : [
           ln.type_of_payment,
@@ -1628,24 +1685,40 @@ export async function generateSOA(reservationId: string | null): Promise<void> {
           fmtN(ln.other_charges),
           fmtN(ln.total_amount_due),
           fmtN(ln.amount_paid),
-          fmtD(ln.posting_date),
           ln.payment_status,
-          ln.acknowledgement_receipt_no ?? '—',
-          fmtD(ln.check_date),
         ];
+
     let tx = L;
-    cols.forEach((val, i) => {
+    staticCols.forEach((val, i) => {
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.5);
+      doc.setFontSize(6);
       doc.setTextColor(
         val === 'Paid' ? 34 : val === 'Unpaid' ? 180 : val === 'Partial' ? 120 : 40,
         val === 'Paid' ? 120 : val === 'Unpaid' ? 30 : val === 'Partial' ? 80 : 40,
         val === 'Paid' ? 34 : val === 'Unpaid' ? 30 : val === 'Partial' ? 30 : 45,
       );
       const truncated = doc.splitTextToSize(String(val), schedColW[i] - 2)[0] ?? '';
-      doc.text(truncated, tx + 1, y + 4.5);
+      doc.text(truncated, tx + 1, y + 5);
       tx += schedColW[i];
     });
+
+    // Stacked AR columns: Pmt Date | AR No. | AR Date
+    const arStartX = tx;
+    arEntries.forEach((entry, ei) => {
+      const lineY = y + AR_PAD_T + ei * AR_LINE_H + 2.5;
+      const arCols = [fmtD(entry.pmt_date), entry.ar_no ?? '-', fmtD(entry.ar_date)];
+      let arX = arStartX;
+      arCols.forEach((val, ai) => {
+        const colIdx = staticColCount + ai;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6);
+        doc.setTextColor(40, 40, 45);
+        const truncated = doc.splitTextToSize(String(val), schedColW[colIdx] - 2)[0] ?? '';
+        doc.text(truncated, arX + 1, lineY);
+        arX += schedColW[colIdx];
+      });
+    });
+
     y += rowH;
   });
 
@@ -1653,7 +1726,7 @@ export async function generateSOA(reservationId: string | null): Promise<void> {
   y = checkBreak(8, y);
   doc.addImage(makeColorDataURL(70, 70, 75), 'PNG', L, y, W, 7);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7);
+  doc.setFontSize(6);
   doc.setTextColor(255, 255, 255);
   doc.text('TOTAL', L + 1, y + 4.5);
   const totColOffset = isHIC
@@ -1665,14 +1738,14 @@ export async function generateSOA(reservationId: string | null): Promise<void> {
         fmtN(schedLines.reduce((s, l) => s + (l.vat ?? 0), 0)),
         fmtN(schedLines.reduce((s, l) => s + (l.other_charges ?? 0), 0)),
         fmtN(schedLines.reduce((s, l) => s + (l.hic ?? 0), 0)),
-        fmtN(totalBilled),
+        fmtN(schedTotal),
         fmtN(totalPaid),
       ]
     : [
         fmtN(schedLines.reduce((s, l) => s + (l.principal ?? 0), 0)),
         fmtN(schedLines.reduce((s, l) => s + (l.vat ?? 0), 0)),
         fmtN(schedLines.reduce((s, l) => s + (l.other_charges ?? 0), 0)),
-        fmtN(totalBilled),
+        fmtN(schedTotal),
         fmtN(totalPaid),
       ];
   let totX = L + totColOffset;
@@ -1704,6 +1777,7 @@ export async function generateSOA(reservationId: string | null): Promise<void> {
   y += tblHdrH;
   doc.line(L, y, R, y);
 
+  const penRowH = 7.5;
   if (penaltyLines.length === 0) {
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(7.5);
@@ -1712,15 +1786,15 @@ export async function generateSOA(reservationId: string | null): Promise<void> {
     y += 8;
   } else {
     penaltyLines.forEach((pl, idx) => {
-      y = checkBreak(rowH + 2, y);
-      if (idx % 2 === 0) { doc.setFillColor(248, 248, 250); doc.rect(L, y, W, rowH, 'F'); }
+      y = checkBreak(penRowH + 2, y);
+      if (idx % 2 === 0) { doc.setFillColor(248, 248, 250); doc.rect(L, y, W, penRowH, 'F'); }
       const pCols = [
         fmtD(pl.due_date),
         String(pl.daysOverdue),
         '0.1%/day',
         fmtN(pl.basis),
         fmtN(pl.penAmt),
-        '—', pl.payment_status, '—', '—', '—',
+        '-', pl.payment_status, '-', '-', '-',
       ];
       let ptx = L;
       pCols.forEach((val, i) => {
@@ -1730,7 +1804,7 @@ export async function generateSOA(reservationId: string | null): Promise<void> {
         doc.text(String(val), ptx + 1, y + 4.5);
         ptx += penColW[i];
       });
-      y += rowH;
+      y += penRowH;
     });
   }
 

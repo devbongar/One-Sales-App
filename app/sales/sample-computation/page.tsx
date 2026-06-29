@@ -1835,13 +1835,15 @@ export default function SampleComputationPage() {
         const otherCharges       = Math.round(netListPrice * OTHER_CHARGES_RATE);
         const totalContractPrice = netListPrice + vat + otherCharges + hicDiscount;
         const netAmount          = totalContractPrice - reservationFee - RETENTION_FEE;
-        const monthlyDeferred    = paymentScheme === 'deferred_cash' ? Math.round(netAmount / termMonths) : 0;
+        const monthlyDeferred    = paymentScheme === 'deferred_cash' ? Math.floor(netAmount / termMonths) : 0;
 
         const dpRateDecimal       = parseFloat(dpRate) / 100;
         const dpAmount            = Math.round(totalContractPrice * dpRateDecimal);
         const netSpotDP           = dpAmount - reservationFee;
         const monthlyStretchedDP  = stretchedTermMonths > 0 ? Math.floor(netSpotDP / stretchedTermMonths) : 0;
-        const balanceForFinancing = totalContractPrice - reservationFee - (monthlyStretchedDP * stretchedTermMonths);
+        const balanceForFinancing = paymentScheme === 'spot_dp'
+          ? totalContractPrice - dpAmount
+          : totalContractPrice - reservationFee - (monthlyStretchedDP * stretchedTermMonths);
         const bankMonthly         = calcMonthlyAmort(balanceForFinancing, 0.065, 20);
         const hdmfMonthly         = calcMonthlyAmort(balanceForFinancing, 0.0625, 25);
 

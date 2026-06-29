@@ -1742,7 +1742,7 @@ export default function NewReservationPage() {
         const totalContractPrice = netListPrice + vat + otherCharges + hicDiscount;
         const netAmount    = totalContractPrice - reservationFee - RETENTION_FEE;
         const monthlyDeferred = paymentScheme === 'deferred_cash'
-          ? Math.round(netAmount / termMonths)
+          ? Math.floor(netAmount / termMonths)
           : 0;
 
         // Due date base: day 1–15 → 15th of next month; day 16–31 → 30th of next month
@@ -1752,7 +1752,9 @@ export default function NewReservationPage() {
         const dpAmount            = Math.round(totalContractPrice * dpRateDecimal);
         const netSpotDP           = dpAmount - reservationFee;
         const monthlyStretchedDP  = stretchedTermMonths > 0 ? Math.floor(netSpotDP / stretchedTermMonths) : 0;
-        const balanceForFinancing = totalContractPrice - reservationFee - (monthlyStretchedDP * stretchedTermMonths);
+        const balanceForFinancing = paymentScheme === 'spot_dp'
+          ? totalContractPrice - dpAmount                                          // TCP - grossDP (exact, no rounding risk)
+          : totalContractPrice - reservationFee - (monthlyStretchedDP * stretchedTermMonths); // stretched_dp
         const bankMonthly         = calcMonthlyAmort(balanceForFinancing, 0.065, 20);
         const hdmfMonthly         = calcMonthlyAmort(balanceForFinancing, 0.0625, 25);
 

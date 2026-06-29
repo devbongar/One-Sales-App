@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import Image from 'next/image';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
@@ -13,8 +13,9 @@ import {
   CommissionScheduleFullLine,
 } from '@/lib/commission';
 import { supabase } from '@/lib/supabase';
-import { AlertTriangle, Building2, Check, ChevronDown, Download, Loader2, Search, Send, SlidersHorizontal, Wallet, X } from 'lucide-react';
+import { AlertTriangle, BadgeCheck, Ban, Building2, Check, ChevronDown, Clock, Database, Download, Loader2, Search, Send, SlidersHorizontal, Unlock, Wallet, X } from 'lucide-react';
 import SearchableSelect from '@/components/ui/SearchableSelect';
+import * as XLSX from 'xlsx';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -185,6 +186,8 @@ export default function CommissionPayoutPage() {
           }
         });
 
+        setNlpMap(nlpMap);
+        setRankMap(rankMap);
         markPendingTranchesForRelease(allLines, collectionsMap, nlpMap).catch(console.error);
 
         const result: ReportLine[] = [];
@@ -276,6 +279,26 @@ export default function CommissionPayoutPage() {
     [lines, selectedTranches],
   );
 
+  // ── NLP + rank maps (for Excel export) ──────────────────────────────────────
+  const [nlpMap,  setNlpMap]  = useState<Record<string, number>>({});
+  const [rankMap, setRankMap] = useState<Record<string, string>>({});
+  const [xlsxLoading, setXlsxLoading] = useState(false);
+
+  // ── Download menu ────────────────────────────────────────────────────────────
+  const [dlMenuOpen, setDlMenuOpen] = useState(false);
+  const dlMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!dlMenuOpen) return;
+    function onOutside(e: MouseEvent) {
+      if (dlMenuRef.current && !dlMenuRef.current.contains(e.target as Node)) {
+        setDlMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', onOutside);
+    return () => document.removeEventListener('mousedown', onOutside);
+  }, [dlMenuOpen]);
+
   // ── DAT download ────────────────────────────────────────────────────────────
   const [datWarning, setDatWarning] = useState<string[]>([]);
 
@@ -302,6 +325,76 @@ export default function CommissionPayoutPage() {
     a.click();
     URL.revokeObjectURL(url);
     setDatWarning([]);
+  }
+
+  // ── Excel download ────────────────────────────────────────────────────────────
+  async function buildFilteredExcel(statuses: string[] | null, filename: string, sheetName: string) {
+    setXlsxLoading(true);
+    try {
+      const PAGE = 1000;
+      let from = 0;
+      const allRows: any[] = [];
+      while (true) {
+        let q = supabase
+          .from('commission_schedule')
+          .select('reservation_id, seller_name, client_name, project, inventory_code, tranche, commission_rate, gross_commission, status')
+          .order('project',        { ascending: true })
+          .order('seller_name',    { ascending: true })
+          .order('reservation_id', { ascending: true })
+          .order('tranche',        { ascending: true })
+          .range(from, from + PAGE - 1);
+
+        if (selectedProjects.size > 0) q = q.in('project', [...selectedProjects]);
+        if (statuses)                  q = q.in('status',  statuses);
+
+        const { data, error } = await q;
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        allRows.push(...data);
+        if (data.length < PAGE) break;
+        from += PAGE;
+      }
+
+      const rows = allRows.map((l: any) => ({
+        Project:        l.project        ?? '—',
+        Unit:           l.inventory_code ?? '—',
+        'Buyer Name':   l.client_name    ?? '—',
+        'Seller Name':  l.seller_name    ?? '—',
+        Position:       positionLabel(rankMap[l.seller_name] ?? null),
+        Status:         l.status         ?? '—',
+        Tranche:        l.tranche,
+        Price:          nlpMap[l.reservation_id] ?? 0,
+        'Comm. Rate':   l.commission_rate,
+        'Est. Comm.':   l.gross_commission,
+        'Release Date': '—',
+      }));
+
+      if (rows.length === 0) { alert('No records found for this export.'); return; }
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const range = XLSX.utils.decode_range(ws['!ref'] ?? 'A1');
+      for (let R = range.s.r + 1; R <= range.e.r; R++) {
+        for (const col of ['H', 'J']) {
+          const cell = ws[`${col}${R + 1}`];
+          if (cell) cell.z = '#,##0.00';
+        }
+        const rateCell = ws[`I${R + 1}`];
+        if (rateCell) rateCell.z = '0.00"%"';
+      }
+
+      ws['!cols'] = [
+        { wch: 28 }, { wch: 12 }, { wch: 28 }, { wch: 24 }, { wch: 22 },
+        { wch: 14 }, { wch: 8  }, { wch: 16 }, { wch: 12 }, { wch: 16 }, { wch: 14 },
+      ];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+      XLSX.writeFile(wb, `${filename}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } catch (e: any) {
+      alert(`Export failed: ${e.message}`);
+    } finally {
+      setXlsxLoading(false);
+    }
   }
 
   // ── Post action ─────────────────────────────────────────────────────────────
@@ -469,15 +562,111 @@ export default function CommissionPayoutPage() {
                 </button>
               )}
             </div>
-            <button
-              type="button"
-              onClick={() => buildDat(false)}
-              disabled={loading || filtered.filter(l => l.effectiveStatus === 'For Release' && l.sellerStatus !== null).length === 0}
-              className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 bg-white/80 backdrop-blur-sm border border-black/[0.08] text-[#6C6C70] disabled:opacity-40 active:opacity-60 transition-opacity"
-              title="Download DAT"
-            >
-              <Download size={18} />
-            </button>
+            {/* Download dropdown */}
+            <div ref={dlMenuRef} className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => !loading && setDlMenuOpen(prev => !prev)}
+                disabled={loading}
+                className="w-11 h-11 rounded-2xl flex items-center justify-center bg-white/80 backdrop-blur-sm border border-black/[0.08] text-[#6C6C70] disabled:opacity-40 active:opacity-60 transition-opacity"
+                title="Download"
+              >
+                <Download size={18} />
+              </button>
+              {dlMenuOpen && (
+                <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-2xl shadow-2xl border border-black/[0.06] overflow-hidden z-30">
+
+                  {/* DAT */}
+                  <button
+                    type="button"
+                    disabled={filtered.filter(l => l.effectiveStatus === 'For Release' && l.sellerStatus !== null).length === 0}
+                    onClick={() => { setDlMenuOpen(false); buildDat(false); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-[#1C1C1E] hover:bg-[#F2F2F7] active:bg-[#E5E5EA] disabled:opacity-40 transition-colors"
+                  >
+                    <Download size={15} className="text-[#6C6C70] shrink-0" />
+                    <div>
+                      <p className="font-semibold leading-tight text-[13px]">Download DAT</p>
+                      <p className="text-[11px] text-[#8E8E93]">Payroll transfer file</p>
+                    </div>
+                  </button>
+
+                  <div className="h-px bg-black/[0.06] mx-4" />
+
+                  {/* All Commission Database */}
+                  <button
+                    type="button"
+                    disabled={xlsxLoading}
+                    onClick={() => { setDlMenuOpen(false); buildFilteredExcel(null, 'commission_database', 'Commission Database'); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-[#1C1C1E] hover:bg-[#F2F2F7] active:bg-[#E5E5EA] disabled:opacity-40 transition-colors"
+                  >
+                    {xlsxLoading ? <Loader2 size={15} className="text-[#007AFF] shrink-0 animate-spin" /> : <Database size={15} className="text-[#007AFF] shrink-0" />}
+                    <div>
+                      <p className="font-semibold leading-tight text-[13px]">All Commission Database</p>
+                      <p className="text-[11px] text-[#8E8E93]">All statuses · Excel</p>
+                    </div>
+                  </button>
+
+                  <div className="h-px bg-black/[0.06] mx-4" />
+
+                  {/* Awaiting Milestone */}
+                  <button
+                    type="button"
+                    disabled={xlsxLoading}
+                    onClick={() => { setDlMenuOpen(false); buildFilteredExcel(['Pending'], 'commission_awaiting_milestone', 'Awaiting Milestone'); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-[#1C1C1E] hover:bg-[#F2F2F7] active:bg-[#E5E5EA] disabled:opacity-40 transition-colors"
+                  >
+                    <Clock size={15} className="text-[#FF9500] shrink-0" />
+                    <div>
+                      <p className="font-semibold leading-tight text-[13px]">Awaiting Milestone</p>
+                      <p className="text-[11px] text-[#8E8E93]">Pending only · Excel</p>
+                    </div>
+                  </button>
+
+                  {/* For Release */}
+                  <button
+                    type="button"
+                    disabled={xlsxLoading}
+                    onClick={() => { setDlMenuOpen(false); buildFilteredExcel(['For Release'], 'commission_for_release', 'For Release'); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-[#1C1C1E] hover:bg-[#F2F2F7] active:bg-[#E5E5EA] disabled:opacity-40 transition-colors"
+                  >
+                    <Unlock size={15} className="text-[#6D28D9] shrink-0" />
+                    <div>
+                      <p className="font-semibold leading-tight text-[13px]">For Release</p>
+                      <p className="text-[11px] text-[#8E8E93]">For Release only · Excel</p>
+                    </div>
+                  </button>
+
+                  {/* Released */}
+                  <button
+                    type="button"
+                    disabled={xlsxLoading}
+                    onClick={() => { setDlMenuOpen(false); buildFilteredExcel(['Released'], 'commission_released', 'Released'); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-[#1C1C1E] hover:bg-[#F2F2F7] active:bg-[#E5E5EA] disabled:opacity-40 transition-colors"
+                  >
+                    <BadgeCheck size={15} className="text-[#34C759] shrink-0" />
+                    <div>
+                      <p className="font-semibold leading-tight text-[13px]">Released</p>
+                      <p className="text-[11px] text-[#8E8E93]">Released only · Excel</p>
+                    </div>
+                  </button>
+
+                  {/* Cancelled / Superseded */}
+                  <button
+                    type="button"
+                    disabled={xlsxLoading}
+                    onClick={() => { setDlMenuOpen(false); buildFilteredExcel(['Cancelled', 'Superseded'], 'commission_cancelled', 'Cancelled & Voided'); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-[#1C1C1E] hover:bg-[#F2F2F7] active:bg-[#E5E5EA] disabled:opacity-40 transition-colors"
+                  >
+                    <Ban size={15} className="text-[#FF3B30] shrink-0" />
+                    <div>
+                      <p className="font-semibold leading-tight text-[13px]">Cancelled</p>
+                      <p className="text-[11px] text-[#8E8E93]">Cancelled + Superseded · Excel</p>
+                    </div>
+                  </button>
+
+                </div>
+              )}
+            </div>
             <button
               type="button"
               onClick={() => setFilterOpen(true)}

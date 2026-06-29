@@ -188,14 +188,16 @@ export async function regenerateReceivableLines(
 
   if (newPaytermScheme === 'deferred_cash') {
     const installable = newTcp - resFeeNum - retFeeNum;
-    const monthly = newTermMonths > 0 ? Math.round(installable / newTermMonths) : 0;
+    const monthly = newTermMonths > 0 ? Math.floor(installable / newTermMonths) : 0;
     for (let i = 0; i < newTermMonths; i++) {
+      const isLast = i === newTermMonths - 1;
+      const amount = isLast ? installable - (newTermMonths - 1) * monthly : monthly;
       lines.push({
         ...base,
         type_of_payment:  `Monthly Deferred ${i + 1}/${newTermMonths}`,
         due_date:         nthDueDate(i),
-        total_amount_due: monthly,
-        ...breakdown(monthly),
+        total_amount_due: amount,
+        ...breakdown(amount),
       });
     }
     const retDue = newTermMonths > 12
@@ -216,7 +218,7 @@ export async function regenerateReceivableLines(
     const installable = newTcp - resFeeNum - retFeeNum;
     lines.push({
       ...base,
-      type_of_payment:  'Cash Out Balance',
+      type_of_payment:  'Spot Cash',
       due_date:         nthDueDate(0),
       total_amount_due: installable,
       ...breakdown(installable),
@@ -275,6 +277,30 @@ export async function regenerateReceivableLines(
   }
 
   if (lines.length === 0) throw new Error(`No lines generated for scheme: ${newPaytermScheme}`);
+
+  // ── Adjust last breakdown line so column sums match contract values exactly ──
+  const nlpNum = Number(r.net_list_price) || 0;
+  const vatNum = Number(r.vat)            || 0;
+  const ocNum  = Number(r.other_charges)  || 0;
+  const breakdownIdxs = lines
+    .map((_, i) => i)
+    .filter(i => {
+      const t = lines[i].type_of_payment as string;
+      return t !== 'Reservation Fee' && t !== 'Retention Fee';
+    });
+  if (breakdownIdxs.length > 0) {
+    const last = breakdownIdxs[breakdownIdxs.length - 1];
+    const sumP = lines.reduce((s, l) => s + ((l.principal     as number) ?? 0), 0);
+    const sumV = lines.reduce((s, l) => s + ((l.vat           as number) ?? 0), 0);
+    const sumO = lines.reduce((s, l) => s + ((l.other_charges as number) ?? 0), 0);
+    lines[last].principal     = ((lines[last].principal     as number) ?? 0) + (nlpNum - sumP);
+    lines[last].vat           = ((lines[last].vat           as number) ?? 0) + (vatNum - sumV);
+    lines[last].other_charges = ((lines[last].other_charges as number) ?? 0) + (ocNum  - sumO);
+    if (hicNum > 0) {
+      const sumH = lines.reduce((s, l) => s + ((l.hic as number) ?? 0), 0);
+      lines[last].hic = ((lines[last].hic as number) ?? 0) + (hicNum - sumH);
+    }
+  }
 
   const { error: insertError } = await supabase.from('receivables_database').insert(lines);
   if (insertError) throw insertError;
