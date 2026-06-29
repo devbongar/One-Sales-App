@@ -141,6 +141,7 @@ export default function BuyersVerificationPage() {
           spouse_id_urls, has_co_ownership, has_atty_in_fact, has_spouse
         `)
         .eq('documents_saved', true)
+        .neq('status', 'Cancelled')
         .order('created_at', { ascending: false });
 
       if (!statusFilter) {

@@ -13,6 +13,8 @@ export async function submitForReview(reservationId: string): Promise<void> {
     p_reservation_id: reservationId,
   });
   if (error) throw error;
+  // Clear rejection timestamp on resubmit so auto-cancel clock stops
+  await supabase.from('reservations').update({ amd_rejected_at: null }).eq('reservation_id', reservationId);
 }
 
 export async function directorReview(
@@ -33,6 +35,7 @@ export async function submitToAmd(reservationId: string): Promise<void> {
     p_reservation_id: reservationId,
   });
   if (error) throw error;
+  await supabase.from('reservations').update({ amd_rejected_at: null }).eq('reservation_id', reservationId);
 }
 
 export async function amdReview(
@@ -46,6 +49,10 @@ export async function amdReview(
     p_notes:          notes ?? null,
   });
   if (error) throw error;
+  // Stamp rejection time for auto-cancel countdown; clear on approval
+  await supabase.from('reservations').update({
+    amd_rejected_at: approved ? null : new Date().toISOString(),
+  }).eq('reservation_id', reservationId);
 }
 
 export async function financeVerify(reservationId: string): Promise<void> {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
@@ -10,7 +10,8 @@ import {
 import { deleteCoOwner } from '@/lib/co-owners';
 import { deleteAttyInFact } from '@/lib/atty-in-fact';
 import { generateCommissionSchedule } from '@/lib/commission';
-import { withdrawSubmission, submitForReview, directorReview, amdReview } from '@/lib/review';
+import { withdrawSubmission, submitForReview, directorReview, amdReview, submitToAmd } from '@/lib/review';
+import { cancelReservation, restoreReservation } from '@/lib/cancellation';
 import { addActivityLog, getActivityLog, ActivityLogEntry } from '@/lib/activity-log';
 import { getSession } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
@@ -186,6 +187,13 @@ export default function BookingDetailPage() {
   const [reservationStatus,  setReservationStatus]  = useState<string | null>(null);
   const [directorFilled,     setDirectorFilled]     = useState(false);
   const [bookedAt,           setBookedAt]           = useState<string | null>(null);
+  const [amdRejectedAt,      setAmdRejectedAt]      = useState<string | null>(null);
+  const [cancellationReason, setCancellationReason] = useState<string | null>(null);
+  const [countdown,          setCountdown]          = useState<string>('');
+  const [countdownExpired,   setCountdownExpired]   = useState(false);
+  const [restoring,          setRestoring]          = useState(false);
+  const [restoreError,       setRestoreError]       = useState('');
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [progress,        setProgress]        = useState<BookingProgress | null>(null);
   const [loading,         setLoading]         = useState(true);
   const [hasCoOwnership,  setHasCoOwnership]  = useState(false);
@@ -208,6 +216,29 @@ export default function BookingDetailPage() {
   const [showAMDRejectSheet,     setShowAMDRejectSheet]     = useState(false);
   const [amdRejectComment,       setAmdRejectComment]       = useState('');
   const [reviewing,              setReviewing]              = useState(false);
+
+  // Countdown timer for AMD rejection 24h window
+  useEffect(() => {
+    if (countdownRef.current) clearInterval(countdownRef.current);
+    if (!amdRejectedAt || reservationStatus === 'Cancelled') return;
+    const deadline = new Date(amdRejectedAt).getTime() + 24 * 60 * 60 * 1000;
+    const tick = () => {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        setCountdown('00:00:00');
+        setCountdownExpired(true);
+        if (countdownRef.current) clearInterval(countdownRef.current);
+        return;
+      }
+      const h = Math.floor(remaining / 3_600_000);
+      const m = Math.floor((remaining % 3_600_000) / 60_000);
+      const s = Math.floor((remaining % 60_000) / 1_000);
+      setCountdown(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
+    };
+    tick();
+    countdownRef.current = setInterval(tick, 1000);
+    return () => { if (countdownRef.current) clearInterval(countdownRef.current); };
+  }, [amdRejectedAt, reservationStatus]);
 
   // Privacy consent
   const [privacyConsent,  setPrivacyConsent]  = useState(false);
@@ -239,7 +270,7 @@ export default function BookingDetailPage() {
       // Fetch finance_status, director_filled and check commission schedule if Booked
       supabase
         .from('reservations')
-        .select('status, finance_status, director_filled, booked_at')
+        .select('status, finance_status, director_filled, booked_at, amd_rejected_at, cancellation_reason')
         .eq('reservation_id', r.reservation_id)
         .single()
         .then(({ data }) => {
@@ -247,6 +278,8 @@ export default function BookingDetailPage() {
           setReservationStatus((data as any)?.status ?? null);
           setDirectorFilled((data as any)?.director_filled ?? false);
           setBookedAt((data as any)?.booked_at ?? null);
+          setAmdRejectedAt((data as any)?.amd_rejected_at ?? null);
+          setCancellationReason((data as any)?.cancellation_reason ?? null);
           const fs = (data as any)?.finance_status ?? null;
           if (['rf-verified', 'dp-verified'].includes(fs) || data?.status === 'Booked') {
             supabase
@@ -271,6 +304,22 @@ export default function BookingDetailPage() {
       console.error('[commission] Generate failed:', e);
     } finally {
       setGeneratingCommission(false);
+    }
+  }
+
+  async function handleRestore() {
+    if (!reservation?.reservation_id) return;
+    setRestoreError('');
+    setRestoring(true);
+    try {
+      await restoreReservation(reservation.reservation_id, displayName ?? 'all-access');
+      await addActivityLog(reservation.reservation_id, 'restored', displayName).catch(console.error);
+      setReservationStatus('Reserved');
+      setCancellationReason(null);
+    } catch (e: any) {
+      setRestoreError(e.message ?? 'Restore failed.');
+    } finally {
+      setRestoring(false);
     }
   }
 
@@ -519,9 +568,99 @@ export default function BookingDetailPage() {
     router.push('/sales/booking/documents');
   }
 
+  const isCancelled = reservationStatus === 'Cancelled';
+
+  // Countdown colour based on time remaining
+  const countdownMs = amdRejectedAt
+    ? Math.max(0, new Date(amdRejectedAt).getTime() + 24 * 60 * 60 * 1000 - Date.now())
+    : 0;
+  const pulseColor  = countdownMs < 60 * 60 * 1000   ? '#C03D25'   // < 1h  — deep red
+                    : countdownMs < 6 * 60 * 60 * 1000 ? '#E06045'  // < 6h  — red
+                    : '#D97706';                                      // > 6h  — amber
+  const pulseSpeed  = countdownMs < 60 * 60 * 1000 ? '0.9s' : '1.6s';
+
   return (
     <PageShell title="Booking" backButton onBack={() => router.push('/sales/booking')}>
+      <style>{`
+        @keyframes bk-pulse {
+          0%, 100% { box-shadow: 0 0 0 0 var(--pulse-color); opacity: 1; }
+          50%       { box-shadow: 0 0 0 8px transparent; opacity: 0.92; }
+        }
+        .bk-pulse-card { animation: bk-pulse var(--pulse-speed) ease-in-out infinite; }
+      `}</style>
       <div className="space-y-4 pb-6">
+
+        {/* ── Cancelled banner ── */}
+        {isCancelled && (
+          <GlassCard className="overflow-hidden border border-red-200">
+            <div className="bg-red-50 px-4 py-4 flex items-center gap-3">
+              <XCircle size={20} className="text-red-500 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-red-700">Reservation Cancelled</p>
+                <p className="text-xs text-red-500 mt-0.5">
+                  {cancellationReason === 'amd-rejected-expired'
+                    ? 'Auto-cancelled — resubmit window expired without action.'
+                    : cancellationReason ?? 'This reservation has been cancelled.'}
+                </p>
+              </div>
+            </div>
+            {isAllAccess && (
+              <div className="px-4 py-3">
+                {restoreError && <p className="text-xs text-red-500 mb-2">{restoreError}</p>}
+                <button
+                  type="button"
+                  disabled={restoring}
+                  onClick={handleRestore}
+                  className="w-full py-3 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80 disabled:opacity-40 flex items-center justify-center gap-2"
+                >
+                  {restoring ? <><Loader2 size={14} className="animate-spin" /> Restoring…</> : <><RotateCcw size={14} /> Restore Reservation</>}
+                </button>
+              </div>
+            )}
+          </GlassCard>
+        )}
+
+        {/* ── AMD rejection countdown (seller + director, not AMD role) ── */}
+        {rs === 'amd-rejected' && !isCancelled && !isAMD && amdRejectedAt && (
+          <div
+            className="bk-pulse-card rounded-2xl overflow-hidden border"
+            style={{
+              ['--pulse-color' as any]: pulseColor,
+              ['--pulse-speed' as any]: pulseSpeed,
+              borderColor: pulseColor,
+              background: 'rgba(255,255,255,0.96)',
+            }}
+          >
+            <div className="px-4 pt-4 pb-3 flex items-start gap-3">
+              <AlertTriangle size={16} className="shrink-0 mt-0.5" style={{ color: pulseColor }} />
+              <div className="flex-1">
+                <p className="text-sm font-bold" style={{ color: pulseColor }}>Resubmit Required</p>
+                <p className="text-xs text-[#6C6C70] mt-0.5 leading-relaxed">
+                  This booking was rejected by Account Management. Resubmit within the deadline or the reservation will be automatically cancelled.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-end justify-center gap-2 py-3 px-4">
+              {['hrs', 'min', 'sec'].map((unit, i) => (
+                <div key={unit} className="flex flex-col items-center">
+                  {i > 0 && <span className="text-2xl font-bold mb-3 mr-[-8px] ml-[-8px]" style={{ color: pulseColor }}>:</span>}
+                  <span className="text-4xl font-bold tabular-nums" style={{ color: pulseColor, fontVariantNumeric: 'tabular-nums' }}>
+                    {countdown.split(':')[i] ?? '00'}
+                  </span>
+                  <span className="text-[9px] font-semibold text-[#8E8E93] uppercase tracking-wider mt-0.5">{unit}</span>
+                </div>
+              ))}
+            </div>
+            {countdownExpired && (
+              <p className="text-center text-xs text-red-600 font-semibold pb-3">Deadline passed — cancellation in progress…</p>
+            )}
+            {progress?.amd_notes && (
+              <div className="mx-4 mb-3 px-3 py-2 bg-red-50 rounded-xl">
+                <p className="text-xs text-[#3A3A3C] leading-relaxed">{progress.amd_notes}</p>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Reservation hero card */}
         <GlassCard className="overflow-hidden">
@@ -960,21 +1099,8 @@ export default function BookingDetailPage() {
             )}
 
             {/* ── Director submit / resubmit directly to AMD ── */}
-            {isDirector && !isAllAccess && docsReady && (rs === null || (rs === 'amd-rejected' && directorFilled)) && (
+            {isDirector && !isAllAccess && !isCancelled && docsReady && (rs === null || (rs === 'amd-rejected' && directorFilled)) && (
               <div className="space-y-3">
-                {rs === 'amd-rejected' && (
-                  <GlassCard className="px-4 py-3 space-y-2 overflow-hidden border border-red-200">
-                    <div className="flex items-center gap-2">
-                      <XCircle size={13} className="text-red-500" />
-                      <p className="text-xs font-semibold text-red-600">Rejected by Account Management</p>
-                    </div>
-                    {progress?.amd_notes && (
-                      <p className="text-xs text-[#3A3A3C] bg-red-50 rounded-xl px-3 py-2 leading-relaxed">
-                        {progress.amd_notes}
-                      </p>
-                    )}
-                  </GlassCard>
-                )}
                 <button
                   type="button"
                   disabled={submitting}
@@ -990,7 +1116,7 @@ export default function BookingDetailPage() {
             )}
 
             {/* ── Submit / Recall area (agents only) ── */}
-            {(!isDirector || isAllAccess) && !isAMD && !dirApproved && (
+            {(!isDirector || isAllAccess) && !isAMD && !dirApproved && !isCancelled && (
               <div className="space-y-3">
                 {rs === 'director-rejected' && (
                   <GlassCard className="px-4 py-3 space-y-2 overflow-hidden border border-red-200">
@@ -1001,20 +1127,6 @@ export default function BookingDetailPage() {
                     {progress?.director_notes && (
                       <p className="text-xs text-[#3A3A3C] bg-red-50 rounded-xl px-3 py-2 leading-relaxed">
                         {progress.director_notes}
-                      </p>
-                    )}
-                  </GlassCard>
-                )}
-
-                {rs === 'amd-rejected' && (
-                  <GlassCard className="px-4 py-3 space-y-2 overflow-hidden border border-red-200">
-                    <div className="flex items-center gap-2">
-                      <XCircle size={13} className="text-red-500" />
-                      <p className="text-xs font-semibold text-red-600">Rejected by Account Management</p>
-                    </div>
-                    {progress?.amd_notes && (
-                      <p className="text-xs text-[#3A3A3C] bg-red-50 rounded-xl px-3 py-2 leading-relaxed">
-                        {progress.amd_notes}
                       </p>
                     )}
                   </GlassCard>

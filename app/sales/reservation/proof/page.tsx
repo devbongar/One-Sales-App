@@ -8,7 +8,7 @@ import {
   Receipt, CalendarDays, Upload, Camera, ScanLine,
   ImagePlus, X, AlertTriangle, Loader2, Check, CheckCircle2,
   User, Building2, Tag, LayoutGrid, BadgeCheck, FileText,
-  ChevronDown, CreditCard, ShieldCheck, Clock, Landmark,
+  ChevronDown, CreditCard, ShieldCheck, Clock, Landmark, Ban,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { generateReservationId, saveReservation, uploadPaymentProof, uploadDocumentFile, updateReservationPayment, updateReservationStatus } from '@/lib/reservations';
@@ -184,6 +184,7 @@ export default function ProofOfPaymentPage() {
   const cameraScanRef  = useRef<HTMLInputElement>(null);
   const galleryRef     = useRef<HTMLInputElement>(null);
 
+  const isCancelled = reservation?.status === 'Cancelled';
   const alreadyPaid = reservation?.status === 'Reserved' || reservation?.status === 'Booked';
   const isBooked    = reservation?.status === 'Booked';
   const isApproved  = reservation?.finance_status === 'rf-verified' || reservation?.finance_status === 'dp-verified';
@@ -518,7 +519,9 @@ export default function ProofOfPaymentPage() {
       <GlassCard className="p-5 space-y-4">
         <div className="flex items-center gap-4">
           <div className="w-12 h-12 rounded-full bg-[rgba(192,61,37,0.1)] flex items-center justify-center shrink-0">
-            {alreadyPaid
+            {isCancelled
+              ? <Ban size={24} className="text-[#FF3B30]" />
+              : alreadyPaid
               ? <BadgeCheck size={24} className="text-green-600" />
               : <Receipt size={24} className="text-[#C03D25]" />
             }
@@ -532,11 +535,13 @@ export default function ProofOfPaymentPage() {
               <img src="/approved-stamp.png" alt="Approved" className="w-20 h-20 object-contain shrink-0" />
             ) : (
               <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
-                isBooked ? 'bg-green-100 text-green-700'
+                isCancelled ? 'bg-red-100 text-red-700'
+                : isBooked ? 'bg-green-100 text-green-700'
                 : reservation.finance_status === 'rf-rejected' ? 'bg-red-100 text-red-700'
                 : alreadyPaid ? 'bg-teal-100 text-teal-700' : 'bg-amber-100 text-amber-700'
               }`}>
-                {isBooked ? 'Booked'
+                {isCancelled ? 'Cancelled'
+                 : isBooked ? 'Booked'
                  : reservation.finance_status === 'rf-rejected' ? 'RF Rejected'
                  : alreadyPaid ? 'Reserved'
                  : 'Pending Proof'}
@@ -609,7 +614,7 @@ export default function ProofOfPaymentPage() {
           </div>
         )}
 
-        {!isBooked && (
+        {!isBooked && !isCancelled && (
           <p className="text-xs text-[#8E8E93] leading-relaxed">
             {isApproved
               ? 'This reservation has been approved. All details are read-only.'
@@ -633,6 +638,21 @@ export default function ProofOfPaymentPage() {
           </div>
         )}
       </GlassCard>
+
+      {/* ── Cancelled banner ── */}
+      {isCancelled && (
+        <GlassCard className="p-4 flex items-start gap-3 border border-red-100 bg-red-50/60">
+          <div className="w-9 h-9 rounded-full bg-[#FF3B30]/10 flex items-center justify-center shrink-0">
+            <Ban size={18} className="text-[#FF3B30]" />
+          </div>
+          <div>
+            <p className="text-sm font-bold text-[#FF3B30]">Reservation Cancelled</p>
+            <p className="text-xs text-[#8E8E93] mt-0.5 leading-relaxed">
+              This reservation has been cancelled. No further actions are available on this page.
+            </p>
+          </div>
+        </GlassCard>
+      )}
 
       {/* ── Read-only view: mirrors edit form layout ── */}
       {alreadyPaid && !editMode && !!reservation?.finance_status && (
@@ -819,7 +839,7 @@ export default function ProofOfPaymentPage() {
       )}
 
       {/* Editable fields — new reservation OR edit mode */}
-      {(!alreadyPaid || editMode || (alreadyPaid && !reservation?.finance_status)) && !isApproved && (
+      {(!alreadyPaid || editMode || (alreadyPaid && !reservation?.finance_status)) && !isApproved && !isCancelled && (
         <GlassCard className="px-4 py-1">
 
           {/* Reservation Mode of Payment */}
@@ -1013,7 +1033,7 @@ export default function ProofOfPaymentPage() {
       )}
 
       {/* Proof of First Downpayment — separate card */}
-      {firstPaymentAgreed && (!alreadyPaid || editMode || (alreadyPaid && !reservation?.finance_status)) && !isApproved && (
+      {firstPaymentAgreed && (!alreadyPaid || editMode || (alreadyPaid && !reservation?.finance_status)) && !isApproved && !isCancelled && (
         <GlassCard className="px-4 py-1">
           {/* 1st DP Payment Date */}
           <div className="flex items-center gap-3 py-3 px-1 border-b border-black/[0.06]">
@@ -1073,7 +1093,7 @@ export default function ProofOfPaymentPage() {
       )}
 
       {/* Subsequent Mode of Payment + ADA Bank */}
-      {(!alreadyPaid || editMode || (alreadyPaid && !reservation?.finance_status)) && !isApproved && (
+      {(!alreadyPaid || editMode || (alreadyPaid && !reservation?.finance_status)) && !isApproved && !isCancelled && (
         <GlassCard className="px-4 py-1">
           <div className="border-b border-black/[0.06] py-3 px-1 space-y-2">
             <p className="text-xs font-semibold text-[#8E8E93] flex items-center gap-1.5">
@@ -1166,7 +1186,7 @@ export default function ProofOfPaymentPage() {
       )}
 
       {/* Save / Confirm button */}
-      {(!alreadyPaid || editMode || (alreadyPaid && !reservation?.finance_status)) && !isApproved && (
+      {(!alreadyPaid || editMode || (alreadyPaid && !reservation?.finance_status)) && !isApproved && !isCancelled && (
         <div className="space-y-2.5">
           <p className="text-[11px] text-[#8E8E93] leading-relaxed text-center px-2">
             Please ensure that you have selected the correct mode of payment for the reservation and subsequent payments, including the corresponding preferred bank of the client. All required documents must be uploaded before proceeding with the payment.
@@ -1206,7 +1226,7 @@ export default function ProofOfPaymentPage() {
 
 
       {/* Edit / Resubmit / Cancel — shown when returned (RF Rejected) */}
-      {reservation?.finance_status === 'rf-rejected' && !editMode && (
+      {reservation?.finance_status === 'rf-rejected' && !editMode && !isCancelled && (
         <div className="space-y-2.5 pb-2">
           {actionError && <p className="text-red-500 text-xs text-center">{actionError}</p>}
           <button
@@ -1236,7 +1256,7 @@ export default function ProofOfPaymentPage() {
       )}
 
       {/* Recall button — shown only when proof is pending RF verification */}
-      {alreadyPaid && !isApproved && reservation?.finance_status === 'proof-submitted' && (
+      {alreadyPaid && !isApproved && reservation?.finance_status === 'proof-submitted' && !isCancelled && (
         <div className="space-y-2.5 pb-2">
           {actionError ? <p className="text-red-500 text-xs text-center">{actionError}</p> : null}
           <button

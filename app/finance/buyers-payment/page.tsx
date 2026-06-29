@@ -141,6 +141,7 @@ export default function BuyersPaymentPage() {
           .from('reservations')
           .select(SELECT)
           .not('finance_status', 'is', null)
+          .neq('status', 'Cancelled')
           .order('created_at', { ascending: false });
       } else if (statusFilter === 'Pending RF') {
         q = supabase
@@ -165,6 +166,7 @@ export default function BuyersPaymentPage() {
           .from('reservations')
           .select(SELECT)
           .or('finance_status.eq.dp-verified,status.eq.Booked')
+          .neq('status', 'Cancelled')
           .order('created_at', { ascending: false });
       }
 
