@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
@@ -196,6 +196,10 @@ export default function FinanceVerifyPage() {
   const [rejectComment,      setRejectComment]      = useState('');
   const [done,               setDone]               = useState<'approved' | 'rejected' | null>(null);
   const [commissionWarn,     setCommissionWarn]     = useState<CommissionGenerateResult | null>(null);
+  const [rfRejectedAt,       setRfRejectedAt]       = useState<string | null>(null);
+  const [countdown,          setCountdown]          = useState('');
+  const [countdownExpired,   setCountdownExpired]   = useState(false);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     getSession().then(s => setDisplayName(s?.display_name || s?.full_name || null));
@@ -214,6 +218,18 @@ export default function FinanceVerifyPage() {
     if (b.date_of_1st_dp)               setDpDate(b.date_of_1st_dp);
     else if (b.fdp_payment_date)         setDpDate(b.fdp_payment_date);
 
+    // Fetch rf_rejected_at for countdown
+    supabase
+      .from('reservations')
+      .select('rf_rejected_at, finance_verified_at')
+      .eq('reservation_id', b.reservation_id)
+      .single()
+      .then(({ data: rd }) => {
+        if (rd && rd.rf_rejected_at && !rd.finance_verified_at) {
+          setRfRejectedAt(rd.rf_rejected_at);
+        }
+      });
+
     // Fetch DP start/end from receivables
     supabase
       .from('receivables_database')
@@ -229,6 +245,34 @@ export default function FinanceVerifyPage() {
       });
   }, []);
 
+
+  useEffect(() => {
+    if (countdownRef.current) clearInterval(countdownRef.current);
+    if (!rfRejectedAt) return;
+    const deadline = new Date(rfRejectedAt).getTime() + 24 * 60 * 60 * 1000;
+    const tick = () => {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        setCountdown('00:00:00');
+        setCountdownExpired(true);
+        if (countdownRef.current) clearInterval(countdownRef.current);
+        return;
+      }
+      const h = Math.floor(remaining / 3_600_000);
+      const m = Math.floor((remaining % 3_600_000) / 60_000);
+      const s = Math.floor((remaining % 60_000) / 1_000);
+      setCountdown(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
+    };
+    tick();
+    countdownRef.current = setInterval(tick, 1000);
+    return () => { if (countdownRef.current) clearInterval(countdownRef.current); };
+  }, [rfRejectedAt]);
+
+  useEffect(() => {
+    if (!rfRejectedAt) return;
+    const t = setTimeout(() => document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' }), 400);
+    return () => clearTimeout(t);
+  }, [rfRejectedAt]);
 
   async function handleApprove() {
     if (!booking) return;
@@ -350,9 +394,17 @@ export default function FinanceVerifyPage() {
     setRejecting(true);
     setActionError('');
     try {
+      const now = new Date().toISOString();
+      // Only stamp rf_rejected_at for scenarios 1 & 2 (RF not yet verified)
+      const stampRfRejectedAt = !rfVerified ? now : undefined;
       await supabase.from('reservations')
-        .update({ finance_status: 'rf-rejected', finance_rejection_reason: rejectComment.trim() || null })
+        .update({
+          finance_status:           'rf-rejected',
+          finance_rejection_reason: rejectComment.trim() || null,
+          ...(stampRfRejectedAt ? { rf_rejected_at: stampRfRejectedAt } : {}),
+        })
         .eq('reservation_id', booking.reservation_id);
+      if (stampRfRejectedAt) setRfRejectedAt(stampRfRejectedAt);
       setDone('rejected');
     } catch (e: any) {
       setActionError(e.message ?? 'Failed to reject. Please try again.');
@@ -544,9 +596,65 @@ export default function FinanceVerifyPage() {
     );
   }
 
+  const countdownMs = rfRejectedAt
+    ? Math.max(0, new Date(rfRejectedAt).getTime() + 24 * 60 * 60 * 1000 - Date.now())
+    : 0;
+  const pulseColor = countdownMs < 60 * 60 * 1000   ? '#C03D25'
+                   : countdownMs < 6 * 60 * 60 * 1000 ? '#E06045'
+                   : '#D97706';
+  const pulseSpeed = countdownMs < 60 * 60 * 1000 ? '0.9s' : '1.6s';
+
   return (
     <PageShell title="Finance Verification" backButton onBack={() => router.push('/finance/buyers-payment')}>
+      <style>{`
+        @keyframes bk-pulse {
+          0%, 100% { box-shadow: 0 0 0 0 var(--pulse-color); opacity: 1; }
+          50%       { box-shadow: 0 0 0 8px transparent; opacity: 0.92; }
+        }
+        .bk-pulse-card { animation: bk-pulse var(--pulse-speed) ease-in-out infinite; }
+      `}</style>
       <div className="space-y-4 pb-6">
+
+        {/* RF rejection countdown */}
+        {!!rfRejectedAt && !rfVerified && (
+          <div
+            className="bk-pulse-card rounded-2xl overflow-hidden border"
+            style={{
+              ['--pulse-color' as any]: pulseColor,
+              ['--pulse-speed' as any]: pulseSpeed,
+              borderColor: pulseColor,
+              background: 'rgba(255,255,255,0.96)',
+            }}
+          >
+            <div className="px-4 pt-4 pb-3 flex items-start gap-3">
+              <AlertTriangle size={16} className="shrink-0 mt-0.5" style={{ color: pulseColor }} />
+              <div className="flex-1">
+                <p className="text-sm font-bold" style={{ color: pulseColor }}>RF Resubmission Required</p>
+                <p className="text-xs text-[#6C6C70] mt-0.5 leading-relaxed">
+                  This reservation fee was rejected. The seller must resubmit within the deadline or the reservation will be automatically cancelled.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-end justify-center gap-2 py-3 px-4">
+              {(['hrs', 'min', 'sec'] as const).map((unit, i) => (
+                <React.Fragment key={unit}>
+                  {i > 0 && (
+                    <span className="text-2xl font-bold self-end mb-4" style={{ color: pulseColor }}>:</span>
+                  )}
+                  <div className="flex flex-col items-center">
+                    <span className="text-4xl font-bold tabular-nums" style={{ color: pulseColor, fontVariantNumeric: 'tabular-nums' }}>
+                      {countdown.split(':')[i] ?? '--'}
+                    </span>
+                    <span className="text-[9px] font-semibold text-[#8E8E93] uppercase tracking-wider mt-0.5">{unit}</span>
+                  </div>
+                </React.Fragment>
+              ))}
+            </div>
+            {countdownExpired && (
+              <p className="text-center text-xs text-red-600 font-semibold pb-3">Deadline passed — cancellation in progress…</p>
+            )}
+          </div>
+        )}
 
         {/* Hero card */}
         <GlassCard className="p-5 space-y-4">

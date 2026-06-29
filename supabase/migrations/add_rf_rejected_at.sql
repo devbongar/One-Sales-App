@@ -1,0 +1,2 @@
+ALTER TABLE reservations
+  ADD COLUMN IF NOT EXISTS rf_rejected_at TIMESTAMPTZ;

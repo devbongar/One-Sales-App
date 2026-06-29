@@ -69,7 +69,6 @@ export default function ReservationPage() {
         .select('reservation_id, client_name, project, inventory_code, status, finance_status, created_at')
         .neq('status', 'Booked')
         .neq('status', 'Cancelled')
-        .or('finance_status.is.null,finance_status.eq.proof-submitted,finance_status.eq.rf-rejected,finance_status.eq.rf-verified')
         .order('created_at', { ascending: false });
 
       if (!isPrivileged && session?.id) {

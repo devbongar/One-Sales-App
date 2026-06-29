@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
@@ -146,6 +146,10 @@ export default function ProofOfPaymentPage() {
   const [preservedIncomeUrls,  setPreservedIncomeUrls]  = useState<string[]>([]);
 
   const [financeRejectionReason, setFinanceRejectionReason] = useState('');
+  const [rfRejectedAt,           setRfRejectedAt]           = useState<string | null>(null);
+  const [rfCountdown,            setRfCountdown]            = useState('');
+  const [rfCountdownExpired,     setRfCountdownExpired]     = useState(false);
+  const rfCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [reservationPaymentMode,   setReservationPaymentMode]   = useState('');
   const [rfModeDropdownOpen,       setRfModeDropdownOpen]       = useState(false);
   const [subsequentMode,      setSubsequentMode]      = useState('');
@@ -200,13 +204,14 @@ export default function ProofOfPaymentPage() {
     // Always fetch fresh status from DB to avoid stale sessionStorage
     if (id) {
       supabase.from('reservations')
-        .select('status, finance_status, first_payment_agreed, created_at')
+        .select('status, finance_status, first_payment_agreed, created_at, rf_rejected_at, finance_verified_at')
         .eq('reservation_id', id)
         .single()
         .then(({ data }) => {
           if (data) {
             setReservation(prev => prev ? { ...prev, status: data.status, finance_status: data.finance_status, created_at: data.created_at ?? null } : prev);
             setFirstPaymentAgreed(data.first_payment_agreed ?? false);
+            if (data.rf_rejected_at && !data.finance_verified_at) setRfRejectedAt(data.rf_rejected_at);
           }
         });
     } else {
@@ -224,6 +229,34 @@ export default function ProofOfPaymentPage() {
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (rfCountdownRef.current) clearInterval(rfCountdownRef.current);
+    if (!rfRejectedAt) return;
+    const deadline = new Date(rfRejectedAt).getTime() + 24 * 60 * 60 * 1000;
+    const tick = () => {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        setRfCountdown('00:00:00');
+        setRfCountdownExpired(true);
+        if (rfCountdownRef.current) clearInterval(rfCountdownRef.current);
+        return;
+      }
+      const h = Math.floor(remaining / 3_600_000);
+      const m = Math.floor((remaining % 3_600_000) / 60_000);
+      const s = Math.floor((remaining % 60_000) / 1_000);
+      setRfCountdown(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
+    };
+    tick();
+    rfCountdownRef.current = setInterval(tick, 1000);
+    return () => { if (rfCountdownRef.current) clearInterval(rfCountdownRef.current); };
+  }, [rfRejectedAt]);
+
+  useEffect(() => {
+    if (!rfRejectedAt) return;
+    const t = setTimeout(() => document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' }), 400);
+    return () => clearTimeout(t);
+  }, [rfRejectedAt]);
 
   // ── Shared helper: fetch full row and populate all existing-URL + payment states ──
   async function loadExistingData(id: string) {
@@ -367,9 +400,10 @@ export default function ProofOfPaymentPage() {
     try {
       const { error } = await supabase
         .from('reservations')
-        .update({ finance_status: 'proof-submitted' })
+        .update({ finance_status: 'proof-submitted', rf_rejected_at: null })
         .eq('reservation_id', reservationId);
       if (error) throw error;
+      setRfRejectedAt(null);
       sessionStorage.removeItem('currentReservationId');
       router.push('/sales/reservation');
     } catch (e: any) {
@@ -512,8 +546,64 @@ export default function ProofOfPaymentPage() {
     },
   ];
 
+  const rfCountdownMs = rfRejectedAt
+    ? Math.max(0, new Date(rfRejectedAt).getTime() + 24 * 60 * 60 * 1000 - Date.now())
+    : 0;
+  const rfPulseColor = rfCountdownMs < 60 * 60 * 1000    ? '#C03D25'
+                     : rfCountdownMs < 6 * 60 * 60 * 1000 ? '#E06045'
+                     : '#D97706';
+  const rfPulseSpeed = rfCountdownMs < 60 * 60 * 1000 ? '0.9s' : '1.6s';
+
   return (
     <PageShell title="Proof of Reservation Payment" backButton onBack={() => router.back()}>
+      <style>{`
+        @keyframes bk-pulse {
+          0%, 100% { box-shadow: 0 0 0 0 var(--pulse-color); opacity: 1; }
+          50%       { box-shadow: 0 0 0 8px transparent; opacity: 0.92; }
+        }
+        .bk-pulse-card { animation: bk-pulse var(--pulse-speed) ease-in-out infinite; }
+      `}</style>
+
+      {/* RF rejection countdown */}
+      {!!rfRejectedAt && !isCancelled && (
+        <div
+          className="bk-pulse-card rounded-2xl overflow-hidden border"
+          style={{
+            ['--pulse-color' as any]: rfPulseColor,
+            ['--pulse-speed' as any]: rfPulseSpeed,
+            borderColor: rfPulseColor,
+            background: 'rgba(255,255,255,0.96)',
+          }}
+        >
+          <div className="px-4 pt-4 pb-3 flex items-start gap-3">
+            <AlertTriangle size={16} className="shrink-0 mt-0.5" style={{ color: rfPulseColor }} />
+            <div className="flex-1">
+              <p className="text-sm font-bold" style={{ color: rfPulseColor }}>Resubmission Required</p>
+              <p className="text-xs text-[#6C6C70] mt-0.5 leading-relaxed">
+                Finance rejected the reservation fee. Resubmit within the deadline or the reservation will be automatically cancelled.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-end justify-center gap-2 py-3 px-4">
+            {(['hrs', 'min', 'sec'] as const).map((unit, i) => (
+              <React.Fragment key={unit}>
+                {i > 0 && (
+                  <span className="text-2xl font-bold self-end mb-4" style={{ color: rfPulseColor }}>:</span>
+                )}
+                <div className="flex flex-col items-center">
+                  <span className="text-4xl font-bold tabular-nums" style={{ color: rfPulseColor, fontVariantNumeric: 'tabular-nums' }}>
+                    {rfCountdown.split(':')[i] ?? '--'}
+                  </span>
+                  <span className="text-[9px] font-semibold text-[#8E8E93] uppercase tracking-wider mt-0.5">{unit}</span>
+                </div>
+              </React.Fragment>
+            ))}
+          </div>
+          {rfCountdownExpired && (
+            <p className="text-center text-xs text-red-600 font-semibold pb-3">Deadline passed — cancellation in progress…</p>
+          )}
+        </div>
+      )}
 
       {/* Hero card */}
       <GlassCard className="p-5 space-y-4">
