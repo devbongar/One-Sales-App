@@ -177,6 +177,6 @@ export async function updateReservationPayment(
   });
   if (error) throw error;
   await supabase.from('reservations')
-    .update({ finance_status: 'proof-submitted' })
+    .update({ finance_status: 'proof-submitted', rf_rejected_at: null })
     .eq('reservation_id', reservationId);
 }
