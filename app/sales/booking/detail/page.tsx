@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
@@ -642,13 +642,17 @@ export default function BookingDetailPage() {
             </div>
             <div className="flex items-end justify-center gap-2 py-3 px-4">
               {['hrs', 'min', 'sec'].map((unit, i) => (
-                <div key={unit} className="flex flex-col items-center">
-                  {i > 0 && <span className="text-2xl font-bold mb-3 mr-[-8px] ml-[-8px]" style={{ color: pulseColor }}>:</span>}
-                  <span className="text-4xl font-bold tabular-nums" style={{ color: pulseColor, fontVariantNumeric: 'tabular-nums' }}>
-                    {countdown.split(':')[i] ?? '00'}
-                  </span>
-                  <span className="text-[9px] font-semibold text-[#8E8E93] uppercase tracking-wider mt-0.5">{unit}</span>
-                </div>
+                <React.Fragment key={unit}>
+                  {i > 0 && (
+                    <span className="text-2xl font-bold self-end mb-4" style={{ color: pulseColor }}>:</span>
+                  )}
+                  <div className="flex flex-col items-center">
+                    <span className="text-4xl font-bold tabular-nums" style={{ color: pulseColor, fontVariantNumeric: 'tabular-nums' }}>
+                      {countdown.split(':')[i] ?? '00'}
+                    </span>
+                    <span className="text-[9px] font-semibold text-[#8E8E93] uppercase tracking-wider mt-0.5">{unit}</span>
+                  </div>
+                </React.Fragment>
               ))}
             </div>
             {countdownExpired && (
