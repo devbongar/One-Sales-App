@@ -46,7 +46,8 @@ const NAV: NavGroup[] = [
     title: "User's Registration",
     items: [
       { label: 'Broker Accreditation', href: '/users/broker-accreditation', icon: 'ShieldCheck' },
-      { label: 'Seller Recruitment',   href: '/users/seller-recruitment',   icon: 'Users' },
+      { label: 'Broker Personnel',     href: '/users/broker-personnel',     icon: 'Users' },
+      { label: 'Seller Recruitment',   href: '/users/seller-recruitment',   icon: 'UserPlus' },
       { label: "User's Profile",       href: '/users/profile',              icon: 'UserCog',        comingSoon: true },
       { label: 'Admin User',           href: '/users/admin',                icon: 'LayoutDashboard' },
     ],
