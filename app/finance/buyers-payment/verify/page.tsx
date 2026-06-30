@@ -739,9 +739,14 @@ export default function FinanceVerifyPage() {
                 { label: 'Monthly Amount Due',   value: (booking.monthly_deferred || booking.monthly_stretched_dp) ? `${peso(booking.monthly_deferred || booking.monthly_stretched_dp)}/mo` : '—' },
                 { label: 'Payterm Scheme',       value: booking.scheme_name ?? '—' },
                 ...(booking.payment_scheme === 'spot_cash'
-                  ? [{ label: 'Spot Cash Due Date', value: dpStartDate ? new Date(dpStartDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '—' }]
+                  ? [{ label: 'Spot Cash Due Date',   value: dpStartDate ? new Date(dpStartDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '—' }]
                   : booking.payment_scheme === 'spot_dp'
-                  ? [{ label: 'Spot DP Due Date',   value: dpStartDate ? new Date(dpStartDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '—' }]
+                  ? [{ label: 'Spot DP Due Date',     value: dpStartDate ? new Date(dpStartDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '—' }]
+                  : booking.payment_scheme === 'deferred_cash'
+                  ? [
+                      { label: 'Monthly Start Date', value: dpStartDate ? new Date(dpStartDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '—' },
+                      { label: 'Monthly End Date',   value: dpEndDate   ? new Date(dpEndDate   + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '—' },
+                    ]
                   : [
                       { label: 'DP Start Date', value: dpStartDate ? new Date(dpStartDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '—' },
                       { label: 'DP End Date',   value: dpEndDate   ? new Date(dpEndDate   + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '—' },
