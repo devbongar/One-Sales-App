@@ -1126,7 +1126,7 @@ export default function BookingDetailPage() {
               <div className="space-y-3">
                 <button
                   type="button"
-                  disabled={submitting}
+                  disabled={submitting || (rs === 'amd-rejected' && countdownExpired)}
                   onClick={handleDirectorSubmit}
                   className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.3)] active:opacity-80 disabled:opacity-40 flex items-center justify-center gap-2"
                 >
@@ -1158,7 +1158,7 @@ export default function BookingDetailPage() {
                 {(rs === null || rs === 'director-rejected' || (rs === 'amd-rejected' && !directorFilled)) && (
                   <button
                     type="button"
-                    disabled={!docsReady || submitting}
+                    disabled={!docsReady || submitting || (rs === 'amd-rejected' && countdownExpired)}
                     onClick={handleSubmit}
                     className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.3)] active:opacity-80 disabled:opacity-40 flex items-center justify-center gap-2"
                   >

@@ -77,6 +77,16 @@ export async function generateCommissionSchedule(reservationId: string): Promise
   const client_id    = (ids as any)?.client_id    ?? null;
   const hic_discount = Number((ids as any)?.hic_discount) || 0;
 
+  // No commission for Megawide employee clients
+  if (client_id) {
+    const { data: clientRow } = await supabase
+      .from('clients')
+      .select('is_megawide_employee')
+      .eq('id', client_id)
+      .maybeSingle();
+    if ((clientRow as any)?.is_megawide_employee === true) return { ok: true };
+  }
+
   // Build hierarchy chain using IDs from the DB — no name-based secondary lookups needed.
   type Target = { name: string; sellerId: string | null; positionRank: string };
   const targets: Target[] = [];
@@ -444,11 +454,23 @@ export async function regenerateCommissionSchedule(reservationId: string): Promi
   // New NLP from the already-updated reservation; HIC added back (commission base is pre-HIC NLP)
   const { data: res } = await supabase
     .from('reservations')
-    .select('net_list_price, hic_discount')
+    .select('net_list_price, hic_discount, client_id')
     .eq('reservation_id', reservationId)
     .single();
 
   if (!res) return { ok: false, reason: 'no-commission-record' };
+
+  // No commission for Megawide employee clients
+  const regenClientId = (res as any).client_id ?? null;
+  if (regenClientId) {
+    const { data: clientRow } = await supabase
+      .from('clients')
+      .select('is_megawide_employee')
+      .eq('id', regenClientId)
+      .maybeSingle();
+    if ((clientRow as any)?.is_megawide_employee === true) return { ok: true };
+  }
+
   const nlp = (Number((res as any).net_list_price) || 0) + (Number((res as any).hic_discount) || 0);
 
   const allLines = uniqueLines.map(l => ({

@@ -2,7 +2,6 @@
 
 import { supabase } from '@/lib/supabase';
 
-const DEADLINE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export async function cancelReservation(
   reservationId: string,
@@ -119,46 +118,7 @@ export async function restoreReservation(
     .eq('status', 'Cancelled');
 }
 
-async function cancelExpiredAmdRejections(deadline: string): Promise<void> {
-  const { data: expired } = await supabase
-    .from('reservations')
-    .select('reservation_id')
-    .eq('booking_review_status', 'amd-rejected')
-    .eq('status', 'Reserved')
-    .lt('amd_rejected_at', deadline);
-
-  if (!expired || expired.length === 0) return;
-
-  await Promise.all(
-    (expired as { reservation_id: string }[]).map(r =>
-      cancelReservation(r.reservation_id, 'amd-rejected-expired', 'system')
-    )
-  );
-}
-
-async function cancelExpiredRfRejections(deadline: string): Promise<void> {
-  // Only cancel when RF was never verified (scenarios 1 & 2)
-  const { data: expired } = await supabase
-    .from('reservations')
-    .select('reservation_id')
-    .eq('finance_status', 'rf-rejected')
-    .in('status', ['Reserved', 'Pending Proof'])
-    .is('finance_verified_at', null)
-    .lt('rf_rejected_at', deadline);
-
-  if (!expired || expired.length === 0) return;
-
-  await Promise.all(
-    (expired as { reservation_id: string }[]).map(r =>
-      cancelReservation(r.reservation_id, 'rf-rejected-expired', 'system')
-    )
-  );
-}
-
 export async function cancelExpiredReservations(): Promise<void> {
-  const deadline = new Date(Date.now() - DEADLINE_MS).toISOString();
-  await Promise.all([
-    cancelExpiredAmdRejections(deadline),
-    cancelExpiredRfRejections(deadline),
-  ]);
+  const { error } = await supabase.rpc('cancel_expired_reservations');
+  if (error) throw error;
 }

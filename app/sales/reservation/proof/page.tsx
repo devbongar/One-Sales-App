@@ -1300,10 +1300,10 @@ export default function ProofOfPaymentPage() {
           </GlassCard>
           <button
             type="button"
-            disabled={!canConfirm}
+            disabled={!canConfirm || (editMode && rfCountdownExpired)}
             onClick={() => setShowConfirm(true)}
             className={`w-full py-4 rounded-2xl text-sm font-bold transition-all ${
-              canConfirm ? 'bg-[#C03D25] text-white active:opacity-80' : 'bg-[#E5E5EA] text-[#C7C7CC] cursor-not-allowed'
+              canConfirm && !(editMode && rfCountdownExpired) ? 'bg-[#C03D25] text-white active:opacity-80' : 'bg-[#E5E5EA] text-[#C7C7CC] cursor-not-allowed'
             }`}
           >
             {editMode ? 'Resubmit for Verification' : 'Submit for Verification'}
@@ -1324,14 +1324,15 @@ export default function ProofOfPaymentPage() {
           {actionError && <p className="text-red-500 text-xs text-center">{actionError}</p>}
           <button
             type="button"
+            disabled={rfCountdownExpired}
             onClick={() => { setActionError(''); setEditMode(true); }}
-            className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity"
+            className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 disabled:opacity-40 transition-opacity"
           >
             Edit
           </button>
           <button
             type="button"
-            disabled={resubmitting}
+            disabled={resubmitting || rfCountdownExpired}
             onClick={() => { setActionError(''); handleResubmit(); }}
             className="w-full py-4 rounded-2xl bg-[#34C759] text-white text-sm font-bold active:opacity-80 disabled:opacity-50 transition-opacity flex items-center justify-center gap-2"
           >
