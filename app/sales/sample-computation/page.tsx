@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
@@ -318,6 +318,8 @@ export default function SampleComputationPage() {
   const [useHIC,       setUseHIC]       = useState(false);
   const [isMegawide,   setIsMegawide]   = useState(false);
   const [userRole,     setUserRole]     = useState('');
+  const [userSellerId,    setUserSellerId]    = useState<string | null>(null);
+  const [userSalesperson, setUserSalesperson] = useState<SalespersonRecord | null>(null);
   const [reservationFee, setReservationFee] = useState(0);
 
   // Client info fields
@@ -719,8 +721,20 @@ export default function SampleComputationPage() {
   }, []);
 
   useEffect(() => {
-    getSession().then(s => setUserRole(s?.role_name ?? '')).catch(() => {});
+    getSession().then(s => { setUserRole(s?.role_name ?? ''); setUserSellerId(s?.seller_id ?? null); }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!userSellerId) return;
+    setUserSalesperson(allSalespersons.find(s => s.seller_id === userSellerId) ?? null);
+  }, [userSellerId, allSalespersons]);
+
+  const visibleProjects = useMemo(() => {
+    if (!userSalesperson) return projects;
+    if (!userSalesperson.focus_project) return [];
+    const allowed = userSalesperson.focus_project.split(' | ').map(p => p.trim()).filter(Boolean);
+    return projects.filter(p => allowed.includes(p));
+  }, [userSalesperson, projects]);
 
   // Fetch reservation fee, VAT threshold & HIC target when selected unit changes; auto-set HIC
   useEffect(() => {
@@ -1314,7 +1328,7 @@ export default function SampleComputationPage() {
             <InlineSelect
               label="Project"
               value={project}
-              options={projects}
+              options={visibleProjects}
               onChange={handleProjectChange}
               placeholder={loading ? 'Loading...' : 'Select project'}
               icon={<Building2 size={16} />}

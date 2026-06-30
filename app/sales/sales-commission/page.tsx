@@ -72,13 +72,18 @@ export default function SalesCommissionPage() {
       if (!session) return;
       setRole(session.role_name);
       if (mode !== 'my' || salespersons.length === 0 || selectedSeller) return;
-      const match = salespersons.find(
-        s => s.seller_name.toLowerCase() === session.full_name.toLowerCase()
-      );
-      setSelectedSeller(match ?? null);
-      setSelectedBroker(null);
+      if (!session.seller_id) return;
+      const inhouse = salespersons.find(s => s.seller_id === session.seller_id);
+      if (inhouse) {
+        setSelectedSeller(inhouse);
+        setSelectedBroker(null);
+      } else {
+        const broker = brokers.find(b => b.broker_id === session.seller_id);
+        setSelectedBroker(broker ?? null);
+        setSelectedSeller(null);
+      }
     })();
-  }, [mode, salespersons]);
+  }, [mode, salespersons, brokers]);
 
   const filteredSalespersons = useMemo(() => {
     return salespersons.filter(s => {

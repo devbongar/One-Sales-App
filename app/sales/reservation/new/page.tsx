@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
@@ -518,6 +518,13 @@ export default function NewReservationPage() {
       setUserBroker(br);
     }
   }, [userSellerId, allSalespersons, allBrokerRecruits]);
+
+  const visibleProjects = useMemo(() => {
+    if (!userSalesperson) return projects;
+    if (!userSalesperson.focus_project) return [];
+    const allowed = userSalesperson.focus_project.split(' | ').map(p => p.trim()).filter(Boolean);
+    return projects.filter(p => allowed.includes(p));
+  }, [userSalesperson, projects]);
 
   const SEE_ALL_ROLES_SELLER = ['All Access', 'Account Management'];
 
@@ -1563,7 +1570,7 @@ export default function NewReservationPage() {
             <InlineSelect
               label="Project"
               value={project}
-              options={projects}
+              options={visibleProjects}
               onChange={handleProjectChange}
               placeholder={loading ? 'Loading...' : 'Select project'}
               icon={<Building2 size={16} />}

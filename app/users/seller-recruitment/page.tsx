@@ -156,6 +156,68 @@ function ESelect({ value, options, onChange, disabled, upward: _upward }: {
   );
 }
 
+function EMultiSelect({ value, options, onChange, disabled }: {
+  value: string; options: string[]; onChange: (v: string) => void; disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = value ? value.split(' | ').map(s => s.trim()).filter(Boolean) : [];
+
+  function toggle(o: string) {
+    const next = selected.includes(o) ? selected.filter(s => s !== o) : [...selected, o];
+    onChange(next.join(' | '));
+  }
+
+  if (disabled) return <div className={readCls}>{value || '—'}</div>;
+
+  return (
+    <div>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setOpen(p => !p)}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setOpen(p => !p); }}
+        className={`${inputCls} w-full flex items-start justify-between gap-2 min-h-[34px] cursor-pointer ${open ? '!rounded-b-none' : ''}`}
+      >
+        {selected.length === 0
+          ? <span className="text-[#C7C7CC] mt-0.5">Select…</span>
+          : <div className="flex flex-wrap gap-1">
+              {selected.map(s => (
+                <span key={s} className="inline-flex items-center gap-1 bg-[rgba(192,61,37,0.10)] text-[#C03D25] text-[11px] font-semibold px-2 py-0.5 rounded-full">
+                  {s}
+                  <button type="button" onClick={e => { e.stopPropagation(); toggle(s); }}>
+                    <X size={10} />
+                  </button>
+                </span>
+              ))}
+            </div>
+        }
+        <ChevronDown size={12} className={`text-[#8E8E93] transition-transform duration-200 shrink-0 mt-1 ${open ? 'rotate-180' : ''}`} />
+      </div>
+      {open && (
+        <div className="border border-t-0 border-black/[0.10] rounded-b-xl overflow-hidden bg-white/80">
+          <div className="overflow-y-auto max-h-40">
+            {options.map(o => {
+              const isSel = selected.includes(o);
+              return (
+                <button key={o} type="button" onClick={() => toggle(o)}
+                  className="w-full flex items-center justify-between px-3 py-2.5 text-sm border-b border-black/[0.05] last:border-0 active:bg-black/[0.04]"
+                  style={{
+                    background: isSel ? 'rgba(192,61,37,0.06)' : undefined,
+                    color:      isSel ? '#C03D25' : '#1C1C1E',
+                    fontWeight: isSel ? 600 : 400,
+                  }}>
+                  {o}
+                  {isSel && <Check size={12} className="shrink-0" style={{ color: '#C03D25' }} />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ECombobox({ value, options, onChange }: {
   value: string; options: string[]; onChange: (v: string) => void;
 }) {
@@ -531,7 +593,7 @@ function DetailSheet({ seller, onClose, onSaved }: {
                 : <div className={readCls}>{fmt(form.business_units)}</div>}
             </ERow>
             <ERow label="Focus Project" icon={<Briefcase size={10} />}>
-              <ESelect value={form.focus_project ?? ''} options={projects} onChange={set('focus_project')} disabled={!editMode} />
+              <EMultiSelect value={form.focus_project ?? ''} options={projects} onChange={set('focus_project')} disabled={!editMode} />
             </ERow>
             <ERow label="Seller Status" icon={<User size={10} />} required>
               <ESelect value={form.seller_status ?? ''} options={SELLER_STATUS_OPTIONS} onChange={set('seller_status')} disabled={!editMode} />
@@ -1020,7 +1082,7 @@ function AddSheet({ onClose, onAdded }: {
             <ESelect value={form.business_units ?? ''} options={businessUnits} onChange={set('business_units')} />
           </ERow>
           <ERow label="Focus Project" icon={<Briefcase size={10} />}>
-            <ESelect value={form.focus_project ?? ''} options={projects} onChange={set('focus_project')} />
+            <EMultiSelect value={form.focus_project ?? ''} options={projects} onChange={set('focus_project')} />
           </ERow>
           <ERow label="Seller Status" icon={<User size={10} />} required>
             <ESelect value={form.seller_status ?? ''} options={SELLER_STATUS_OPTIONS} onChange={set('seller_status')} />

@@ -14,6 +14,7 @@ export interface SalespersonRecord {
   position_code:          string;
   position_rank:          string | null;
   seller_group:           string | null;
+  focus_project:          string | null;
   sales_manager:          string | null;
   sales_manager_id:       string | null;
   sales_director:         string | null;
