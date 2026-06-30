@@ -1,13 +1,14 @@
 import { supabase } from '@/lib/supabase';
 
 export interface BrokerRecord {
-  seller_name:            string; // mapped from Full Name — used to match commission records
-  broker_id:             string | null;
-  bir_registered_name:   string | null;
+  seller_name:             string; // mapped from Full Name — used to match commission records
+  broker_id:              string | null;
+  bir_registered_name:    string | null;
   broker_network_officer: string | null;
-  sales_director_head:   string | null;
-  sales_head:            string | null;
-  position_rank:         string | null;
+  sales_director:         string | null;
+  sales_director_head:    string | null;
+  sales_head:             string | null;
+  position_rank:          string | null;
 }
 
 export async function fetchAllBrokers(): Promise<BrokerRecord[]> {

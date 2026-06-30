@@ -412,7 +412,8 @@ export default function NewReservationPage() {
   const [sellerRecord,       setSellerRecord]       = useState<SalespersonRecord | null>(null);
   const [sellerDropdownOpen, setSellerDropdownOpen] = useState(false);
   const [brokerClientInfo,   setBrokerClientInfo]   = useState<{
-    associate: string; officer: string; directorHead: string; salesHead: string;
+    associate: string; officer: string; salesDirector: string;
+    directorHead: string; salesHead: string;
     birName: string; brokerId: string | null;
   } | null>(null);
 
@@ -532,12 +533,13 @@ export default function NewReservationPage() {
     } else if (userBroker) {
       const br = userBroker;
       setBrokerClientInfo({
-        associate:   br.broker_network_associate  ?? '',
-        officer:     br.broker_network_officer    ?? '',
-        directorHead: br.sales_director_head      ?? '',
-        salesHead:   br.sales_head                ?? '',
-        birName:     br.bir_registered_name       ?? '',
-        brokerId:    br.broker_id,
+        associate:    br.broker_network_associate  ?? '',
+        officer:      br.broker_network_officer    ?? '',
+        salesDirector: br.sales_director           ?? '',
+        directorHead: br.sales_director_head       ?? '',
+        salesHead:    br.sales_head                ?? '',
+        birName:      br.bir_registered_name       ?? '',
+        brokerId:     br.broker_id,
       });
       setSellerRecord(null);
     }
@@ -763,8 +765,10 @@ export default function NewReservationPage() {
   function handleSelectClient(c: ClientRecord) {
     // Block if client belongs to another seller
     if (userSellerId && !SEE_ALL_ROLES.includes(userRole)) {
-      const isOwned = [c.seller_id, c.sales_manager_id, c.sales_director_id, c.sales_division_head_id, c.sales_head_id, c.broker_id]
-        .some(id => id && id === userSellerId);
+      const isOwned = [
+        c.seller_id, c.sales_manager_id, c.sales_director_id, c.sales_division_head_id, c.sales_head_id,
+        c.broker_id, c.broker_network_associate_id, c.broker_network_officer_id, c.broker_sales_director_id, c.broker_director_head_id, c.broker_sales_head_id,
+      ].some(id => id && id === userSellerId);
       if (!isOwned) {
         const ownerName = c.property_specialist || c.broker_bir_name || 'another seller';
         setClientOwnerWarn(`This client is registered to ${ownerName} and cannot proceed with the transaction.`);
@@ -795,12 +799,13 @@ export default function NewReservationPage() {
         ? allBrokers.find(b => b.full_name === c.broker_bir_name) ?? null
         : null;
       setBrokerClientInfo({
-        associate:    c.broker_network_associate ?? '',
-        officer:      c.broker_network_officer   ?? '',
-        directorHead: c.broker_director_head     ?? '',
-        salesHead:    c.broker_sales_head        ?? '',
-        birName:      c.broker_bir_name          ?? '',
-        brokerId:     brokerRec?.broker_id       ?? null,
+        associate:     c.broker_network_associate ?? '',
+        officer:       c.broker_network_officer   ?? '',
+        salesDirector: c.broker_sales_director    ?? '',
+        directorHead:  c.broker_director_head     ?? '',
+        salesHead:     c.broker_sales_head        ?? '',
+        birName:       c.broker_bir_name          ?? '',
+        brokerId:      brokerRec?.broker_id       ?? null,
       });
       setSellerRecord(null);
     } else {
@@ -2606,15 +2611,15 @@ export default function NewReservationPage() {
                     sellerName: sellerRecord?.seller_name ?? brokerClientInfo?.birName ?? '',
                     sellerId: sellerRecord?.seller_id ?? brokerClientInfo?.brokerId ?? null,
                     salesManager: sellerRecord?.sales_manager ?? brokerClientInfo?.officer ?? '',
-                    salesDirector: sellerRecord?.sales_director ?? '',
+                    salesDirector: sellerRecord?.sales_director ?? brokerClientInfo?.salesDirector ?? '',
                     salesDivisionHead: sellerRecord?.sales_division_head ?? brokerClientInfo?.directorHead ?? '',
                     brokerSalesHead: brokerClientInfo?.salesHead ?? '',
                     isBrokerSale: !!brokerClientInfo,
                     // Hierarchy IDs for seller-based filtering
                     salesManagerId:       sellerRecord?.sales_manager_id       ?? brokerRec?.broker_network_associate_id ?? null,
                     salesDirectorId:      sellerRecord?.sales_director_id      ?? brokerRec?.broker_network_officer_id   ?? null,
-                    salesDivisionHeadId:  sellerRecord?.sales_division_head_id ?? brokerRec?.sales_director_head_id      ?? null,
-                    salesHeadId:          sellerRecord?.sales_head_id          ?? brokerRec?.sales_head_id               ?? null,
+                    salesDivisionHeadId:  sellerRecord?.sales_division_head_id ?? brokerRec?.sales_director_id           ?? null,
+                    salesHeadId:          sellerRecord?.sales_head_id          ?? brokerRec?.sales_director_head_id      ?? null,
                     brokerSellerId:       brokerClientInfo?.brokerId ?? null,
                     firstPaymentAgreed,
                     quotationId: quotationPrefillRef.current?.quotationId ?? null,

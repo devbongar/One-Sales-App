@@ -114,18 +114,18 @@ export async function generateCommissionSchedule(reservationId: string): Promise
     // Broker: look up chain from Brokers table by Broker ID (resolved by commission RPC)
     const { data: brokerRow } = await supabase
       .from('Brokers')
-      .select('"Broker ID", "Broker Network Associate", "Broker Network Associate ID", "Broker Network Officer", "Broker Network Officer ID", "Sales Director Head", "Sales Director Head ID", "Sales Head", "Sales Head ID"')
+      .select('"Broker ID", "Broker Network Officer", "Broker Network Officer ID", "Sales Director", "Sales Director ID", "Sales Director Head", "Sales Director Head ID", "Sales Head", "Sales Head ID"')
       .eq('"Broker ID"', rec.seller_id)
       .maybeSingle();
 
-    const smName  = (brokerRow as any)?.['Broker Network Associate']    as string | null ?? null;
-    const smId    = (brokerRow as any)?.['Broker Network Associate ID'] as string | null ?? null;
-    const sdName  = (brokerRow as any)?.['Broker Network Officer']      as string | null ?? null;
-    const sdId    = (brokerRow as any)?.['Broker Network Officer ID']   as string | null ?? null;
-    const sdhName = (brokerRow as any)?.['Sales Director Head']         as string | null ?? null;
-    const sdhId   = (brokerRow as any)?.['Sales Director Head ID']      as string | null ?? null;
-    const shName  = (brokerRow as any)?.['Sales Head']                  as string | null ?? null;
-    const shId    = (brokerRow as any)?.['Sales Head ID']               as string | null ?? null;
+    const smName  = (brokerRow as any)?.['Broker Network Officer']   as string | null ?? null;
+    const smId    = (brokerRow as any)?.['Broker Network Officer ID'] as string | null ?? null;
+    const sdName  = (brokerRow as any)?.['Sales Director']           as string | null ?? null;
+    const sdId    = (brokerRow as any)?.['Sales Director ID']        as string | null ?? null;
+    const sdhName = (brokerRow as any)?.['Sales Director Head']      as string | null ?? null;
+    const sdhId   = (brokerRow as any)?.['Sales Director Head ID']   as string | null ?? null;
+    const shName  = (brokerRow as any)?.['Sales Head']               as string | null ?? null;
+    const shId    = (brokerRow as any)?.['Sales Head ID']            as string | null ?? null;
 
     // Brokers are treated as PS in tranching
     targets.push({ name: rec.seller_name!, sellerId: rec.seller_id, positionRank: 'PS' });

@@ -18,23 +18,33 @@ export interface ClientPayload {
   source_of_sale: string;
   monthly_household_income: string;
   is_megawide_employee?: boolean;
-  // Seller fields
   seller_type?: string;
-  sales_director?: string;
-  sales_manager?: string;
+  // In-house name fields
   property_specialist?: string;
-  broker_network_associate?: string;
-  broker_network_officer?: string;
-  broker_director_head?: string;
-  broker_sales_head?: string;
-  broker_bir_name?: string;
-  // Seller ID fields (for filtering)
+  sales_manager?: string;
+  sales_director?: string;
+  sales_division_head?: string;
+  sales_head?: string;
+  // In-house ID fields
   seller_id?: string | null;
   sales_manager_id?: string | null;
   sales_director_id?: string | null;
   sales_division_head_id?: string | null;
   sales_head_id?: string | null;
+  // Broker name fields
+  broker_bir_name?: string;
+  broker_network_associate?: string;
+  broker_network_officer?: string;
+  broker_sales_director?: string;
+  broker_director_head?: string;
+  broker_sales_head?: string;
+  // Broker ID fields
   broker_id?: string | null;
+  broker_network_associate_id?: string | null;
+  broker_network_officer_id?: string | null;
+  broker_sales_director_id?: string | null;
+  broker_director_head_id?: string | null;
+  broker_sales_head_id?: string | null;
 }
 
 export interface ClientRecord {
@@ -56,24 +66,36 @@ export interface ClientRecord {
   monthly_household_income: string | null;
   is_megawide_employee: boolean | null;
   seller_type: string | null;
-  sales_director: string | null;
-  sales_manager: string | null;
-  property_specialist: string | null;
-  broker_network_associate: string | null;
-  broker_network_officer: string | null;
-  broker_director_head: string | null;
-  broker_sales_head: string | null;
-  broker_bir_name: string | null;
   gender: string | null;
   civil_status: string | null;
   signature_base64: string | null;
   created_at: string;
+  // In-house name fields
+  property_specialist: string | null;
+  sales_manager: string | null;
+  sales_director: string | null;
+  sales_division_head: string | null;
+  sales_head: string | null;
+  // In-house ID fields
   seller_id: string | null;
   sales_manager_id: string | null;
   sales_director_id: string | null;
   sales_division_head_id: string | null;
   sales_head_id: string | null;
+  // Broker name fields
+  broker_bir_name: string | null;
+  broker_network_associate: string | null;
+  broker_network_officer: string | null;
+  broker_sales_director: string | null;
+  broker_director_head: string | null;
+  broker_sales_head: string | null;
+  // Broker ID fields
   broker_id: string | null;
+  broker_network_associate_id: string | null;
+  broker_network_officer_id: string | null;
+  broker_sales_director_id: string | null;
+  broker_director_head_id: string | null;
+  broker_sales_head_id: string | null;
 }
 
 export async function checkEmailExists(email: string, excludeId?: string): Promise<boolean> {
@@ -115,43 +137,55 @@ export async function updateClientSignatureByClientId(clientId: string, signatur
 
 function idFields(payload: ClientPayload) {
   return {
-    seller_id:              payload.seller_id              ?? null,
-    sales_manager_id:       payload.sales_manager_id       ?? null,
-    sales_director_id:      payload.sales_director_id      ?? null,
-    sales_division_head_id: payload.sales_division_head_id ?? null,
-    sales_head_id:          payload.sales_head_id          ?? null,
-    broker_id:              payload.broker_id              ?? null,
+    // In-house IDs
+    seller_id:                   payload.seller_id                   ?? null,
+    sales_manager_id:            payload.sales_manager_id            ?? null,
+    sales_director_id:           payload.sales_director_id           ?? null,
+    sales_division_head_id:      payload.sales_division_head_id      ?? null,
+    sales_head_id:               payload.sales_head_id               ?? null,
+    // Broker IDs
+    broker_id:                   payload.broker_id                   ?? null,
+    broker_network_associate_id: payload.broker_network_associate_id ?? null,
+    broker_network_officer_id:   payload.broker_network_officer_id   ?? null,
+    broker_sales_director_id:    payload.broker_sales_director_id    ?? null,
+    broker_director_head_id:     payload.broker_director_head_id     ?? null,
+    broker_sales_head_id:        payload.broker_sales_head_id        ?? null,
   };
 }
 
 export async function saveClient(payload: ClientPayload): Promise<string> {
   const { data, error } = await supabase.rpc('save_client', {
-    p_client_type:              payload.client_type,
-    p_last_name:                payload.last_name,
-    p_first_name:               payload.first_name,
-    p_middle_name:              payload.middle_name              || null,
-    p_suffix:                   payload.suffix                   || null,
-    p_gender:                   payload.gender                   || null,
-    p_civil_status:             payload.civil_status             || null,
-    p_date_of_birth:            payload.date_of_birth            || null,
-    p_citizenship:              payload.citizenship              || null,
-    p_country_code:             payload.country_code,
-    p_mobile_number:            payload.mobile_number            || null,
-    p_landline_no:              payload.landline_no              || null,
-    p_email:                    payload.email                    || null,
-    p_reason_for_buying:        payload.reason_for_buying        || null,
-    p_source_of_sale:           payload.source_of_sale           || null,
-    p_monthly_household_income: payload.monthly_household_income || null,
-    p_seller_type:              payload.seller_type              || null,
-    p_sales_director:           payload.sales_director           || null,
-    p_sales_manager:            payload.sales_manager            || null,
-    p_property_specialist:      payload.property_specialist      || null,
-    p_broker_network_associate: payload.broker_network_associate || null,
-    p_broker_network_officer:   payload.broker_network_officer   || null,
-    p_broker_director_head:     payload.broker_director_head     || null,
-    p_broker_sales_head:        payload.broker_sales_head        || null,
-    p_broker_bir_name:          payload.broker_bir_name          || null,
-    p_is_megawide_employee:     payload.is_megawide_employee     ?? false,
+    p_client_type:                  payload.client_type,
+    p_last_name:                    payload.last_name,
+    p_first_name:                   payload.first_name,
+    p_middle_name:                  payload.middle_name              || null,
+    p_suffix:                       payload.suffix                   || null,
+    p_gender:                       payload.gender                   || null,
+    p_civil_status:                 payload.civil_status             || null,
+    p_date_of_birth:                payload.date_of_birth            || null,
+    p_citizenship:                  payload.citizenship              || null,
+    p_country_code:                 payload.country_code,
+    p_mobile_number:                payload.mobile_number            || null,
+    p_landline_no:                  payload.landline_no              || null,
+    p_email:                        payload.email                    || null,
+    p_reason_for_buying:            payload.reason_for_buying        || null,
+    p_source_of_sale:               payload.source_of_sale           || null,
+    p_monthly_household_income:     payload.monthly_household_income || null,
+    p_seller_type:                  payload.seller_type              || null,
+    p_is_megawide_employee:         payload.is_megawide_employee     ?? false,
+    // In-house names
+    p_property_specialist:          payload.property_specialist      || null,
+    p_sales_manager:                payload.sales_manager            || null,
+    p_sales_director:               payload.sales_director           || null,
+    p_sales_division_head:          payload.sales_division_head      || null,
+    p_sales_head:                   payload.sales_head               || null,
+    // Broker names
+    p_broker_bir_name:              payload.broker_bir_name          || null,
+    p_broker_network_associate:     payload.broker_network_associate || null,
+    p_broker_network_officer:       payload.broker_network_officer   || null,
+    p_broker_sales_director:        payload.broker_sales_director    || null,
+    p_broker_director_head:         payload.broker_director_head     || null,
+    p_broker_sales_head:            payload.broker_sales_head        || null,
   });
   if (error) throw error;
   const clientId = data as string;
@@ -161,33 +195,38 @@ export async function saveClient(payload: ClientPayload): Promise<string> {
 
 export async function updateClient(id: string, payload: ClientPayload): Promise<void> {
   const { error } = await supabase.rpc('update_client', {
-    p_id:                       id,
-    p_client_type:              payload.client_type,
-    p_last_name:                payload.last_name,
-    p_first_name:               payload.first_name,
-    p_middle_name:              payload.middle_name              || null,
-    p_suffix:                   payload.suffix                   || null,
-    p_gender:                   payload.gender                   || null,
-    p_civil_status:             payload.civil_status             || null,
-    p_date_of_birth:            payload.date_of_birth            || null,
-    p_citizenship:              payload.citizenship              || null,
-    p_country_code:             payload.country_code,
-    p_mobile_number:            payload.mobile_number            || null,
-    p_landline_no:              payload.landline_no              || null,
-    p_email:                    payload.email                    || null,
-    p_reason_for_buying:        payload.reason_for_buying        || null,
-    p_source_of_sale:           payload.source_of_sale           || null,
-    p_monthly_household_income: payload.monthly_household_income || null,
-    p_seller_type:              payload.seller_type              || null,
-    p_sales_director:           payload.sales_director           || null,
-    p_sales_manager:            payload.sales_manager            || null,
-    p_property_specialist:      payload.property_specialist      || null,
-    p_broker_network_associate: payload.broker_network_associate || null,
-    p_broker_network_officer:   payload.broker_network_officer   || null,
-    p_broker_director_head:     payload.broker_director_head     || null,
-    p_broker_sales_head:        payload.broker_sales_head        || null,
-    p_broker_bir_name:          payload.broker_bir_name          || null,
-    p_is_megawide_employee:     payload.is_megawide_employee     ?? null,
+    p_id:                           id,
+    p_client_type:                  payload.client_type,
+    p_last_name:                    payload.last_name,
+    p_first_name:                   payload.first_name,
+    p_middle_name:                  payload.middle_name              || null,
+    p_suffix:                       payload.suffix                   || null,
+    p_gender:                       payload.gender                   || null,
+    p_civil_status:                 payload.civil_status             || null,
+    p_date_of_birth:                payload.date_of_birth            || null,
+    p_citizenship:                  payload.citizenship              || null,
+    p_country_code:                 payload.country_code,
+    p_mobile_number:                payload.mobile_number            || null,
+    p_landline_no:                  payload.landline_no              || null,
+    p_email:                        payload.email                    || null,
+    p_reason_for_buying:            payload.reason_for_buying        || null,
+    p_source_of_sale:               payload.source_of_sale           || null,
+    p_monthly_household_income:     payload.monthly_household_income || null,
+    p_seller_type:                  payload.seller_type              || null,
+    p_is_megawide_employee:         payload.is_megawide_employee     ?? null,
+    // In-house names
+    p_property_specialist:          payload.property_specialist      || null,
+    p_sales_manager:                payload.sales_manager            || null,
+    p_sales_director:               payload.sales_director           || null,
+    p_sales_division_head:          payload.sales_division_head      || null,
+    p_sales_head:                   payload.sales_head               || null,
+    // Broker names
+    p_broker_bir_name:              payload.broker_bir_name          || null,
+    p_broker_network_associate:     payload.broker_network_associate || null,
+    p_broker_network_officer:       payload.broker_network_officer   || null,
+    p_broker_sales_director:        payload.broker_sales_director    || null,
+    p_broker_director_head:         payload.broker_director_head     || null,
+    p_broker_sales_head:            payload.broker_sales_head        || null,
   });
   if (error) throw error;
   await supabase.from('clients').update(idFields(payload)).eq('id', id);

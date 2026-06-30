@@ -21,6 +21,7 @@ import {
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
 import { fetchAllBrokers, BrokerRecord as BrokersTableRecord, fetchAllBrokerRecruits, BrokerRecruitRecord } from '@/lib/brokers';
 import SearchableCombobox from '@/components/ui/SearchableCombobox';
+import SavingOverlay from '@/components/ui/SavingOverlay';
 
 // ── iOS 26 design tokens ──────────────────────────────────────
 const PAGE_GRADIENT = 'linear-gradient(to bottom, #FFFFFF 0%, #8E8E93 50%, #3A3A3C 100%)';
@@ -235,12 +236,15 @@ export default function ExistingClientPage() {
   const [sellerDirector, setSellerDirector]                 = useState('');
   const [sellerManager, setSellerManager]                   = useState('');
   const [sellerSpecialist, setSellerSpecialist]             = useState('');
+  const [sellerDivisionHead, setSellerDivisionHead]         = useState('');
+  const [sellerSalesHead, setSellerSalesHead]               = useState('');
   const [brokerNetworkAssociate, setBrokerNetworkAssociate] = useState('');
   const [brokerNetworkOfficer, setBrokerNetworkOfficer]     = useState('');
+  const [brokerSalesDirector, setBrokerSalesDirector]       = useState('');
   const [brokerDirectorHead, setBrokerDirectorHead]         = useState('');
   const [brokerSalesHead, setBrokerSalesHead]               = useState('');
   const [brokerBirName, setBrokerBirName]                   = useState('');
-  const [brokerCascadeSource, setBrokerCascadeSource]       = useState<'bir' | 'associate' | 'officer' | 'sdh' | null>(null);
+  const [brokerCascadeSource, setBrokerCascadeSource]       = useState<'bir' | 'associate' | 'officer' | 'sd' | 'sdh' | null>(null);
 
   // Megawide employee
   const [isMegawideEmployee, setIsMegawideEmployee] = useState(false);
@@ -281,6 +285,8 @@ export default function ExistingClientPage() {
     const ps = allSalespersons.find(s => s.seller_name === name);
     setSellerManager(ps?.sales_manager ?? '');
     setSellerDirector(ps?.sales_director ?? '');
+    setSellerDivisionHead(ps?.sales_division_head ?? '');
+    setSellerSalesHead(ps?.sales_head ?? '');
   }
 
   // Broker cascade — uses Brokers table (BIR → Associate → Officer → SDH → SH)
@@ -292,6 +298,7 @@ export default function ExistingClientPage() {
     setBrokerBirName(name);
     setBrokerNetworkAssociate(rec?.broker_network_associate ?? '');
     setBrokerNetworkOfficer(rec?.broker_network_officer    ?? '');
+    setBrokerSalesDirector(rec?.sales_director             ?? '');
     setBrokerDirectorHead(rec?.sales_director_head         ?? '');
     setBrokerSalesHead(rec?.sales_head                     ?? '');
     setBrokerCascadeSource(name ? 'bir' : null);
@@ -303,8 +310,9 @@ export default function ExistingClientPage() {
     setBrokerNetworkAssociate(name);
     setBrokerBirName(rec ? bName(rec) : '');
     setBrokerNetworkOfficer(rec?.broker_network_officer ?? '');
-    setBrokerDirectorHead(rec?.sales_director_head     ?? '');
-    setBrokerSalesHead(rec?.sales_head                 ?? '');
+    setBrokerSalesDirector(rec?.sales_director          ?? '');
+    setBrokerDirectorHead(rec?.sales_director_head      ?? '');
+    setBrokerSalesHead(rec?.sales_head                  ?? '');
     setBrokerCascadeSource(name ? 'associate' : null);
   }
 
@@ -312,9 +320,19 @@ export default function ExistingClientPage() {
     if (!editMode) return;
     const rec = name ? allBrokers.find(b => b.broker_network_officer === name) : null;
     setBrokerNetworkOfficer(name);
+    setBrokerSalesDirector(rec?.sales_director     ?? '');
     setBrokerDirectorHead(rec?.sales_director_head ?? '');
     setBrokerSalesHead(rec?.sales_head             ?? '');
     setBrokerCascadeSource(name ? 'officer' : null);
+  }
+
+  function handleBrokerSdChange(name: string) {
+    if (!editMode) return;
+    const rec = name ? allBrokers.find(b => b.sales_director === name) : null;
+    setBrokerSalesDirector(name);
+    setBrokerDirectorHead(rec?.sales_director_head ?? '');
+    setBrokerSalesHead(rec?.sales_head             ?? '');
+    setBrokerCascadeSource(name ? 'sd' : null);
   }
 
   function handleBrokerSdhChange(name: string) {
@@ -338,9 +356,15 @@ export default function ExistingClientPage() {
       : allBrokers
     ).map(b => b.broker_network_officer).filter((v): v is string => !!v)
   )];
-  const brokerSdhOptions = [...new Set(
+  const brokerSdOptions = [...new Set(
     (brokerCascadeSource !== 'bir' && brokerCascadeSource !== 'associate' && brokerCascadeSource !== 'officer' && brokerNetworkOfficer
       ? allBrokers.filter(b => b.broker_network_officer === brokerNetworkOfficer)
+      : allBrokers
+    ).map(b => b.sales_director).filter((v): v is string => !!v)
+  )];
+  const brokerSdhOptions = [...new Set(
+    (brokerCascadeSource !== 'bir' && brokerCascadeSource !== 'associate' && brokerCascadeSource !== 'officer' && brokerCascadeSource !== 'sd' && brokerSalesDirector
+      ? allBrokers.filter(b => b.sales_director === brokerSalesDirector)
       : allBrokers
     ).map(b => b.sales_director_head).filter((v): v is string => !!v)
   )];
@@ -353,8 +377,10 @@ export default function ExistingClientPage() {
 
   function resetSellerSelections() {
     setSellerDirector(''); setSellerManager(''); setSellerSpecialist('');
+    setSellerDivisionHead(''); setSellerSalesHead('');
     setBrokerNetworkAssociate(''); setBrokerNetworkOfficer('');
-    setBrokerDirectorHead(''); setBrokerSalesHead(''); setBrokerBirName('');
+    setBrokerSalesDirector(''); setBrokerDirectorHead(''); setBrokerSalesHead('');
+    setBrokerBirName('');
     setBrokerCascadeSource(null);
   }
 
@@ -362,16 +388,20 @@ export default function ExistingClientPage() {
     setSellerDirector(c.sales_director ?? '');
     setSellerManager(c.sales_manager ?? '');
     setSellerSpecialist(c.property_specialist ?? '');
+    setSellerDivisionHead(c.sales_division_head ?? '');
+    setSellerSalesHead(c.sales_head ?? '');
     setBrokerNetworkAssociate(c.broker_network_associate ?? '');
     setBrokerNetworkOfficer(c.broker_network_officer ?? '');
+    setBrokerSalesDirector(c.broker_sales_director ?? '');
     setBrokerDirectorHead(c.broker_director_head ?? '');
     setBrokerSalesHead(c.broker_sales_head ?? '');
     setBrokerBirName(c.broker_bir_name ?? '');
     setBrokerCascadeSource(
-      c.broker_bir_name          ? 'bir'       :
       c.broker_network_associate ? 'associate' :
       c.broker_network_officer   ? 'officer'   :
-      c.broker_director_head     ? 'sdh'       : null
+      c.broker_sales_director    ? 'sd'        :
+      c.broker_director_head     ? 'sdh'       :
+      c.broker_bir_name          ? 'bir'       : null
     );
   }
 
@@ -444,8 +474,12 @@ export default function ExistingClientPage() {
   async function handleSave() {
     if (!validate()) return;
     setSaving(true);
+    const minDelay = new Promise(r => setTimeout(r, 2800));
     try {
-      let sellerIds: { seller_id?: string | null; sales_manager_id?: string | null; sales_director_id?: string | null; sales_division_head_id?: string | null; sales_head_id?: string | null; broker_id?: string | null; } = {};
+      let sellerIds: {
+        seller_id?: string | null; sales_manager_id?: string | null; sales_director_id?: string | null; sales_division_head_id?: string | null; sales_head_id?: string | null;
+        broker_id?: string | null; broker_network_associate_id?: string | null; broker_network_officer_id?: string | null; broker_sales_director_id?: string | null; broker_director_head_id?: string | null; broker_sales_head_id?: string | null;
+      } = {};
       if (form.sellerType === 'In House') {
         if (isMegawideEmployee) {
           const sdRec = allSalespersons.find(s => s.seller_name === sellerDirector);
@@ -457,7 +491,14 @@ export default function ExistingClientPage() {
       } else if (form.sellerType === 'Broker') {
         const birRec = allBrokers.find(b => bName(b) === brokerBirName);
         const rRec   = birRec ? allBrokerRecruits.find(r => r.broker_id === birRec.broker_id) : null;
-        sellerIds = { broker_id: rRec?.broker_id ?? birRec?.broker_id ?? null, sales_manager_id: rRec?.broker_network_associate_id ?? null, sales_director_id: rRec?.broker_network_officer_id ?? null, sales_division_head_id: rRec?.sales_director_head_id ?? null, sales_head_id: rRec?.sales_head_id ?? null };
+        sellerIds = {
+          broker_id:                    rRec?.broker_id ?? birRec?.broker_id ?? null,
+          broker_network_associate_id:  rRec?.broker_network_associate_id ?? null,
+          broker_network_officer_id:    rRec?.broker_network_officer_id ?? null,
+          broker_sales_director_id:     rRec?.sales_director_id ?? null,
+          broker_director_head_id:      rRec?.sales_director_head_id ?? null,
+          broker_sales_head_id:         rRec?.sales_head_id ?? null,
+        };
       }
       await updateClient(selectedClient!.id, {
         client_type:              form.clientType,
@@ -480,11 +521,14 @@ export default function ExistingClientPage() {
         sales_director:           form.sellerType === 'In House' ? sellerDirector         : undefined,
         sales_manager:            form.sellerType === 'In House' ? sellerManager          : undefined,
         property_specialist:      form.sellerType === 'In House' ? sellerSpecialist       : undefined,
+        sales_division_head:      form.sellerType === 'In House' ? sellerDivisionHead     : undefined,
+        sales_head:               form.sellerType === 'In House' ? sellerSalesHead        : undefined,
+        broker_bir_name:          form.sellerType === 'Broker'   ? brokerBirName          : undefined,
         broker_network_associate: form.sellerType === 'Broker'   ? brokerNetworkAssociate : undefined,
         broker_network_officer:   form.sellerType === 'Broker'   ? brokerNetworkOfficer   : undefined,
+        broker_sales_director:    form.sellerType === 'Broker'   ? brokerSalesDirector    : undefined,
         broker_director_head:     form.sellerType === 'Broker'   ? brokerDirectorHead     : undefined,
         broker_sales_head:        form.sellerType === 'Broker'   ? brokerSalesHead        : undefined,
-        broker_bir_name:          form.sellerType === 'Broker'   ? brokerBirName          : undefined,
         is_megawide_employee:     isMegawideEmployee,
         ...sellerIds,
       });
@@ -510,11 +554,14 @@ export default function ExistingClientPage() {
         sales_director:           form.sellerType === 'In House' ? sellerDirector         || null : null,
         sales_manager:            form.sellerType === 'In House' ? sellerManager          || null : null,
         property_specialist:      form.sellerType === 'In House' ? sellerSpecialist       || null : null,
+        sales_division_head:      form.sellerType === 'In House' ? sellerDivisionHead     || null : null,
+        sales_head:               form.sellerType === 'In House' ? sellerSalesHead        || null : null,
+        broker_bir_name:          form.sellerType === 'Broker'   ? brokerBirName          || null : null,
         broker_network_associate: form.sellerType === 'Broker'   ? brokerNetworkAssociate || null : null,
         broker_network_officer:   form.sellerType === 'Broker'   ? brokerNetworkOfficer   || null : null,
+        broker_sales_director:    form.sellerType === 'Broker'   ? brokerSalesDirector    || null : null,
         broker_director_head:     form.sellerType === 'Broker'   ? brokerDirectorHead     || null : null,
         broker_sales_head:        form.sellerType === 'Broker'   ? brokerSalesHead        || null : null,
-        broker_bir_name:          form.sellerType === 'Broker'   ? brokerBirName          || null : null,
         is_megawide_employee:     isMegawideEmployee,
       };
       if (sigPreview) await updateClientSignature(selectedClient!.id, sigPreview);
@@ -529,6 +576,7 @@ export default function ExistingClientPage() {
     } catch (e: any) {
       setErrors({ _global: e.message ?? 'Failed to save. Please try again.' });
     } finally {
+      await minDelay;
       setSaving(false);
     }
   }
@@ -641,6 +689,7 @@ export default function ExistingClientPage() {
       {/* Detail Overlay */}
       {selectedClient && (
         <div className="fixed inset-0 z-50" style={{ background: PAGE_GRADIENT }}>
+          <SavingOverlay visible={saving} />
 
           {/* Floating nav */}
           <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 pt-12 pb-3 z-10">
@@ -1096,13 +1145,22 @@ export default function ExistingClientPage() {
                           disabled={!editMode || brokerCascadeSource === 'bir' || brokerCascadeSource === 'associate'}
                         />
                       </DarkInputRow>
-                      <DarkInputRow label="Sales Division Head" icon={<UserCog size={11} />}>
+                      <DarkInputRow label="Sales Director" icon={<UserCog size={11} />}>
+                        <SearchableCombobox
+                          value={brokerSalesDirector}
+                          options={brokerSdOptions}
+                          onChange={handleBrokerSdChange}
+                          placeholder="Search sales director…"
+                          disabled={!editMode || brokerCascadeSource === 'bir' || brokerCascadeSource === 'associate' || brokerCascadeSource === 'officer'}
+                        />
+                      </DarkInputRow>
+                      <DarkInputRow label="Sales Director Head" icon={<UserCog size={11} />}>
                         <SearchableCombobox
                           value={brokerDirectorHead}
                           options={brokerSdhOptions}
                           onChange={handleBrokerSdhChange}
-                          placeholder="Search division head…"
-                          disabled={!editMode || brokerCascadeSource === 'bir' || brokerCascadeSource === 'associate' || brokerCascadeSource === 'officer'}
+                          placeholder="Search director head…"
+                          disabled={!editMode || brokerCascadeSource === 'bir' || brokerCascadeSource === 'associate' || brokerCascadeSource === 'officer' || brokerCascadeSource === 'sd'}
                         />
                       </DarkInputRow>
                       <DarkInputRow label="Sales Head" icon={<UserCog size={11} />}>

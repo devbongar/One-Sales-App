@@ -1,15 +1,21 @@
 import { supabase } from '@/lib/supabase';
 
 export interface BrokerRecord {
-  seller_name:              string | null;
-  full_name:                string | null;
-  broker_id:                string | null;
-  bir_registered_name:      string | null;
-  broker_network_associate: string | null;
-  broker_network_officer:   string | null;
-  sales_director_head:      string | null;
-  sales_head:               string | null;
-  position_rank:            string | null;
+  seller_name:                  string | null;
+  full_name:                    string | null;
+  broker_id:                    string | null;
+  bir_registered_name:          string | null;
+  broker_network_associate:     string | null;
+  broker_network_associate_id:  string | null;
+  broker_network_officer:       string | null;
+  broker_network_officer_id:    string | null;
+  sales_director:               string | null;
+  sales_director_id:            string | null;
+  sales_director_head:          string | null;
+  sales_director_head_id:       string | null;
+  sales_head:                   string | null;
+  sales_head_id:                string | null;
+  position_rank:                string | null;
 }
 
 export async function fetchAllBrokers(): Promise<BrokerRecord[]> {
@@ -44,6 +50,8 @@ export interface BrokerRecruitRecord {
   sales_head_id:                string | null;
   sales_director_head:          string | null;
   sales_director_head_id:       string | null;
+  sales_director:               string | null;
+  sales_director_id:            string | null;
   broker_network_officer:       string | null;
   broker_network_officer_id:    string | null;
   broker_network_associate:     string | null;
@@ -120,6 +128,8 @@ export async function addBrokerRecruit(rec: BrokerRecruitRecord): Promise<void> 
       'Sales Head ID':                rec.sales_head_id,
       'Sales Director Head':          rec.sales_director_head,
       'Sales Director Head ID':       rec.sales_director_head_id,
+      'Sales Director':               rec.sales_director,
+      'Sales Director ID':            rec.sales_director_id,
       'Broker Network Officer':       rec.broker_network_officer,
       'Broker Network Officer ID':    rec.broker_network_officer_id,
       'Broker Network Associate':     rec.broker_network_associate,
@@ -152,6 +162,8 @@ export async function updateBrokerRecruit(rec: BrokerRecruitRecord): Promise<voi
       'Sales Head ID':                rec.sales_head_id,
       'Sales Director Head':          rec.sales_director_head,
       'Sales Director Head ID':       rec.sales_director_head_id,
+      'Sales Director':               rec.sales_director,
+      'Sales Director ID':            rec.sales_director_id,
       'Broker Network Officer':       rec.broker_network_officer,
       'Broker Network Officer ID':    rec.broker_network_officer_id,
       'Broker Network Associate':     rec.broker_network_associate,

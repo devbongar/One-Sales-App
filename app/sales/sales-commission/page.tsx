@@ -366,6 +366,15 @@ export default function SalesCommissionPage() {
                   </div>
                 </div>
               )}
+              {selectedBroker.sales_director && (
+                <div className="flex items-center gap-2 bg-white/15 backdrop-blur-sm rounded-xl px-3 py-2">
+                  <User size={11} className="text-white/70 shrink-0" />
+                  <div>
+                    <p className="text-white/60 text-[8px] font-bold tracking-wider uppercase leading-none mb-0.5">Sales Director</p>
+                    <p className="text-white text-xs font-semibold leading-none">{selectedBroker.sales_director}</p>
+                  </div>
+                </div>
+              )}
               {selectedBroker.sales_director_head && (
                 <div className="flex items-center gap-2 bg-white/15 backdrop-blur-sm rounded-xl px-3 py-2">
                   <User size={11} className="text-white/70 shrink-0" />
