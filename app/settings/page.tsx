@@ -26,9 +26,12 @@ import {
   Building2, AlertTriangle, Loader2, Tag, Layers,
   CarFront, Hash, MapPin, FileText, Mail, ToggleLeft, ToggleRight, Eye,
   Send, CheckCircle2, Paperclip, Calendar, ChevronRight,
+  Activity, Play, RefreshCw, Clock,
 } from 'lucide-react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
+import { resetPenaltyCollections, reapplyPenaltyCollections } from '@/lib/collections'; // used in correction tool
+import SavingOverlay from '@/components/ui/SavingOverlay';
 
 // ── Email test helpers ────────────────────────────────────────
 type DocKey = 'none' | 'client_registration' | 'reservation_package' | 'buyer_info_form' | 'soa';
@@ -144,6 +147,36 @@ function CategoryUpload({ label, urls, onChange, uploading, onUpload }: {
   );
 }
 
+type CorrJob = { status: 'running' | 'completed'; reservationIds: string[]; fixedCount: number; totalCount: number; asOfDate: string };
+const CORR_KEY = 'osa_penalty_correction';
+
+type DelinquencyPolicy = {
+  automation_enabled: boolean;
+  run_hour: number;
+  grace_days: number;
+  notice_1_threshold_months: number;
+  notice_2_threshold_months: number;
+  final_notice_threshold_months: number;
+  recurring_threshold: number;
+};
+type NoticeEmailCfg = { to: string[]; cc: string[]; subject: string; body: string };
+type NoticeEmailConfigs = Record<'1st_notice' | '2nd_notice' | 'final_notice', NoticeEmailCfg>;
+type DelDryRunItem = {
+  reservation_id: string; client_name: string; inventory_code: string;
+  months_behind: number; current_stage: string; would_stage: string;
+  action: string; notice_type: string | null;
+};
+type AutomationRun = {
+  id: number; triggered_by: string; status: string;
+  accounts_processed: number; notices_created: number;
+  emails_sent: number; error_count: number; run_at: string; duration_ms: number;
+};
+
+function computeRunDay(dueDay: number, graceDays: number): number {
+  const r = dueDay + graceDays;
+  return r > 31 ? r - 30 : r;
+}
+
 // ─────────────────────────────────────────────────────────────
 export default function SettingsPage() {
   // App settings
@@ -164,6 +197,47 @@ export default function SettingsPage() {
   const [savingPenalty,     setSavingPenalty]     = useState(false);
   const [penaltySaved,      setPenaltySaved]      = useState(false);
 
+  // Penalty correction tool
+  const [corrJob,      setCorrJob]      = useState<CorrJob | null>(null);
+  const [corrResults,  setCorrResults]  = useState<{ reservation_id: string; client_name: string; inventory_code: string; negative_lines: number; excess: number; future_lines: number; wrong_days: number }[]>([]);
+  const [corrSelected, setCorrSelected] = useState<string[]>([]);
+  const [corrScanning, setCorrScanning] = useState(false);
+  const [corrScanned,  setCorrScanned]  = useState(false);
+  const [corrDate,     setCorrDate]     = useState(() => new Date().toISOString().slice(0, 10));
+
+  // Delinquency automation policy
+  const defaultEmailCfg: NoticeEmailConfigs = {
+    '1st_notice':    { to: ['client'], cc: [], subject: '1st Delinquency Notice — {project} Unit {unit}', body: 'Dear {client_name},\n\nThis is your 1st Delinquency Notice for {project} Unit {unit} ({reservation_id}).\n\nYour account is currently {months_behind} month(s) past due.\n\nOutstanding Balance: {outstanding_balance}\nAccrued Penalties: {penalty_balance}\n\nPlease settle immediately to avoid further penalties.\n\nThank you.' },
+    '2nd_notice':    { to: ['client'], cc: [], subject: '2nd Delinquency Notice — {project} Unit {unit}', body: 'Dear {client_name},\n\nThis is your 2nd Delinquency Notice for {project} Unit {unit} ({reservation_id}).\n\nYour account is currently {months_behind} month(s) past due.\n\nOutstanding Balance: {outstanding_balance}\nAccrued Penalties: {penalty_balance}\n\nImmediate settlement is required.\n\nThank you.' },
+    'final_notice':  { to: ['client'], cc: [], subject: 'Final Delinquency Notice — {project} Unit {unit}', body: 'Dear {client_name},\n\nThis is your Final Delinquency Notice for {project} Unit {unit} ({reservation_id}).\n\nYour account is currently {months_behind} month(s) past due.\n\nOutstanding Balance: {outstanding_balance}\nAccrued Penalties: {penalty_balance}\n\nFailure to settle may result in cancellation. Please act immediately.\n\nThank you.' },
+  };
+  const [delPolicy, setDelPolicy] = useState<DelinquencyPolicy>({
+    automation_enabled: false,
+    run_hour: 2,
+    grace_days: 11,
+    notice_1_threshold_months: 1,
+    notice_2_threshold_months: 2,
+    final_notice_threshold_months: 3,
+    recurring_threshold: 2,
+  });
+  const [delEmailCfg,      setDelEmailCfg]      = useState<NoticeEmailConfigs>(defaultEmailCfg);
+  const [emailCfgOpen,     setEmailCfgOpen]     = useState<'1st_notice' | '2nd_notice' | 'final_notice' | null>(null);
+  const [savingEmailCfg,   setSavingEmailCfg]   = useState(false);
+  const [emailCfgSaved,    setEmailCfgSaved]    = useState(false);
+  const [delDueDays, setDelDueDays] = useState<number[]>([]);
+  const [savingDelPolicy,  setSavingDelPolicy]  = useState(false);
+  const [delPolicySaved,   setDelPolicySaved]   = useState(false);
+  const [runningDel,       setRunningDel]       = useState(false);
+  const [delRunResult,     setDelRunResult]      = useState<{ ok: boolean; message: string } | null>(null);
+  const [runningDryRun,    setRunningDryRun]    = useState(false);
+  const [dryRunResult,     setDryRunResult]     = useState<DelDryRunItem[] | null>(null);
+  const [failedNotices,    setFailedNotices]    = useState<any[]>([]);
+  const [resendingFailed,  setResendingFailed]  = useState(false);
+  const [automationHistory, setAutomationHistory] = useState<AutomationRun[]>([]);
+  const [historyOpen,      setHistoryOpen]      = useState(false);
+  const [delOpen,          setDelOpen]          = useState(false);
+  const [lastRunAt,        setLastRunAt]        = useState<string | null>(null);
+
   // Email attachments
   const [pdfClients, setPdfClients]                     = useState<ClientRecord[]>([]);
   const [pdfReservations, setPdfReservations]           = useState<ReservationSummary[]>([]);
@@ -172,9 +246,7 @@ export default function SettingsPage() {
   const [selAgreementId, setSelAgreementId]             = useState('');
   const [selBuyerInfoId, setSelBuyerInfoId]             = useState('');
   const [selSOAId, setSelSOAId]                         = useState('');
-  const [selDelinquency1stId,   setSelDelinquency1stId]   = useState('');
-  const [delinquency1stDate,    setDelinquency1stDate]    = useState(() => new Date().toISOString().slice(0, 10));
-  const [generatingPenalties,   setGeneratingPenalties]   = useState(false);
+  const [selDelinquency1stId, setSelDelinquency1stId] = useState('');
 
   // Email test section
   const [testTo,      setTestTo]      = useState('');
@@ -232,7 +304,113 @@ export default function SettingsPage() {
     fetch('/api/projects').then(r => r.json()).then(data => {
       setProjects(data); setLoadingProjects(false);
     });
-  }, []);
+    // Load delinquency policy
+    supabase.from('penalty_policy').select('*').eq('id', 1).single().then(({ data }) => {
+      if (!data) return;
+      const p = data as any;
+      setDelPolicy({
+        automation_enabled:            p.automation_enabled,
+        run_hour:                      p.run_hour ?? 2,
+        grace_days:                    p.grace_days ?? 11,
+        notice_1_threshold_months:     p.notice_1_threshold_months,
+        notice_2_threshold_months:     p.notice_2_threshold_months,
+        final_notice_threshold_months: p.final_notice_threshold_months,
+        recurring_threshold:           p.recurring_threshold,
+      });
+      if (p.notice_email_config && typeof p.notice_email_config === 'object') {
+        setDelEmailCfg(cfg => ({ ...cfg, ...p.notice_email_config }));
+      }
+    });
+    supabase.from('due_date_assignments').select('due_date').then(({ data }) => {
+      const days = [...new Set((data ?? []).map((r: any) => Number(r.due_date)))].sort((a, b) => a - b);
+      setDelDueDays(days);
+    });
+    // Load automation history and failed notices
+    supabase.from('automation_runs').select('*').order('run_at', { ascending: false }).limit(5).then(({ data }) => {
+      setAutomationHistory((data ?? []) as AutomationRun[]);
+      if (data?.[0]) setLastRunAt((data[0] as any).run_at as string);
+    });
+    supabase.from('delinquency_notices').select('id, reservation_id, notice_type, email_error, updated_at').eq('email_status', 'failed').then(({ data }) => {
+      setFailedNotices(data ?? []);
+    });
+    // Resume any in-progress correction job
+    try {
+      const stored = localStorage.getItem(CORR_KEY);
+      if (stored) {
+        const job = JSON.parse(stored) as CorrJob;
+        if (job.status === 'running') { setCorrJob(job); runCorrection(job); }
+      }
+    } catch {}
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const runCorrection = async (job: CorrJob) => {
+    const remaining = job.reservationIds.slice(job.fixedCount);
+    for (let i = 0; i < remaining.length; i++) {
+      const rid = remaining[i];
+      try {
+        await resetPenaltyCollections(rid);
+        await supabase.rpc('generate_penalty_lines', { p_as_of_date: job.asOfDate, p_reservation_id: rid });
+        await reapplyPenaltyCollections(rid);
+      } catch (e) { console.error('[correction] failed for', rid, e); }
+      const updated: CorrJob = { ...job, fixedCount: job.fixedCount + i + 1 };
+      localStorage.setItem(CORR_KEY, JSON.stringify(updated));
+      setCorrJob(updated);
+    }
+    const done: CorrJob = { ...job, fixedCount: job.totalCount, status: 'completed' };
+    localStorage.setItem(CORR_KEY, JSON.stringify(done));
+    setCorrJob(done);
+    setCorrResults([]);
+    setCorrSelected([]);
+    setCorrScanned(false);
+  };
+
+  const handleCorrScan = async () => {
+    setCorrScanning(true);
+    try {
+      const { data, error } = await supabase
+        .from('penalty_lines')
+        .select('reservation_id, client_name, inventory_code, balance, original_due_date, days_overdue');
+      if (error) throw error;
+
+      const corrDateMs = new Date(corrDate + 'T00:00:00').getTime();
+      const grouped = new Map<string, { client_name: string; inventory_code: string; negative_lines: number; excess: number; future_lines: number; wrong_days: number }>();
+
+      for (const row of (data ?? []) as any[]) {
+        const g = grouped.get(row.reservation_id) ?? { client_name: row.client_name, inventory_code: row.inventory_code, negative_lines: 0, excess: 0, future_lines: 0, wrong_days: 0 };
+
+        if (Number(row.balance) < 0) {
+          g.negative_lines++;
+          g.excess += Math.abs(Number(row.balance));
+        }
+
+        if (row.original_due_date >= corrDate) {
+          g.future_lines++;
+        } else {
+          const dueDateMs    = new Date(row.original_due_date + 'T00:00:00').getTime();
+          const expectedDays = Math.floor((corrDateMs - dueDateMs) / 86400000);
+          if (Number(row.days_overdue) !== expectedDays) g.wrong_days++;
+        }
+
+        if (g.negative_lines || g.future_lines || g.wrong_days) grouped.set(row.reservation_id, g);
+      }
+
+      const results = Array.from(grouped.entries()).map(([reservation_id, v]) => ({ reservation_id, ...v }));
+      setCorrResults(results);
+      setCorrSelected(results.map(r => r.reservation_id));
+      setCorrJob(null);
+      setCorrScanned(true);
+    } finally {
+      setCorrScanning(false);
+    }
+  };
+
+  const handleCorrFix = async (reservationIds: string[]) => {
+    if (reservationIds.length === 0) return;
+    const job: CorrJob = { status: 'running', reservationIds, fixedCount: 0, totalCount: reservationIds.length, asOfDate: corrDate };
+    localStorage.setItem(CORR_KEY, JSON.stringify(job));
+    setCorrJob(job);
+    await runCorrection(job);
+  };
 
   const handleLogoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
@@ -271,6 +449,92 @@ export default function SettingsPage() {
     });
     setSavingPenalty(false); setPenaltySaved(true);
     setTimeout(() => setPenaltySaved(false), 2500);
+  };
+
+  const saveDelPolicy = async () => {
+    setSavingDelPolicy(true);
+    await supabase.from('penalty_policy').update(delPolicy).eq('id', 1);
+    setSavingDelPolicy(false); setDelPolicySaved(true);
+    setTimeout(() => setDelPolicySaved(false), 2500);
+  };
+
+  const saveDelEmailCfg = async () => {
+    setSavingEmailCfg(true);
+    await supabase.from('penalty_policy').update({ notice_email_config: delEmailCfg }).eq('id', 1);
+    setSavingEmailCfg(false); setEmailCfgSaved(true);
+    setTimeout(() => setEmailCfgSaved(false), 2500);
+  };
+
+  const refreshDelHistory = () => {
+    supabase.from('automation_runs').select('*').order('run_at', { ascending: false }).limit(5).then(({ data }) => {
+      setAutomationHistory((data ?? []) as AutomationRun[]);
+      if (data?.[0]) setLastRunAt((data[0] as any).run_at as string);
+    });
+    supabase.from('delinquency_notices').select('id, reservation_id, notice_type, email_error, updated_at').eq('email_status', 'failed').then(({ data }) => {
+      setFailedNotices(data ?? []);
+    });
+  };
+
+  const runDelNow = async () => {
+    setRunningDel(true);
+    setDelRunResult(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) { setDelRunResult({ ok: false, message: 'Not authenticated' }); setRunningDel(false); return; }
+      const res = await fetch('/api/cron/run-delinquency', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'run' }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        const parts: string[] = [];
+        if (data.accounts_processed !== undefined) parts.push(`${data.accounts_processed} accounts processed`);
+        if (data.notices_created)   parts.push(`${data.notices_created} notices created`);
+        if (data.emails_sent)       parts.push(`${data.emails_sent} emails sent`);
+        if (data.episodes_resolved) parts.push(`${data.episodes_resolved} episodes resolved`);
+        setDelRunResult({ ok: true, message: parts.length ? parts.join(' · ') : 'Completed — no changes needed' });
+        refreshDelHistory();
+      } else {
+        setDelRunResult({ ok: false, message: data.error ?? 'Run failed' });
+      }
+    } catch (e: any) {
+      setDelRunResult({ ok: false, message: e.message ?? 'Network error' });
+    } finally {
+      setRunningDel(false);
+    }
+  };
+
+  const runDryRun = async () => {
+    setRunningDryRun(true);
+    setDryRunResult(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) { setRunningDryRun(false); return; }
+      const res = await fetch('/api/cron/run-delinquency', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'dry_run' }),
+      });
+      const data = await res.json();
+      setDryRunResult(data.preview ?? []);
+    } catch {}
+    setRunningDryRun(false);
+  };
+
+  const resendFailed = async (noticeIds?: number[]) => {
+    setResendingFailed(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) { setResendingFailed(false); return; }
+      await fetch('/api/cron/run-delinquency', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'resend', ...(noticeIds ? { notice_ids: noticeIds } : {}) }),
+      });
+      refreshDelHistory();
+    } catch {}
+    setResendingFailed(false);
   };
 
   const saveEmailTemplates = async () => {
@@ -420,6 +684,17 @@ export default function SettingsPage() {
   // ─────────────────────────────────────────────────────────────
   return (
     <PageShell title="System Settings">
+
+      {/* ── Penalty correction overlay ─────────────────────── */}
+      {corrJob?.status === 'running' && (
+        <div className="fixed inset-0 z-[200]">
+          <SavingOverlay
+            visible
+            label={`Fixing ${corrJob.fixedCount} of ${corrJob.totalCount} reservations`}
+            progress={corrJob.totalCount > 0 ? corrJob.fixedCount / corrJob.totalCount : 0}
+          />
+        </div>
+      )}
 
       {/* ── Commission Settings ────────────────────────────── */}
       <Link href="/settings/commission-rates">
@@ -967,24 +1242,10 @@ export default function SettingsPage() {
               <p className="text-sm font-semibold text-[#1C1C1E]">Delinquency 1st Notice</p>
               <button
                 type="button"
-                disabled={!selDelinquency1stId || generatingPenalties}
-                onClick={async () => {
-                  setGeneratingPenalties(true);
-                  try {
-                    const { data, error } = await supabase.rpc('generate_penalty_lines', { p_as_of_date: delinquency1stDate });
-                    if (error) {
-                      console.error('generate_penalty_lines error:', JSON.stringify(error));
-                      alert(`Penalty generation failed: ${error.message}\n\nCode: ${error.code}\nDetails: ${error.details}`);
-                      return;
-                    }
-                    console.log('generate_penalty_lines result:', data);
-                  } finally {
-                    setGeneratingPenalties(false);
-                  }
-                  generateDelinquency1stNotice(selDelinquency1stId, delinquency1stDate);
-                }}
+                disabled={!selDelinquency1stId}
+                onClick={() => generateDelinquency1stNotice(selDelinquency1stId)}
                 className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70 disabled:opacity-40">
-                {generatingPenalties ? <><Loader2 size={12} className="animate-spin" /> Generating…</> : <><Eye size={12} /> Preview</>}
+                <Eye size={12} /> Preview
               </button>
             </div>
             <select value={selDelinquency1stId} onChange={e => setSelDelinquency1stId(e.target.value)}
@@ -996,19 +1257,538 @@ export default function SettingsPage() {
                 </option>
               ))}
             </select>
-            <div className="space-y-1">
-              <p className="text-[10px] font-semibold text-[#6C6C70] uppercase tracking-wider">Data Date</p>
-              <input
-                type="date"
-                value={delinquency1stDate}
-                onChange={e => setDelinquency1stDate(e.target.value)}
-                className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none"
-              />
-              <p className="text-[10px] text-[#8E8E93]">Penalties will be recomputed as of this date before preview.</p>
-            </div>
+            <p className="text-[10px] text-[#8E8E93]">Date shown on the notice is derived from when the penalty lines were last generated. Use the Penalty Lines Correction tool to update.</p>
           </div>
 
         </div>
+      </GlassCard>
+
+      {/* ── Penalty Lines Correction ──────────────────────── */}
+      <GlassCard className="p-5 space-y-4">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-xl bg-[rgba(192,61,37,0.10)] flex items-center justify-center shrink-0">
+            <AlertTriangle size={16} className="text-[#C03D25]" />
+          </div>
+          <div className="flex-1">
+            <p className="text-base font-bold text-[#1C1C1E]">Penalty Lines Correction</p>
+            <p className="text-[11px] text-[#8E8E93]">Scan for and fix reservations where collected amount exceeds penalty amount</p>
+          </div>
+        </div>
+
+        {/* Date + scan */}
+        <div className="space-y-2">
+          <p className="text-[10px] font-semibold text-[#6C6C70] uppercase tracking-wider">Recompute As Of Date</p>
+          <input
+            type="date"
+            value={corrDate}
+            onChange={e => setCorrDate(e.target.value)}
+            className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none"
+          />
+          <button
+            type="button"
+            disabled={corrScanning}
+            onClick={handleCorrScan}
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70 disabled:opacity-40"
+          >
+            {corrScanning ? <><Loader2 size={12} className="animate-spin" /> Scanning…</> : 'Scan for Errors'}
+          </button>
+        </div>
+
+        {/* Completed state */}
+        {corrJob?.status === 'completed' && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-green-50 border border-green-200">
+            <CheckCircle2 size={14} className="text-green-600 shrink-0" />
+            <p className="text-xs font-semibold text-green-700">Correction complete — {corrJob.totalCount} reservation{corrJob.totalCount !== 1 ? 's' : ''} fixed</p>
+          </div>
+        )}
+
+        {/* Empty / scanned-clean state */}
+        {corrResults.length === 0 && corrJob === null && !corrScanning && !corrScanned && (
+          <p className="text-xs text-[#8E8E93] text-center py-1">Run scan to check for errors.</p>
+        )}
+        {corrResults.length === 0 && corrJob === null && !corrScanning && corrScanned && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-green-50 border border-green-200">
+            <CheckCircle2 size={14} className="text-green-600 shrink-0" />
+            <p className="text-xs font-semibold text-green-700">All penalty lines are correct — no errors found</p>
+          </div>
+        )}
+
+        {/* Results list */}
+        {corrResults.length > 0 && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-[#C03D25]">{corrResults.length} reservation{corrResults.length !== 1 ? 's' : ''} with errors found</p>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setCorrSelected(corrResults.map(r => r.reservation_id))}
+                  className="text-[11px] font-semibold text-[#C03D25] active:opacity-60">Select All</button>
+                <span className="text-[#C7C7CC]">·</span>
+                <button type="button" onClick={() => setCorrSelected([])}
+                  className="text-[11px] font-semibold text-[#8E8E93] active:opacity-60">Clear</button>
+              </div>
+            </div>
+
+            <div className="space-y-1.5 max-h-48 overflow-y-auto">
+              {corrResults.map(r => (
+                <label key={r.reservation_id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-black/[0.06] bg-white cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={corrSelected.includes(r.reservation_id)}
+                    onChange={e => setCorrSelected(prev =>
+                      e.target.checked ? [...prev, r.reservation_id] : prev.filter(id => id !== r.reservation_id)
+                    )}
+                    className="accent-[#C03D25] shrink-0"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-bold text-[#1C1C1E] truncate">{r.reservation_id}</p>
+                    <p className="text-[10px] text-[#8E8E93] truncate">{r.client_name} · {r.inventory_code}</p>
+                  </div>
+                  <div className="text-right shrink-0 space-y-0.5">
+                    {r.negative_lines > 0 && (
+                      <p className="text-[11px] font-semibold text-[#C03D25]">{r.negative_lines} overcollected</p>
+                    )}
+                    {r.future_lines > 0 && (
+                      <p className="text-[11px] font-semibold text-orange-500">{r.future_lines} future-dated</p>
+                    )}
+                    {r.wrong_days > 0 && (
+                      <p className="text-[11px] font-semibold text-yellow-600">{r.wrong_days} wrong days</p>
+                    )}
+                    {r.excess > 0 && (
+                      <p className="text-[10px] text-[#8E8E93]">PHP {r.excess.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                    )}
+                  </div>
+                </label>
+              ))}
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={corrSelected.length === 0}
+                onClick={() => handleCorrFix(corrSelected)}
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#C03D25] text-white text-xs font-semibold active:opacity-70 disabled:opacity-40"
+              >
+                Fix Selected ({corrSelected.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => handleCorrFix(corrResults.map(r => r.reservation_id))}
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-[#C03D25] text-[#C03D25] text-xs font-semibold active:opacity-70"
+              >
+                Fix All ({corrResults.length})
+              </button>
+            </div>
+          </div>
+        )}
+      </GlassCard>
+
+      {/* ── Delinquency Automation ────────────────────────── */}
+      <GlassCard className="p-5">
+        <button
+          type="button"
+          onClick={() => setDelOpen(o => !o)}
+          className="w-full flex items-center gap-2.5 text-left"
+        >
+          <div className="w-9 h-9 rounded-xl bg-[rgba(192,61,37,0.10)] flex items-center justify-center shrink-0">
+            <Activity size={16} className="text-[#C03D25]" />
+          </div>
+          <div className="flex-1">
+            <p className="text-base font-bold text-[#1C1C1E]">Delinquency Automation</p>
+            <p className="text-[11px] text-[#8E8E93]">Auto-detect delinquent accounts and send staged notices to clients</p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <span onClick={e => { e.stopPropagation(); setDelPolicy(p => ({ ...p, automation_enabled: !p.automation_enabled })); }}>
+              {delPolicy.automation_enabled
+                ? <ToggleRight size={28} className="text-[#C03D25]" />
+                : <ToggleLeft  size={28} className="text-[#8E8E93]" />}
+            </span>
+            {delOpen ? <ChevronUp size={16} className="text-[#8E8E93]" /> : <ChevronDown size={16} className="text-[#8E8E93]" />}
+          </div>
+        </button>
+
+        {delOpen && <div className="mt-4 space-y-4">
+
+          {/* ── Schedule ─────────────────────────────────────── */}
+          <div className="space-y-3">
+            <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-widest">Schedule</p>
+
+            {/* Due days — read only */}
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider flex items-center gap-1">
+                <Calendar size={11} /> Due Days
+              </p>
+              <div className="flex gap-2 flex-wrap">
+                {delDueDays.length > 0
+                  ? delDueDays.map(d => (
+                      <span key={d} className="px-2.5 py-1.5 rounded-xl bg-[#F2F2F7] border border-[#E5E5EA] text-[11px] font-semibold text-[#1C1C1E]">
+                        {d}th
+                      </span>
+                    ))
+                  : <span className="text-[11px] text-[#C7C7CC]">No due dates configured</span>
+                }
+              </div>
+              <p className="text-[10px] text-[#8E8E93]">From Due Date Settings — edit there to change.</p>
+            </div>
+
+            {/* Grace days */}
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Days Grace After Due Date</p>
+              <input
+                type="number" min={1} max={30}
+                value={delPolicy.grace_days}
+                onChange={e => setDelPolicy(p => ({ ...p, grace_days: parseInt(e.target.value, 10) || 11 }))}
+                className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none"
+              />
+              <p className="text-[10px] text-[#8E8E93]">Days after due date before delinquency check runs.</p>
+            </div>
+
+            {/* Computed run days */}
+            {delDueDays.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider flex items-center gap-1">
+                  <Clock size={11} /> Computed Run Days
+                </p>
+                <div className="flex gap-2 flex-wrap">
+                  {delDueDays.map(d => {
+                    const runDay = computeRunDay(d, delPolicy.grace_days);
+                    return (
+                      <div key={d} className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#F2F2F7] border border-[#E5E5EA]">
+                        <span className="text-[11px] text-[#8E8E93]">Due {d}th</span>
+                        <ChevronRight size={10} className="text-[#C7C7CC]" />
+                        <span className="text-[11px] font-semibold text-[#1C1C1E]">Run {runDay}th</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-[#8E8E93]">Auto-computed. Short months use last valid day.</p>
+              </div>
+            )}
+
+            {/* Run hour */}
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider flex items-center gap-1">
+                <Clock size={11} /> Time of Sending (UTC)
+              </p>
+              <select
+                value={delPolicy.run_hour}
+                onChange={e => setDelPolicy(p => ({ ...p, run_hour: parseInt(e.target.value, 10) }))}
+                className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none"
+              >
+                {Array.from({ length: 24 }, (_, h) => {
+                  const ampm = h < 12 ? 'AM' : 'PM';
+                  const h12  = h === 0 ? 12 : h > 12 ? h - 12 : h;
+                  return <option key={h} value={h}>{h12}:00 {ampm} UTC</option>;
+                })}
+              </select>
+              <p className="text-[10px] text-[#8E8E93]">Cron fires hourly; only executes when UTC hour matches.</p>
+            </div>
+          </div>
+
+          {/* ── Notice Thresholds ─────────────────────────────── */}
+          <div className="space-y-3">
+            <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-widest">Notice Thresholds</p>
+
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                { label: '1st Notice (months)', key: 'notice_1_threshold_months' as const },
+                { label: '2nd Notice (months)', key: 'notice_2_threshold_months' as const },
+                { label: 'Final Notice (months)', key: 'final_notice_threshold_months' as const },
+              ] as const).map(({ label, key }) => (
+                <div key={key} className="space-y-1">
+                  <p className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wider">{label}</p>
+                  <input
+                    type="number" min={1} max={24}
+                    value={delPolicy[key]}
+                    onChange={e => setDelPolicy(p => ({ ...p, [key]: parseInt(e.target.value, 10) || 1 }))}
+                    className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none"
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider flex items-center gap-1">
+                <RefreshCw size={11} /> Recurring Delinquent Threshold (episodes)
+              </p>
+              <input
+                type="number" min={1} max={10}
+                value={delPolicy.recurring_threshold}
+                onChange={e => setDelPolicy(p => ({ ...p, recurring_threshold: parseInt(e.target.value, 10) || 2 }))}
+                className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none"
+              />
+              <p className="text-[10px] text-[#8E8E93]">Client is flagged as recurring after this many resolved episodes.</p>
+            </div>
+          </div>
+
+          {/* Save Policy button */}
+          <button
+            type="button"
+            onClick={saveDelPolicy}
+            disabled={savingDelPolicy}
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#C03D25] text-white text-xs font-semibold active:opacity-70 disabled:opacity-40"
+          >
+            {savingDelPolicy ? <Loader2 size={13} className="animate-spin" /> : delPolicySaved ? <CheckCircle2 size={13} /> : null}
+            {delPolicySaved ? 'Saved' : 'Save Policy'}
+          </button>
+
+          {/* ── Email Config per Notice Type ─────────────────── */}
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-widest">Notice Email Config</p>
+            <p className="text-[10px] text-[#8E8E93]">
+              Variables: <code className="bg-[#F2F2F7] px-1 rounded text-[10px]">{'{client_name}'}</code>{' '}
+              <code className="bg-[#F2F2F7] px-1 rounded text-[10px]">{'{reservation_id}'}</code>{' '}
+              <code className="bg-[#F2F2F7] px-1 rounded text-[10px]">{'{project}'}</code>{' '}
+              <code className="bg-[#F2F2F7] px-1 rounded text-[10px]">{'{unit}'}</code>{' '}
+              <code className="bg-[#F2F2F7] px-1 rounded text-[10px]">{'{months_behind}'}</code>{' '}
+              <code className="bg-[#F2F2F7] px-1 rounded text-[10px]">{'{outstanding_balance}'}</code>{' '}
+              <code className="bg-[#F2F2F7] px-1 rounded text-[10px]">{'{penalty_balance}'}</code>
+            </p>
+
+            {(['1st_notice', '2nd_notice', 'final_notice'] as const).map(nk => {
+              const labels: Record<typeof nk, string> = { '1st_notice': '1st Notice', '2nd_notice': '2nd Notice', 'final_notice': 'Final Notice' };
+              const open = emailCfgOpen === nk;
+              const cfg  = delEmailCfg[nk];
+              return (
+                <div key={nk} className="rounded-xl border border-[#E5E5EA] overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setEmailCfgOpen(open ? null : nk)}
+                    className="w-full flex items-center justify-between px-3 py-2.5 bg-[#F9F9F9] text-xs font-semibold text-[#1C1C1E]"
+                  >
+                    {labels[nk]}
+                    {open ? <ChevronUp size={13} className="text-[#8E8E93]" /> : <ChevronDown size={13} className="text-[#8E8E93]" />}
+                  </button>
+                  {open && (
+                    <div className="p-3 space-y-3 bg-white">
+                      {/* To */}
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wider">Send To</p>
+                        {[{ key: 'client', label: 'Client' }, { key: 'seller', label: 'Seller' }, { key: 'sales_director', label: 'Sales Director' }].map(role => (
+                          <label key={role.key} className="flex items-center gap-2 text-xs text-[#1C1C1E] cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={cfg.to.includes(role.key)}
+                              onChange={e => {
+                                const next = e.target.checked ? [...cfg.to, role.key] : cfg.to.filter(r => r !== role.key);
+                                setDelEmailCfg(c => ({ ...c, [nk]: { ...cfg, to: next } }));
+                              }}
+                              className="rounded"
+                            />
+                            {role.label}
+                          </label>
+                        ))}
+                      </div>
+                      {/* CC */}
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wider">CC</p>
+                        {[{ key: 'client', label: 'Client' }, { key: 'seller', label: 'Seller' }, { key: 'sales_director', label: 'Sales Director' }].map(role => (
+                          <label key={role.key} className="flex items-center gap-2 text-xs text-[#1C1C1E] cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={cfg.cc.includes(role.key)}
+                              onChange={e => {
+                                const next = e.target.checked ? [...cfg.cc, role.key] : cfg.cc.filter(r => r !== role.key);
+                                setDelEmailCfg(c => ({ ...c, [nk]: { ...cfg, cc: next } }));
+                              }}
+                              className="rounded"
+                            />
+                            {role.label}
+                          </label>
+                        ))}
+                      </div>
+                      {/* Subject */}
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wider">Subject</p>
+                        <input
+                          type="text"
+                          value={cfg.subject}
+                          onChange={e => setDelEmailCfg(c => ({ ...c, [nk]: { ...cfg, subject: e.target.value } }))}
+                          className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none"
+                        />
+                      </div>
+                      {/* Body */}
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wider">Body</p>
+                        <textarea
+                          rows={8}
+                          value={cfg.body}
+                          onChange={e => setDelEmailCfg(c => ({ ...c, [nk]: { ...cfg, body: e.target.value } }))}
+                          className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none resize-none"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            <button
+              type="button"
+              onClick={saveDelEmailCfg}
+              disabled={savingEmailCfg}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#C03D25] text-white text-xs font-semibold active:opacity-70 disabled:opacity-40"
+            >
+              {savingEmailCfg ? <Loader2 size={13} className="animate-spin" /> : emailCfgSaved ? <CheckCircle2 size={13} /> : <Mail size={13} />}
+              {emailCfgSaved ? 'Saved' : 'Save Email Config'}
+            </button>
+          </div>
+
+          {/* ── Run / Dry Run ─────────────────────────────────── */}
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-widest">Manual Run</p>
+
+            {lastRunAt && (
+              <div className="flex items-center gap-1.5 text-[11px] text-[#8E8E93]">
+                <Clock size={11} />
+                Last run: {new Date(lastRunAt).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}
+              </div>
+            )}
+
+            {delRunResult && (
+              <div className={`flex items-center gap-2 text-xs rounded-xl px-3 py-2 ${delRunResult.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-[#C03D25]'}`}>
+                {delRunResult.ok ? <CheckCircle2 size={13} /> : <AlertTriangle size={13} />}
+                {delRunResult.message}
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={runDelNow}
+                disabled={runningDel}
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#C03D25] text-white text-xs font-semibold active:opacity-70 disabled:opacity-40"
+              >
+                {runningDel ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+                {runningDel ? 'Running…' : 'Run Now'}
+              </button>
+              <button
+                type="button"
+                onClick={runDryRun}
+                disabled={runningDryRun}
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-[#C03D25] text-[#C03D25] text-xs font-semibold active:opacity-70 disabled:opacity-40"
+              >
+                {runningDryRun ? <Loader2 size={13} className="animate-spin" /> : <Eye size={13} />}
+                {runningDryRun ? 'Previewing…' : 'Dry Run'}
+              </button>
+            </div>
+
+            {/* Dry run preview */}
+            {dryRunResult !== null && (
+              <div className="space-y-1">
+                <p className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wider">
+                  Dry Run Preview ({dryRunResult.length} accounts)
+                </p>
+                {dryRunResult.length === 0
+                  ? <p className="text-[11px] text-[#8E8E93]">No actions would be taken.</p>
+                  : (
+                    <div className="rounded-xl border border-[#E5E5EA] overflow-hidden divide-y divide-[#E5E5EA]">
+                      {dryRunResult.map(item => (
+                        <div key={item.reservation_id} className="px-3 py-2 bg-white">
+                          <div className="flex items-center justify-between">
+                            <p className="text-[11px] font-semibold text-[#1C1C1E]">{item.reservation_id}</p>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              item.action === 'resolve'       ? 'bg-green-100 text-green-700' :
+                              item.action === 'no_change'     ? 'bg-[#F2F2F7] text-[#8E8E93]' :
+                              item.action === 'no_overdue'    ? 'bg-[#F2F2F7] text-[#8E8E93]' :
+                              'bg-[rgba(192,61,37,0.1)] text-[#C03D25]'
+                            }`}>
+                              {item.action.replace(/_/g, ' ')}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-[#8E8E93]">
+                            {item.client_name} · {item.inventory_code} · {item.months_behind}mo behind
+                            {item.notice_type && <> · Would send: <strong>{item.notice_type}</strong></>}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                }
+              </div>
+            )}
+          </div>
+
+          {/* ── Failed Notices ────────────────────────────────── */}
+          {failedNotices.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-widest">
+                  Failed Notices ({failedNotices.length})
+                </p>
+                <button
+                  type="button"
+                  onClick={() => resendFailed()}
+                  disabled={resendingFailed}
+                  className="flex items-center gap-1 text-[11px] font-semibold text-[#C03D25] disabled:opacity-40"
+                >
+                  {resendingFailed ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+                  Resend All
+                </button>
+              </div>
+              <div className="rounded-xl border border-[#E5E5EA] overflow-hidden divide-y divide-[#E5E5EA]">
+                {failedNotices.map((n: any) => (
+                  <div key={n.id} className="px-3 py-2 bg-white flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold text-[#1C1C1E]">{n.reservation_id}</p>
+                      <p className="text-[10px] text-[#8E8E93] truncate">{n.notice_type} · {n.email_error ?? 'Unknown error'}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => resendFailed([n.id])}
+                      disabled={resendingFailed}
+                      className="shrink-0 text-[11px] font-semibold text-[#C03D25] disabled:opacity-40"
+                    >
+                      Resend
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── Automation History ────────────────────────────── */}
+          <div className="space-y-1">
+            <button
+              type="button"
+              onClick={() => setHistoryOpen(h => !h)}
+              className="flex items-center gap-1 text-[10px] font-bold text-[#8E8E93] uppercase tracking-widest"
+            >
+              {historyOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+              Run History
+            </button>
+            {historyOpen && (
+              automationHistory.length === 0
+                ? <p className="text-[11px] text-[#8E8E93]">No runs yet.</p>
+                : (
+                  <div className="rounded-xl border border-[#E5E5EA] overflow-hidden divide-y divide-[#E5E5EA]">
+                    {automationHistory.map(run => (
+                      <div key={run.id} className="px-3 py-2 bg-white">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[11px] font-semibold text-[#1C1C1E]">
+                            {new Date(run.run_at).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}
+                          </p>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            run.status === 'completed' ? 'bg-green-100 text-green-700' :
+                            run.status === 'failed'    ? 'bg-red-100 text-[#C03D25]' :
+                            'bg-[#F2F2F7] text-[#8E8E93]'
+                          }`}>
+                            {run.status}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-[#8E8E93]">
+                          {run.triggered_by} ·{' '}
+                          {run.accounts_processed} processed ·{' '}
+                          {run.notices_created} notices ·{' '}
+                          {run.emails_sent} sent
+                          {run.error_count > 0 && <> · <span className="text-[#C03D25]">{run.error_count} errors</span></>}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )
+            )}
+          </div>
+
+        </div>}
       </GlassCard>
 
       {/* ── Email Test ────────────────────────────────────── */}

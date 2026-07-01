@@ -15,6 +15,7 @@ import {
   fetchCollectionApplicationsByIds,
   CollectionRecord,
   CollectionApplication,
+  COLLECTION_TYPES,
 } from '@/lib/collections';
 import {
   fetchReceivableSummaries,
@@ -42,6 +43,7 @@ interface ImportRow {
   transaction_date:           string;
   check_no:                   string;
   check_date:                 string;
+  type_of_collection:         string;
   _row:                       number;
 }
 
@@ -122,6 +124,7 @@ function exportBatch(summaries: ReservationReceivableSummary[]) {
     transaction_date:           '',
     check_no:                   '',
     check_date:                 '',
+    type_of_collection:         '',
   }));
 
   const ws = XLSX.utils.json_to_sheet(rows);
@@ -138,6 +141,7 @@ function exportBatch(summaries: ReservationReceivableSummary[]) {
     { wch: 16 }, // transaction_date
     { wch: 14 }, // check_no
     { wch: 12 }, // check_date
+    { wch: 24 }, // type_of_collection
   ];
 
   const instructions = [
@@ -152,9 +156,13 @@ function exportBatch(summaries: ReservationReceivableSummary[]) {
     ['transaction_date',           'Actual date of payment by the buyer (MM/DD/YYYY)'],
     ['check_no',                   'Required when mode_of_payment = Check'],
     ['check_date',                 'Required when mode_of_payment = Check (MM/DD/YYYY)'],
+    ['type_of_collection',         'Leave blank for standard receivable posting. See allowed values below.'],
     [''],
     ['ALLOWED VALUES — mode_of_payment:'],
     ...MODES_OF_PAYMENT.map((m, i) => [`  ${i + 1}. ${m}`]),
+    [''],
+    ['ALLOWED VALUES — type_of_collection (leave blank for standard):'],
+    ...COLLECTION_TYPES.map((t, i) => [`  ${i + 1}. ${t}`]),
     [''],
     ['NOTE: Rows where amount_received or mode_of_payment is blank will be skipped on import.'],
   ];
@@ -214,6 +222,7 @@ function parseImportFile(file: File): Promise<ImportRow[]> {
           transaction_date:           normalizeDate(r['transaction_date']),
           check_no:                   String(r['check_no']                   ?? '').trim(),
           check_date:                 normalizeDate(r['check_date']),
+          type_of_collection:         String(r['type_of_collection']         ?? '').trim(),
           _row:                       i + 2,
         }));
         resolve(rows);
@@ -304,6 +313,12 @@ async function validateImportRows(
     }
     if (isCheck && !row.check_date) {
       problems.push({ row, reason: 'Check Date is required when mode of payment is "Check".' });
+      continue;
+    }
+
+    // 1g. type_of_collection — must be blank or one of the allowed values
+    if (row.type_of_collection && !(COLLECTION_TYPES as readonly string[]).includes(row.type_of_collection)) {
+      problems.push({ row, reason: `"${row.type_of_collection}" is not an allowed type of collection. Allowed values: ${COLLECTION_TYPES.join(', ')} (or leave blank).` });
       continue;
     }
 
@@ -614,16 +629,19 @@ function PostCollectionSheet({
       0,
     );
 
-  const [amountStr, setAmountStr] = useState('');
-  const [mop,       setMop]       = useState('');
-  const [orNo,      setOrNo]      = useState('');
-  const [siNo,      setSiNo]      = useState('');
-  const [postDate,       setPostDate]       = useState(localToday());
+  const [amountStr,       setAmountStr]       = useState('');
+  const [mop,             setMop]             = useState('');
+  const [orNo,            setOrNo]            = useState('');
+  const [siNo,            setSiNo]            = useState('');
+  const [postDate,        setPostDate]        = useState(localToday());
   const [transactionDate, setTransactionDate] = useState('');
-  const [checkNo,        setCheckNo]        = useState('');
-  const [checkDate,      setCheckDate]      = useState('');
-  const [posting,   setPosting]   = useState(false);
-  const [error,     setError]     = useState('');
+  const [checkNo,         setCheckNo]         = useState('');
+  const [checkDate,       setCheckDate]       = useState('');
+  const [typeOfColl,      setTypeOfColl]      = useState('');
+  const [posting,         setPosting]         = useState(false);
+  const [error,           setError]           = useState('');
+
+  const isStandard = typeOfColl === '';
 
   const amount    = parseFloat(amountStr) || 0;
   const isCheck   = mop === 'Check';
@@ -673,6 +691,7 @@ function PostCollectionSheet({
         transaction_date:           transactionDate   || undefined,
         check_no:                   isCheck ? checkNo.trim() : undefined,
         check_date:                 isCheck ? checkDate      : undefined,
+        type_of_collection:         typeOfColl || null,
       });
       onPosted();
     } catch (e: unknown) {
@@ -702,13 +721,44 @@ function PostCollectionSheet({
           <div className="flex items-start justify-between pt-1">
             <div>
               <p className="text-[#1C1C1E] font-bold text-base">Post Collection</p>
-              <p className="text-[#8E8E93] text-sm mt-0.5">
-                Outstanding: {fmtPeso(totalOutstanding)}
-              </p>
+              {isStandard && (
+                <p className="text-[#8E8E93] text-sm mt-0.5">
+                  Outstanding: {fmtPeso(totalOutstanding)}
+                </p>
+              )}
             </div>
             <button onClick={onClose} className="p-2 rounded-2xl bg-[#F2F2F7] shrink-0">
               <X size={18} className="text-[#1C1C1E]" />
             </button>
+          </div>
+
+          {/* Type of Collection */}
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-widest">Type of Collection</p>
+            <div className="grid grid-cols-2 gap-2">
+              {(['', ...COLLECTION_TYPES] as string[]).map(t => (
+                <button
+                  key={t || 'standard'}
+                  onClick={() => setTypeOfColl(t)}
+                  className="py-2.5 rounded-2xl text-xs font-semibold border-2 active:scale-[0.97]"
+                  style={{
+                    ...(typeOfColl === t
+                      ? { background: '#C03D25', color: '#fff', borderColor: '#C03D25' }
+                      : { background: '#F2F2F7', color: '#1C1C1E', borderColor: 'transparent' }),
+                    transition: 'background-color 150ms ease, color 150ms ease, border-color 150ms ease, transform 100ms ease-out',
+                  }}
+                >
+                  {t || 'Standard'}
+                </button>
+              ))}
+            </div>
+            {!isStandard && (
+              <p className="text-[11px] text-[#8E8E93] leading-snug px-1">
+                {typeOfColl === 'Penalties'
+                  ? 'Applied to outstanding penalty lines oldest-first. Not posted to payment schedule.'
+                  : 'Recorded for tracking only. Not applied to the payment schedule.'}
+              </p>
+            )}
           </div>
 
           {/* Amount received */}
@@ -724,14 +774,14 @@ function PostCollectionSheet({
                 min="0"
                 value={amountStr}
                 onChange={e => setAmountStr(e.target.value)}
-                placeholder={totalOutstanding.toFixed(2)}
+                placeholder={isStandard ? totalOutstanding.toFixed(2) : '0.00'}
                 className="w-full pl-12 pr-3 py-2.5 rounded-xl border border-black/[0.10] bg-white text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/40 focus:ring-1 focus:ring-[#C03D25]/20 transition-colors placeholder:text-[#C7C7CC]"
               />
             </div>
           </div>
 
-          {/* Allocation preview */}
-          {allocationPreview.length > 0 && (
+          {/* Allocation preview — standard only */}
+          {isStandard && allocationPreview.length > 0 && (
             <div className="rounded-2xl p-3 space-y-2.5" style={{ background: '#FDF5F3' }}>
               <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: '#C03D25' }}>
                 Allocation Preview
@@ -979,17 +1029,13 @@ function LinesOverlay({
           <p className="text-[#1C1C1E] font-bold text-sm truncate">{summary.client_name}</p>
           <p className="text-[#8E8E93] text-xs">{summary.inventory_code} · {schemeLabel(summary.payment_scheme)}</p>
         </div>
-        {unpaidLines.length > 0 ? (
-          <button
-            onClick={() => setShowPost(true)}
-            className="px-3.5 py-2 rounded-2xl text-xs font-bold active:scale-[0.94]"
-            style={{ background: '#C03D25', color: '#fff', transition: 'transform 100ms ease-out' }}
-          >
-            Post
-          </button>
-        ) : (
-          <div className="w-[60px]" />
-        )}
+        <button
+          onClick={() => setShowPost(true)}
+          className="px-3.5 py-2 rounded-2xl text-xs font-bold active:scale-[0.94]"
+          style={{ background: '#C03D25', color: '#fff', transition: 'transform 100ms ease-out' }}
+        >
+          Post
+        </button>
       </div>
 
       {/* Hero card */}
@@ -1587,6 +1633,7 @@ export default function CollectionPostingPage() {
           transaction_date:           row.transaction_date           || undefined,
           check_no:                   isCheck ? row.check_no   : undefined,
           check_date:                 isCheck ? row.check_date : undefined,
+          type_of_collection:         row.type_of_collection || null,
         });
         posted++;
       } catch {

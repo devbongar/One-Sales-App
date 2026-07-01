@@ -2,7 +2,11 @@
 
 import Image from 'next/image';
 
-export default function SavingOverlay({ visible }: { visible: boolean }) {
+export default function SavingOverlay({ visible, label, progress }: {
+  visible: boolean;
+  label?: string;
+  progress?: number; // 0-1: if provided shows a real progress bar instead of the animated loop
+}) {
   if (!visible) return null;
 
   return (
@@ -208,7 +212,7 @@ export default function SavingOverlay({ visible }: { visible: boolean }) {
           {/* Status text */}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: 'rgba(30,30,45,0.75)', letterSpacing: '0.01em' }}>
-              Saving<span className="osa-ell"><span>.</span><span>.</span><span>.</span></span>
+              {label ?? 'Saving'}<span className="osa-ell"><span>.</span><span>.</span><span>.</span></span>
             </div>
             <div style={{ fontSize: 11, fontWeight: 500, color: 'rgba(30,30,45,0.35)', letterSpacing: '0.04em' }}>
               Please do not close this window
@@ -218,7 +222,16 @@ export default function SavingOverlay({ visible }: { visible: boolean }) {
           {/* Progress */}
           <div style={{ width: 'clamp(180px, 32vw, 280px)', display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
             <div style={{ width: '100%', height: 3, background: 'rgba(0,0,0,0.08)', borderRadius: 3, overflow: 'hidden' }}>
-              <div className="osa-bar" />
+              {progress !== undefined
+                ? <div style={{
+                    height: '100%', borderRadius: 3,
+                    background: 'linear-gradient(90deg, #C03D25, #E06045)',
+                    boxShadow: '0 0 8px rgba(192,61,37,0.3)',
+                    width: `${Math.round(Math.min(1, Math.max(0, progress)) * 100)}%`,
+                    transition: 'width 0.4s ease',
+                  }} />
+                : <div className="osa-bar" />
+              }
             </div>
             <div style={{ display: 'flex', gap: 5 }}>
               {[0, 1, 2].map(i => (

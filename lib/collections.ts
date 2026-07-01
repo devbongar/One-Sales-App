@@ -1,6 +1,9 @@
 import { supabase } from '@/lib/supabase';
 import { generateCommissionSchedule } from '@/lib/commission';
 
+export const COLLECTION_TYPES = ['Admin Fee', "Developer's Incentive", 'Penalties'] as const;
+export type CollectionType = typeof COLLECTION_TYPES[number];
+
 export interface CollectionRecord {
   id:                         string;
   reservation_id:             string;
@@ -12,6 +15,7 @@ export interface CollectionRecord {
   transaction_date:           string | null;
   check_no:                   string | null;
   check_date:                 string | null;
+  type_of_collection:         string | null;
   created_at:                 string;
   created_by:                 string | null;
 }
@@ -34,20 +38,154 @@ export interface PostCollectionPayload {
   check_no?:                   string;
   check_date?:                 string;
   created_by?:                 string;
+  type_of_collection?:         string | null;
 }
 
 /**
- * Records a collection event and auto-allocates oldest-first across unpaid/partial lines.
- * Finance never decides allocation — the system does.
- * Also stamps finance_status on reservations when RF or 1st DP lines become fully Paid,
- * so the buyers payment page reflects the correct verification state.
+ * Records a collection and routes it based on type_of_collection:
+ *   null                   → allocate oldest-first to receivable lines (existing behaviour)
+ *   'Admin Fee'            → record only, no allocation
+ *   "Developer's Incentive"→ record only, no allocation
+ *   'Penalties'            → allocate oldest-first to penalty_lines for this reservation
  */
 export async function postCollection(
   reservationId: string,
   payload: PostCollectionPayload,
 ): Promise<void> {
-  // 0. Identify RF and 1st DP line IDs (lines 1 and 2 by due_date, non-superseded)
-  //    and fetch reservation's first_payment_agreed + current finance_status in parallel
+  const type = payload.type_of_collection ?? null;
+
+  // ── Insert collection record (all types) ─────────────────────────────────────
+  const { data: collection, error: collErr } = await supabase
+    .from('collections')
+    .insert({
+      reservation_id:             reservationId,
+      amount_received:            payload.amount_received,
+      mode_of_payment:            payload.mode_of_payment,
+      acknowledgement_receipt_no: payload.acknowledgement_receipt_no ?? null,
+      sales_invoice_number:       payload.sales_invoice_number       ?? null,
+      posting_date:               payload.posting_date,
+      transaction_date:           payload.transaction_date           ?? null,
+      check_no:                   payload.check_no   ?? null,
+      check_date:                 payload.check_date ?? null,
+      created_by:                 payload.created_by ?? null,
+      type_of_collection:         type,
+    })
+    .select('id')
+    .single();
+  if (collErr) throw collErr;
+
+  // ── Admin Fee / Developer's Incentive: record only, done ─────────────────────
+  if (type === 'Admin Fee' || type === "Developer's Incentive") return;
+
+  // ── Penalties: apply to penalty_lines oldest-first, with credit carry-forward ─
+  if (type === 'Penalties') {
+    // 1. Fetch open credits (balance > 0) oldest-first
+    const { data: openCredits, error: credErr } = await supabase
+      .from('penalty_credits')
+      .select('id, ar_no, amount, consumed_amount')
+      .eq('reservation_id', reservationId)
+      .gt('balance', 0)
+      .order('created_at', { ascending: true });
+    if (credErr) throw credErr;
+
+    const credits = (openCredits ?? []) as { id: number; ar_no: string | null; amount: number; consumed_amount: number }[];
+    const creditTotal = credits.reduce((s, c) => s + (Number(c.amount) - Number(c.consumed_amount)), 0);
+
+    // 2. Fetch penalty lines (Unpaid/Partial) oldest-first
+    const { data: penaltyLines, error: plErr } = await supabase
+      .from('penalty_lines')
+      .select('id, penalty_amount, collection, payment_status')
+      .eq('reservation_id', reservationId)
+      .in('payment_status', ['Unpaid', 'Partial'])
+      .order('original_due_date', { ascending: true });
+    if (plErr) throw plErr;
+
+    // 3. Allocate: open credits first, then new payment
+    let remaining = Number(payload.amount_received) + creditTotal;
+    const penaltyApps:    { collection_id: string; penalty_line_id: number; amount_applied: number }[] = [];
+    const penaltyUpdates: { id: number; collection: number; payment_status: string }[] = [];
+
+    for (const line of (penaltyLines ?? []) as any[]) {
+      if (remaining <= 0) break;
+      const currentCollection = Number(line.collection ?? 0);
+      const lineBalance = Math.max(0, Number(line.penalty_amount) - currentCollection);
+      if (lineBalance <= 0) continue;
+
+      const applied       = Math.min(remaining, lineBalance);
+      const newCollection = currentCollection + applied;
+      const newStatus     = newCollection >= Number(line.penalty_amount) - 0.005 ? 'Paid' : 'Partial';
+
+      penaltyApps.push({ collection_id: collection.id, penalty_line_id: line.id, amount_applied: applied });
+      penaltyUpdates.push({ id: line.id, collection: newCollection, payment_status: newStatus });
+      remaining -= applied;
+    }
+
+    // 4. Insert penalty_collection_applications
+    if (penaltyApps.length > 0) {
+      const { error: appErr } = await supabase.from('penalty_collection_applications').insert(penaltyApps);
+      if (appErr) throw appErr;
+    }
+
+    // 5. Update penalty lines
+    for (const upd of penaltyUpdates) {
+      const { error } = await supabase
+        .from('penalty_lines')
+        .update({
+          collection:     upd.collection,
+          payment_status: upd.payment_status,
+          ar_no:          payload.acknowledgement_receipt_no ?? null,
+          ar_date:        payload.posting_date,
+        })
+        .eq('id', upd.id);
+      if (error) throw error;
+    }
+
+    // 6. Consume existing credits (oldest-first)
+    const totalAllocated  = Number(payload.amount_received) + creditTotal - remaining;
+    let   creditToConsume = Math.min(creditTotal, totalAllocated);
+    const now             = new Date().toISOString();
+
+    for (const credit of credits) {
+      if (creditToConsume <= 0.005) break;
+      const available        = Number(credit.amount) - Number(credit.consumed_amount);
+      const used             = Math.min(creditToConsume, available);
+      const newConsumed      = Number(credit.consumed_amount) + used;
+      const isFullyConsumed  = newConsumed >= Number(credit.amount) - 0.005;
+
+      const { error } = await supabase
+        .from('penalty_credits')
+        .update({
+          consumed_amount:         newConsumed,
+          consuming_collection_id: isFullyConsumed ? collection.id : null,
+          consumed_at:             isFullyConsumed ? now : null,
+        })
+        .eq('id', credit.id);
+      if (error) throw error;
+      creditToConsume -= used;
+    }
+
+    // 7. If new payment has unallocated portion, create a credit record
+    const newPaymentConsumed = Math.max(0, totalAllocated - creditTotal);
+    const newPaymentExcess   = Number(payload.amount_received) - newPaymentConsumed;
+
+    if (newPaymentExcess > 0.005) {
+      const { error: creditErr } = await supabase
+        .from('penalty_credits')
+        .insert({
+          reservation_id:       reservationId,
+          source_collection_id: collection.id,
+          ar_no:                payload.acknowledgement_receipt_no ?? null,
+          amount:               Math.round(newPaymentExcess * 100) / 100,
+        });
+      if (creditErr) throw creditErr;
+    }
+
+    return;
+  }
+
+  // ── null (Standard): allocate to receivable lines oldest-first ───────────────
+
+  // Identify RF and 1st DP line IDs + reservation meta in parallel
   const [{ data: topLines }, { data: resRow }] = await Promise.all([
     supabase
       .from('receivables_database')
@@ -70,7 +208,6 @@ export async function postCollection(
   const firstPaymentAgreed = !!((resRow as any)?.first_payment_agreed);
   const currentFinStatus   = ((resRow as any)?.finance_status as string | null) ?? null;
 
-  // 1. Fetch unpaid / partial lines ordered oldest-first
   const { data: lines, error: linesErr } = await supabase
     .from('receivables_database')
     .select('id, total_amount_due, amount_paid, payment_status')
@@ -80,26 +217,6 @@ export async function postCollection(
   if (linesErr) throw linesErr;
   if (!lines || lines.length === 0) throw new Error('No unpaid lines for this reservation.');
 
-  // 2. Insert collection record
-  const { data: collection, error: collErr } = await supabase
-    .from('collections')
-    .insert({
-      reservation_id:             reservationId,
-      amount_received:            payload.amount_received,
-      mode_of_payment:            payload.mode_of_payment,
-      acknowledgement_receipt_no: payload.acknowledgement_receipt_no ?? null,
-      sales_invoice_number:       payload.sales_invoice_number       ?? null,
-      posting_date:               payload.posting_date,
-      transaction_date:           payload.transaction_date           ?? null,
-      check_no:                   payload.check_no   ?? null,
-      check_date:                 payload.check_date ?? null,
-      created_by:                 payload.created_by ?? null,
-    })
-    .select('id')
-    .single();
-  if (collErr) throw collErr;
-
-  // 3. Allocate oldest-first
   let remaining = payload.amount_received;
   const applications: { collection_id: string; receivable_line_id: string; applied_amount: number }[] = [];
   const lineUpdates:  { id: string; amount_paid: number; payment_status: string }[] = [];
@@ -119,13 +236,11 @@ export async function postCollection(
     remaining -= applied;
   }
 
-  // 4. Insert applications
   if (applications.length > 0) {
     const { error: appErr } = await supabase.from('collection_applications').insert(applications);
     if (appErr) throw appErr;
   }
 
-  // 5. Update lines sequentially (Supabase REST doesn't support bulk update by row)
   for (const upd of lineUpdates) {
     const { error } = await supabase
       .from('receivables_database')
@@ -144,14 +259,14 @@ export async function postCollection(
     if (error) throw error;
   }
 
-  // 6. Stamp finance_status on reservations when RF or 1st DP become fully Paid
-  const justPaidIds  = new Set(lineUpdates.filter(u => u.payment_status === 'Paid').map(u => u.id));
-  const rfJustPaid   = !rfAlreadyPaid && !!rfLineId && justPaidIds.has(rfLineId);
-  const dpJustPaid   = !dpAlreadyPaid && !!dpLineId && justPaidIds.has(dpLineId);
-  const rfNowPaid    = rfAlreadyPaid || rfJustPaid;
-  const dpNowPaid    = dpAlreadyPaid || dpJustPaid;
+  // Stamp finance_status when RF or 1st DP become fully Paid
+  const justPaidIds = new Set(lineUpdates.filter(u => u.payment_status === 'Paid').map(u => u.id));
+  const rfJustPaid  = !rfAlreadyPaid && !!rfLineId && justPaidIds.has(rfLineId);
+  const dpJustPaid  = !dpAlreadyPaid && !!dpLineId && justPaidIds.has(dpLineId);
+  const rfNowPaid   = rfAlreadyPaid || rfJustPaid;
+  const dpNowPaid   = dpAlreadyPaid || dpJustPaid;
 
-  if (!rfJustPaid && !dpJustPaid) return; // nothing relevant changed
+  if (!rfJustPaid && !dpJustPaid) return;
 
   const now         = new Date().toISOString();
   const paymentDate = payload.transaction_date || payload.posting_date;
@@ -159,7 +274,6 @@ export async function postCollection(
   const siNo        = payload.sales_invoice_number       ?? null;
 
   if (firstPaymentAgreed) {
-    // Combined mode: only stamp dp-verified when BOTH lines are fully paid
     if (rfNowPaid && dpNowPaid && currentFinStatus !== 'dp-verified') {
       await supabase.from('reservations').update({
         finance_status:                'dp-verified',
@@ -172,13 +286,11 @@ export async function postCollection(
         dp_acknowledgement_receipt_no: orNo,
         dp_sales_invoice_no:           siNo,
       }).eq('reservation_id', reservationId);
-      // Generate commission schedule — same trigger as buyers payment RF verification
       generateCommissionSchedule(reservationId).catch(e =>
         console.error('[commission] collection-posting combined stamp failed:', e)
       );
     }
   } else {
-    // Normal mode: stamp rf-verified when RF paid, dp-verified when 1st DP paid
     if (rfJustPaid && !['rf-verified', 'dp-verified'].includes(currentFinStatus ?? '')) {
       await supabase.from('reservations').update({
         finance_status:             'rf-verified',
@@ -187,7 +299,6 @@ export async function postCollection(
         acknowledgement_receipt_no: orNo,
         sales_invoice_no:           siNo,
       }).eq('reservation_id', reservationId);
-      // Generate commission schedule — same trigger as buyers payment RF verification
       generateCommissionSchedule(reservationId).catch(e =>
         console.error('[commission] collection-posting rf stamp failed:', e)
       );
@@ -205,25 +316,21 @@ export async function postCollection(
 }
 
 /**
- * After a BRF schedule replacement, re-allocates all existing collections oldest-first
- * against the current active (non-superseded) lines.
- *
- * Old collection_applications are left intact — they point to superseded lines and serve
- * as the pre-BRF audit trail. New applications are inserted for the new active lines.
- * Collection records themselves (dates, amounts) are never modified.
+ * After a BRF schedule replacement, re-allocates all standard collections (type_of_collection IS NULL)
+ * oldest-first against the current active (non-superseded) lines.
+ * Admin Fee, Developer's Incentive, and Penalties collections are skipped — they have nothing to replay.
  */
 export async function reapplyCollections(reservationId: string): Promise<void> {
-  // 1. Fetch all collections chronologically — oldest posting date first
   const { data: collections, error: colErr } = await supabase
     .from('collections')
     .select('id, amount_received, mode_of_payment, acknowledgement_receipt_no, sales_invoice_number, posting_date, transaction_date, check_no, check_date')
     .eq('reservation_id', reservationId)
+    .is('type_of_collection', null)
     .order('posting_date', { ascending: true })
     .order('created_at',   { ascending: true });
   if (colErr) throw colErr;
   if (!collections || collections.length === 0) return;
 
-  // 2. Reset all active (non-superseded) lines to Unpaid / amount_paid = 0, clear payment stamps
   const { error: resetErr } = await supabase
     .from('receivables_database')
     .update({
@@ -241,7 +348,6 @@ export async function reapplyCollections(reservationId: string): Promise<void> {
     .neq('payment_status', 'Superseded');
   if (resetErr) throw resetErr;
 
-  // 3. Replay each collection oldest-first against the current active lines
   for (const col of collections as {
     id: string; amount_received: number;
     mode_of_payment: string; acknowledgement_receipt_no: string | null;
@@ -298,6 +404,137 @@ export async function reapplyCollections(reservationId: string): Promise<void> {
         })
         .eq('id', upd.id);
       if (error) throw error;
+    }
+  }
+}
+
+/**
+ * Clears all penalty collection state for a reservation without replaying.
+ * Sets collection=0 / Unpaid on all penalty_lines, deletes
+ * penalty_collection_applications and penalty_credits.
+ * Call this BEFORE regenerating penalty_lines so the RPC guard sees
+ * collection=0 and computes the correct penalty_amount.
+ */
+export async function resetPenaltyCollections(reservationId: string): Promise<void> {
+  const { data: lineIdRows, error: idErr } = await supabase
+    .from('penalty_lines')
+    .select('id')
+    .eq('reservation_id', reservationId);
+  if (idErr) throw idErr;
+
+  const { error: resetErr } = await supabase
+    .from('penalty_lines')
+    .update({ collection: 0, payment_status: 'Unpaid', ar_no: null, ar_date: null })
+    .eq('reservation_id', reservationId);
+  if (resetErr) throw resetErr;
+
+  const ids = (lineIdRows ?? []).map((l: any) => l.id as number);
+  if (ids.length > 0) {
+    const { error: delAppErr } = await supabase
+      .from('penalty_collection_applications')
+      .delete()
+      .in('penalty_line_id', ids);
+    if (delAppErr) throw delAppErr;
+  }
+
+  const { error: delCreditErr } = await supabase
+    .from('penalty_credits')
+    .delete()
+    .eq('reservation_id', reservationId);
+  if (delCreditErr) throw delCreditErr;
+}
+
+/**
+ * Resets all penalty_lines for a reservation to zero and replays every
+ * 'Penalties' collection oldest-first.  Any excess becomes a penalty_credit.
+ * Call this after regenerating penalty lines so that updated penalty_amounts
+ * are correctly reflected in collection/payment_status.
+ */
+export async function reapplyPenaltyCollections(reservationId: string): Promise<void> {
+  await resetPenaltyCollections(reservationId);
+
+  // Fetch all Penalties collections oldest-first
+  const { data: collections, error: colErr } = await supabase
+    .from('collections')
+    .select('id, amount_received, acknowledgement_receipt_no, posting_date')
+    .eq('reservation_id', reservationId)
+    .eq('type_of_collection', 'Penalties')
+    .order('posting_date', { ascending: true })
+    .order('created_at',   { ascending: true });
+  if (colErr) throw colErr;
+  if (!collections || collections.length === 0) return;
+
+  // 6. Replay each collection
+  for (const col of collections as { id: string; amount_received: number; acknowledgement_receipt_no: string | null; posting_date: string }[]) {
+    const { data: penaltyLines, error: plErr } = await supabase
+      .from('penalty_lines')
+      .select('id, penalty_amount, collection, payment_status')
+      .eq('reservation_id', reservationId)
+      .in('payment_status', ['Unpaid', 'Partial'])
+      .order('original_due_date', { ascending: true });
+    if (plErr) throw plErr;
+
+    let remaining = Number(col.amount_received);
+
+    if (!penaltyLines || penaltyLines.length === 0) {
+      // All lines already paid — entire amount is excess credit
+      if (remaining > 0.005) {
+        const { error: creditErr } = await supabase.from('penalty_credits').insert({
+          reservation_id:       reservationId,
+          source_collection_id: col.id,
+          ar_no:                col.acknowledgement_receipt_no ?? null,
+          amount:               Math.round(remaining * 100) / 100,
+        });
+        if (creditErr) throw creditErr;
+      }
+      continue;
+    }
+
+    const apps:    { collection_id: string; penalty_line_id: number; amount_applied: number }[] = [];
+    const updates: { id: number; collection: number; payment_status: string }[] = [];
+
+    for (const line of penaltyLines as any[]) {
+      if (remaining <= 0) break;
+      const currentCollection = Number(line.collection ?? 0);
+      const lineBalance = Math.max(0, Number(line.penalty_amount) - currentCollection);
+      if (lineBalance <= 0) continue;
+
+      const applied       = Math.min(remaining, lineBalance);
+      const newCollection = currentCollection + applied;
+      const newStatus     = newCollection >= Number(line.penalty_amount) - 0.005 ? 'Paid' : 'Partial';
+
+      apps.push({ collection_id: col.id, penalty_line_id: line.id, amount_applied: applied });
+      updates.push({ id: line.id, collection: newCollection, payment_status: newStatus });
+      remaining -= applied;
+    }
+
+    if (apps.length > 0) {
+      const { error: appErr } = await supabase.from('penalty_collection_applications').insert(apps);
+      if (appErr) throw appErr;
+    }
+
+    for (const upd of updates) {
+      const { error } = await supabase
+        .from('penalty_lines')
+        .update({
+          collection:     upd.collection,
+          payment_status: upd.payment_status,
+          ar_no:          col.acknowledgement_receipt_no ?? null,
+          ar_date:        col.posting_date,
+        })
+        .eq('id', upd.id);
+      if (error) throw error;
+    }
+
+    // Excess → create credit
+    if (remaining > 0.005) {
+      const { error: creditErr } = await supabase.from('penalty_credits').insert({
+        reservation_id:       reservationId,
+        source_collection_id: col.id,
+        ar_no:                col.acknowledgement_receipt_no ?? null,
+        amount:               Math.round(remaining * 100) / 100,
+      });
+      if (creditErr) throw creditErr;
     }
   }
 }

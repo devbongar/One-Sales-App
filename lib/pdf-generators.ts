@@ -1916,7 +1916,7 @@ export async function buildPDFBase64(
 
 // ── Delinquency 1st Notice ────────────────────────────────────────────────────
 
-export async function generateDelinquency1stNotice(reservationId: string | null, asOfDate?: string): Promise<void> {
+export async function generateDelinquency1stNotice(reservationId: string | null): Promise<void> {
   if (!reservationId) return;
   const win = window.open('', '_blank');
 
@@ -1961,13 +1961,16 @@ export async function generateDelinquency1stNotice(reservationId: string | null,
     }
   }
 
-  const today    = asOfDate ? new Date(asOfDate + 'T00:00:00') : new Date();
+  const maxGenAt = penalties.length > 0
+    ? penalties.reduce((m, p) => (p.generated_at > m ? p.generated_at : m), penalties[0].generated_at as string)
+    : null;
+  const today    = maxGenAt ? new Date(maxGenAt) : new Date();
   const todayStr = today.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
   const deadline = new Date(today); deadline.setDate(deadline.getDate() + 15);
   const deadlineStr = deadline.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
 
   const totalPenalty   = penalties.reduce((s: number, p: any) => s + (p.penalty_amount ?? 0), 0);
-  const totalPrincipal = penalties.reduce((s: number, p: any) => s + (p.principal_basis ?? 0), 0);
+  const totalPrincipal = penalties.reduce((s: number, p: any) => s + (p.balance_receivables ?? 0), 0);
   const grandTotal     = totalPrincipal + totalPenalty;
 
   const fmtN = (n: number) => 'PHP ' + n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -2059,30 +2062,48 @@ export async function generateDelinquency1stNotice(reservationId: string | null,
   doc.text('PENALTIES', pageW / 2, y + 4.5, { align: 'center' });
   y += 7;
 
-  // Column definitions
-  const cols = [
-    { label: 'Original Due Date', x: L,       w: 28 },
-    { label: 'Days Overdue',      x: L + 28,  w: 22 },
-    { label: 'Daily Rate*',       x: L + 50,  w: 18 },
-    { label: 'Principal Basis',   x: L + 68,  w: 28 },
-    { label: 'Penalty Amount',    x: L + 96,  w: 28 },
-    { label: 'Status',            x: L + 124, w: 22 },
-    { label: 'AR No.',            x: L + 146, w: 22 },
-    { label: 'AR Date',           x: L + 168, w: W - 154 },
+  // Column definitions — total width must equal W (182mm for A4 portrait with L=14, R=196)
+  // 22+14+12+22+22+18+16+16+20+20 = 182
+  const colDefs = [
+    { label: 'Original Due Date', w: 22 },
+    { label: 'Days Overdue',      w: 14 },
+    { label: 'Daily Rate*',       w: 12 },
+    { label: 'Principal Basis',   w: 22 },
+    { label: 'Penalty Amount',    w: 22 },
+    { label: 'Collection',        w: 18 },
+    { label: 'Status',            w: 16 },
+    { label: 'Remarks',           w: 16 },
+    { label: 'AR No.',            w: 20 },
+    { label: 'AR Date',           w: 20 },
   ];
+  const cols = colDefs.reduce<{ label: string; x: number; w: number }[]>((acc, col) => {
+    const x = acc.length === 0 ? L : acc[acc.length - 1].x + acc[acc.length - 1].w;
+    return [...acc, { ...col, x }];
+  }, []);
 
-  // Sub-header
-  const subHdrImg = makeColorDataURL(90, 90, 95);
-  doc.addImage(subHdrImg, 'PNG', L, y, W, 6);
+  // Sub-header with auto-wrapping
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(6.5);
+  doc.setFontSize(6);
+  const splitHdrs = cols.map(col => doc.splitTextToSize(col.label, col.w - 1) as string[]);
+  const maxHdrLines = Math.max(...splitHdrs.map(h => h.length));
+  const HDR_LINE_H  = 2.8;
+  const HDR_PAD     = 1.8;
+  const SUB_HDR_H   = maxHdrLines * HDR_LINE_H + HDR_PAD * 2;
+  const subHdrImg   = makeColorDataURL(90, 90, 95);
+  doc.addImage(subHdrImg, 'PNG', L, y, W, SUB_HDR_H);
   doc.setTextColor(255, 255, 255);
-  for (const col of cols) doc.text(col.label, col.x + col.w / 2, y + 4, { align: 'center' });
-  y += 6;
+  for (let ci = 0; ci < cols.length; ci++) {
+    const col   = cols[ci];
+    const lines = splitHdrs[ci];
+    const blockH = lines.length * HDR_LINE_H;
+    const startY = y + HDR_PAD + (SUB_HDR_H - HDR_PAD * 2 - blockH) / 2 + HDR_LINE_H * 0.75;
+    lines.forEach((line, li) => doc.text(line, col.x + col.w / 2, startY + li * HDR_LINE_H, { align: 'center' }));
+  }
+  y += SUB_HDR_H;
 
   // Data rows
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7);
+  doc.setFontSize(6.5);
   const ROW_H = 6;
   penalties.forEach((p: any, i: number) => {
     if (i % 2 === 0) {
@@ -2090,14 +2111,16 @@ export async function generateDelinquency1stNotice(reservationId: string | null,
       doc.addImage(stripe, 'PNG', L, y, W, ROW_H);
     }
     doc.setTextColor(28, 28, 30);
-    doc.text(fmtD(p.original_due_date),               cols[0].x + cols[0].w / 2, y + 4, { align: 'center' });
-    doc.text(String(p.days_overdue ?? 0),              cols[1].x + cols[1].w / 2, y + 4, { align: 'center' });
+    doc.text(fmtD(p.original_due_date),                      cols[0].x + cols[0].w / 2, y + 4, { align: 'center' });
+    doc.text(String(p.days_overdue ?? 0),                    cols[1].x + cols[1].w / 2, y + 4, { align: 'center' });
     doc.text((((p.daily_rate ?? 0) * 100).toFixed(2)) + '%', cols[2].x + cols[2].w / 2, y + 4, { align: 'center' });
-    doc.text(fmtN(p.principal_basis ?? 0),             cols[3].x + cols[3].w,     y + 4, { align: 'right' });
-    doc.text(fmtN(p.penalty_amount  ?? 0),             cols[4].x + cols[4].w,     y + 4, { align: 'right' });
-    doc.text(p.payment_status ?? '—',                  cols[5].x + cols[5].w / 2, y + 4, { align: 'center' });
-    doc.text(p.ar_no ?? '—',                           cols[6].x + cols[6].w / 2, y + 4, { align: 'center' });
-    doc.text(fmtD(p.ar_date),                          cols[7].x + cols[7].w / 2, y + 4, { align: 'center' });
+    doc.text(fmtN(p.balance_receivables ?? 0),               cols[3].x + cols[3].w - 1,  y + 4, { align: 'right' });
+    doc.text(fmtN(p.penalty_amount  ?? 0),                   cols[4].x + cols[4].w - 1,  y + 4, { align: 'right' });
+    doc.text(p.collection ? fmtN(p.collection) : '—',        cols[5].x + cols[5].w - 1,  y + 4, { align: 'right' });
+    doc.text(p.payment_status ?? '—',                        cols[6].x + cols[6].w / 2, y + 4, { align: 'center' });
+    doc.text(p.remarks ?? '—',                               cols[7].x + cols[7].w / 2, y + 4, { align: 'center' });
+    doc.text(p.ar_no ?? '—',                                 cols[8].x + cols[8].w / 2, y + 4, { align: 'center' });
+    doc.text(fmtD(p.ar_date),                                cols[9].x + cols[9].w / 2, y + 4, { align: 'center' });
     y += ROW_H;
   });
 
@@ -2114,8 +2137,8 @@ export async function generateDelinquency1stNotice(reservationId: string | null,
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8);
   doc.setTextColor(255, 255, 255);
-  doc.text('TOTAL AMOUNT DUE', L + 4, y + 4.5);
-  doc.text(fmtN(grandTotal), R - 2, y + 4.5, { align: 'right' });
+  doc.text('TOTAL PENALTIES', L + 4, y + 4.5);
+  doc.text(fmtN(totalPenalty), R - 2, y + 4.5, { align: 'right' });
   y += 7;
 
   // ── Footnote ────────────────────────────────────────────────────────────────
