@@ -1970,7 +1970,7 @@ export async function generateDelinquency1stNotice(reservationId: string | null,
   const totalPrincipal = penalties.reduce((s: number, p: any) => s + (p.principal_basis ?? 0), 0);
   const grandTotal     = totalPrincipal + totalPenalty;
 
-  const fmtN = (n: number) => '₱' + n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtN = (n: number) => 'PHP ' + n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmtD = (d: string | null) =>
     d ? new Date(d + 'T00:00:00').toLocaleDateString('en-PH', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 
