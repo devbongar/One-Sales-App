@@ -28,6 +28,7 @@ import {
   Send, CheckCircle2, Paperclip, Calendar, ChevronRight,
 } from 'lucide-react';
 import Link from 'next/link';
+import { supabase } from '@/lib/supabase';
 
 // ── Email test helpers ────────────────────────────────────────
 type DocKey = 'none' | 'client_registration' | 'reservation_package' | 'buyer_info_form' | 'soa';
@@ -171,7 +172,9 @@ export default function SettingsPage() {
   const [selAgreementId, setSelAgreementId]             = useState('');
   const [selBuyerInfoId, setSelBuyerInfoId]             = useState('');
   const [selSOAId, setSelSOAId]                         = useState('');
-  const [selDelinquency1stId, setSelDelinquency1stId]   = useState('');
+  const [selDelinquency1stId,   setSelDelinquency1stId]   = useState('');
+  const [delinquency1stDate,    setDelinquency1stDate]    = useState(() => new Date().toISOString().slice(0, 10));
+  const [generatingPenalties,   setGeneratingPenalties]   = useState(false);
 
   // Email test section
   const [testTo,      setTestTo]      = useState('');
@@ -962,9 +965,20 @@ export default function SettingsPage() {
           <div className="rounded-2xl border border-black/[0.07] p-3 bg-white space-y-2">
             <div className="flex items-center justify-between gap-3">
               <p className="text-sm font-semibold text-[#1C1C1E]">Delinquency 1st Notice</p>
-              <button type="button" onClick={() => generateDelinquency1stNotice(selDelinquency1stId || null)}
-                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70">
-                <Eye size={12} /> Preview
+              <button
+                type="button"
+                disabled={!selDelinquency1stId || generatingPenalties}
+                onClick={async () => {
+                  setGeneratingPenalties(true);
+                  try {
+                    await supabase.rpc('generate_penalty_lines', { p_as_of_date: delinquency1stDate });
+                  } finally {
+                    setGeneratingPenalties(false);
+                  }
+                  generateDelinquency1stNotice(selDelinquency1stId, delinquency1stDate);
+                }}
+                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70 disabled:opacity-40">
+                {generatingPenalties ? <><Loader2 size={12} className="animate-spin" /> Generating…</> : <><Eye size={12} /> Preview</>}
               </button>
             </div>
             <select value={selDelinquency1stId} onChange={e => setSelDelinquency1stId(e.target.value)}
@@ -976,6 +990,16 @@ export default function SettingsPage() {
                 </option>
               ))}
             </select>
+            <div className="space-y-1">
+              <p className="text-[10px] font-semibold text-[#6C6C70] uppercase tracking-wider">Data Date</p>
+              <input
+                type="date"
+                value={delinquency1stDate}
+                onChange={e => setDelinquency1stDate(e.target.value)}
+                className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none"
+              />
+              <p className="text-[10px] text-[#8E8E93]">Penalties will be recomputed as of this date before preview.</p>
+            </div>
           </div>
 
         </div>

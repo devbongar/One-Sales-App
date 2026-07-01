@@ -1916,7 +1916,7 @@ export async function buildPDFBase64(
 
 // ── Delinquency 1st Notice ────────────────────────────────────────────────────
 
-export async function generateDelinquency1stNotice(reservationId: string | null): Promise<void> {
+export async function generateDelinquency1stNotice(reservationId: string | null, asOfDate?: string): Promise<void> {
   if (!reservationId) return;
   const win = window.open('', '_blank');
 
@@ -1961,7 +1961,7 @@ export async function generateDelinquency1stNotice(reservationId: string | null)
     }
   }
 
-  const today    = new Date();
+  const today    = asOfDate ? new Date(asOfDate + 'T00:00:00') : new Date();
   const todayStr = today.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
   const deadline = new Date(today); deadline.setDate(deadline.getDate() + 15);
   const deadlineStr = deadline.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
