@@ -1,9 +1,7 @@
--- Drop both overloads then recreate with the date param only.
--- The default value means callers with no args still work.
+-- Recreate generate_penalty_lines with receivable_line_id as bigint
+-- (receivables_database.id is bigint, not uuid)
 
-drop function if exists public.generate_penalty_lines();
 drop function if exists public.generate_penalty_lines(date);
--- Note: receivables_database.id is bigint
 
 create function public.generate_penalty_lines(
   p_as_of_date date default current_date
@@ -70,3 +68,8 @@ begin
   return json_build_object('processed', v_total, 'rate', v_rate, 'as_of', p_as_of_date);
 end;
 $$;
+
+grant execute on function public.generate_penalty_lines(date) to authenticated;
+grant execute on function public.generate_penalty_lines(date) to anon;
+
+notify pgrst, 'reload schema';
