@@ -247,10 +247,11 @@ function EMultiSelect({ value, options, onChange, disabled }: {
 
 // ─── Detail Sheet ──────────────────────────────────────────────────────────────
 
-function DetailSheet({ record, onClose, onSaved }: {
-  record:  BrokerPersonnelRecord;
-  onClose: () => void;
-  onSaved: (updated: BrokerPersonnelRecord) => void;
+function DetailSheet({ record, hasAccount, onClose, onSaved }: {
+  record:      BrokerPersonnelRecord;
+  hasAccount:  boolean;
+  onClose:     () => void;
+  onSaved:     (updated: BrokerPersonnelRecord) => void;
 }) {
   const [editMode, setEditMode] = useState(false);
   const [form,     setForm]     = useState<BrokerPersonnelRecord>(record);
@@ -574,7 +575,7 @@ function DetailSheet({ record, onClose, onSaved }: {
                   disabled={!editMode}
                 />
               </ERow>
-              {!editMode && record.email_address && (
+              {!editMode && hasAccount && record.email_address && (
                 <div className="space-y-1.5 pt-1">
                   <button type="button" onClick={handleResend} disabled={resending || resendDone}
                     className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl text-sm font-semibold transition-all active:opacity-70 disabled:opacity-50"
@@ -1156,6 +1157,7 @@ export default function BrokerPersonnelPage() {
       {selected && (
         <DetailSheet
           record={selected}
+          hasAccount={!!(selected.email_address && accountEmails.has(selected.email_address.toLowerCase()))}
           onClose={() => setSelected(null)}
           onSaved={updated => {
             setRecords(prev => prev.map(r => r.id === selected.id ? updated : r));
