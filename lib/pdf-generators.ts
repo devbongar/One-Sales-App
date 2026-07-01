@@ -1913,3 +1913,246 @@ export async function buildPDFBase64(
     reader.readAsDataURL(blob);
   });
 }
+
+// ── Delinquency 1st Notice ────────────────────────────────────────────────────
+
+export async function generateDelinquency1stNotice(reservationId: string | null): Promise<void> {
+  if (!reservationId) return;
+  const win = window.open('', '_blank');
+
+  const doc   = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const L = 14, R = pageW - 14, W = R - L;
+
+  // ── Data fetch ──────────────────────────────────────────────────────────────
+  const [resResult, penaltyResult, settingsResult] = await Promise.all([
+    supabase
+      .from('reservations')
+      .select('reservation_id, client_id, client_name, project, tower, inventory_code, payment_scheme')
+      .eq('reservation_id', reservationId)
+      .single(),
+    supabase
+      .from('penalty_lines')
+      .select('*')
+      .eq('reservation_id', reservationId)
+      .in('payment_status', ['Unpaid', 'Partial'])
+      .order('original_due_date'),
+    supabase
+      .from('app_settings')
+      .select('key, value')
+      .in('key', ['penalty_daily_rate', 'app_name']),
+  ]);
+
+  const res      = resResult.data as any;
+  const penalties = (penaltyResult.data ?? []) as any[];
+  const settings  = Object.fromEntries(((settingsResult.data ?? []) as any[]).map((r: any) => [r.key, r.value]));
+  const appName   = settings['app_name'] ?? 'One Sales App';
+
+  // Mailing address from buyer info
+  let mailingAddress = '';
+  if (res?.client_id) {
+    const { data: clientRow } = await supabase
+      .from('clients').select('id').eq('client_id', res.client_id).maybeSingle();
+    if (clientRow?.id) {
+      const bi = await fetchBuyerInfo(clientRow.id).catch(() => null);
+      if (bi) {
+        mailingAddress = [bi.home_street, bi.home_barangay, bi.home_city_municipality, bi.home_region_province]
+          .filter(Boolean).join(', ');
+      }
+    }
+  }
+
+  const today    = new Date();
+  const todayStr = today.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
+  const deadline = new Date(today); deadline.setDate(deadline.getDate() + 15);
+  const deadlineStr = deadline.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
+
+  const totalPenalty   = penalties.reduce((s: number, p: any) => s + (p.penalty_amount ?? 0), 0);
+  const totalPrincipal = penalties.reduce((s: number, p: any) => s + (p.principal_basis ?? 0), 0);
+  const grandTotal     = totalPrincipal + totalPenalty;
+
+  const fmtN = (n: number) => '₱' + n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtD = (d: string | null) =>
+    d ? new Date(d + 'T00:00:00').toLocaleDateString('en-PH', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+
+  // ── Header ──────────────────────────────────────────────────────────────────
+  const hdrImg = makeColorDataURL(238, 67, 78);
+  const logo   = await loadLogo();
+  const HDR    = 22;
+
+  doc.addImage(hdrImg, 'PNG', 0, 0, pageW, HDR);
+  if (logo.b64) doc.addImage(logo.b64, 'PNG', L, (HDR - logo.h) / 2, logo.w, logo.h);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(13);
+  doc.setTextColor(255, 255, 255);
+  doc.text('DELINQUENCY NOTICE', R, 9, { align: 'right' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(255, 220, 210);
+  doc.text('1st Notice', R, 17, { align: 'right' });
+  doc.setTextColor(30, 30, 30);
+
+  // ── Date + Reference ────────────────────────────────────────────────────────
+  let y = HDR + 8;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(80, 80, 85);
+  doc.text(`Date: ${todayStr}`, L, y);
+  doc.text(`Ref: ${reservationId}`, R, y, { align: 'right' });
+  y += 8;
+
+  // ── Address block ───────────────────────────────────────────────────────────
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.setTextColor(28, 28, 30);
+  doc.text(res?.client_name ?? '—', L, y);
+  y += 5;
+  if (mailingAddress) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(80, 80, 85);
+    const addrLines = doc.splitTextToSize(mailingAddress, W * 0.6);
+    addrLines.forEach((line: string) => { doc.text(line, L, y); y += 4; });
+  }
+  y += 4;
+
+  // ── Property info ───────────────────────────────────────────────────────────
+  const propRows: [string, string][] = [
+    ['Project',        res?.project ?? '—'],
+    ['Tower / Block',  res?.tower   ?? '—'],
+    ['Unit',           res?.inventory_code ?? '—'],
+    ['Payment Scheme', res?.payment_scheme ?? '—'],
+  ];
+  doc.setFontSize(8);
+  for (const [label, value] of propRows) {
+    doc.setFont('helvetica', 'bold'); doc.setTextColor(90, 90, 95);
+    doc.text(label + ':', L, y);
+    doc.setFont('helvetica', 'normal'); doc.setTextColor(28, 28, 30);
+    doc.text(value, L + 34, y);
+    y += 4.5;
+  }
+  y += 4;
+
+  // ── Body text ───────────────────────────────────────────────────────────────
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(30, 30, 30);
+  const bodyText =
+    `Dear ${res?.client_name ?? 'Valued Client'},\n\n` +
+    `This is to formally inform you that your account with ${appName} has outstanding overdue obligations ` +
+    `as of ${todayStr}. Our records show that the following amortization installments remain unpaid or partially ` +
+    `paid, and penalties have been computed in accordance with your purchase agreement.\n\n` +
+    `We respectfully request that you settle the total amount due on or before ${deadlineStr} to avoid ` +
+    `further penalties and possible legal action. Should you have already made payment arrangements, ` +
+    `please disregard this notice and present your proof of payment to our office.`;
+  const bodyLines = doc.splitTextToSize(bodyText, W);
+  bodyLines.forEach((line: string) => { doc.text(line, L, y); y += 4.5; });
+  y += 4;
+
+  // ── Penalties table ─────────────────────────────────────────────────────────
+  // Header row
+  const darkImg = makeColorDataURL(55, 55, 60);
+  doc.addImage(darkImg, 'PNG', L, y, W, 7);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(255, 255, 255);
+  doc.text('PENALTIES', pageW / 2, y + 4.5, { align: 'center' });
+  y += 7;
+
+  // Column definitions
+  const cols = [
+    { label: 'Original Due Date', x: L,       w: 28 },
+    { label: 'Days Overdue',      x: L + 28,  w: 22 },
+    { label: 'Daily Rate*',       x: L + 50,  w: 18 },
+    { label: 'Principal Basis',   x: L + 68,  w: 28 },
+    { label: 'Penalty Amount',    x: L + 96,  w: 28 },
+    { label: 'Status',            x: L + 124, w: 22 },
+    { label: 'AR No.',            x: L + 146, w: 22 },
+    { label: 'AR Date',           x: L + 168, w: W - 154 },
+  ];
+
+  // Sub-header
+  const subHdrImg = makeColorDataURL(90, 90, 95);
+  doc.addImage(subHdrImg, 'PNG', L, y, W, 6);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.5);
+  doc.setTextColor(255, 255, 255);
+  for (const col of cols) doc.text(col.label, col.x + col.w / 2, y + 4, { align: 'center' });
+  y += 6;
+
+  // Data rows
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  const ROW_H = 6;
+  penalties.forEach((p: any, i: number) => {
+    if (i % 2 === 0) {
+      const stripe = makeColorDataURL(245, 245, 247);
+      doc.addImage(stripe, 'PNG', L, y, W, ROW_H);
+    }
+    doc.setTextColor(28, 28, 30);
+    doc.text(fmtD(p.original_due_date),               cols[0].x + cols[0].w / 2, y + 4, { align: 'center' });
+    doc.text(String(p.days_overdue ?? 0),              cols[1].x + cols[1].w / 2, y + 4, { align: 'center' });
+    doc.text((((p.daily_rate ?? 0) * 100).toFixed(3)) + '%', cols[2].x + cols[2].w / 2, y + 4, { align: 'center' });
+    doc.text(fmtN(p.principal_basis ?? 0),             cols[3].x + cols[3].w,     y + 4, { align: 'right' });
+    doc.text(fmtN(p.penalty_amount  ?? 0),             cols[4].x + cols[4].w,     y + 4, { align: 'right' });
+    doc.text(p.payment_status ?? '—',                  cols[5].x + cols[5].w / 2, y + 4, { align: 'center' });
+    doc.text(p.ar_no ?? '—',                           cols[6].x + cols[6].w / 2, y + 4, { align: 'center' });
+    doc.text(fmtD(p.ar_date),                          cols[7].x + cols[7].w / 2, y + 4, { align: 'center' });
+    y += ROW_H;
+  });
+
+  if (penalties.length === 0) {
+    doc.setTextColor(120, 120, 125);
+    doc.setFontSize(8);
+    doc.text('No outstanding penalty lines found for this reservation.', pageW / 2, y + 5, { align: 'center' });
+    y += 10;
+  }
+
+  // Totals row
+  const totalBarImg = makeColorDataURL(230, 60, 60);
+  doc.addImage(totalBarImg, 'PNG', L, y, W, 7);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(255, 255, 255);
+  doc.text('TOTAL AMOUNT DUE', L + 4, y + 4.5);
+  doc.text(fmtN(grandTotal), R - 2, y + 4.5, { align: 'right' });
+  y += 7;
+
+  // ── Footnote ────────────────────────────────────────────────────────────────
+  y += 6;
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(6.5);
+  doc.setTextColor(100, 100, 105);
+  doc.text(
+    `* Daily rate of ${(((penalties[0]?.daily_rate ?? 0.001) * 100)).toFixed(3)}% applies to the principal basis per overdue installment. ` +
+    `Penalty amount = Principal Basis × Days Overdue × Daily Rate.`,
+    L, y
+  );
+  y += 8;
+
+  // ── Signature block ─────────────────────────────────────────────────────────
+  if (y + 30 > pageH - 10) { doc.addPage(); y = HDR + 10; }
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor(30, 30, 30);
+  doc.text('Very truly yours,', L, y); y += 12;
+  doc.setLineWidth(0.3); doc.setDrawColor(100, 100, 105);
+  doc.line(L, y, L + 60, y); y += 4;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.text('Account Management', L, y); y += 4;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(80, 80, 85);
+  doc.text(appName, L, y);
+
+  // ── Page footer ─────────────────────────────────────────────────────────────
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6);
+  doc.setTextColor(160, 160, 165);
+  doc.text(`Page 1`, R, pageH - 6, { align: 'right' });
+
+  if (win) win.location.href = doc.output('bloburl') as unknown as string;
+  else doc.output('dataurlnewwindow');
+}

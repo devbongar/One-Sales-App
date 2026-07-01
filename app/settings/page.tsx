@@ -13,6 +13,7 @@ import {
   generateBuyerInformationForm,
   generateSampleComputation,
   generateSOA,
+  generateDelinquency1stNotice,
   fetchAllClients,
   fetchReservationList,
   buildPDFBase64,
@@ -157,6 +158,11 @@ export default function SettingsPage() {
   const [savingEmail, setSavingEmail]   = useState(false);
   const [emailSaved, setEmailSaved]     = useState(false);
 
+  // Penalty settings
+  const [penaltyRate,       setPenaltyRate]       = useState('0.001');
+  const [savingPenalty,     setSavingPenalty]     = useState(false);
+  const [penaltySaved,      setPenaltySaved]      = useState(false);
+
   // Email attachments
   const [pdfClients, setPdfClients]                     = useState<ClientRecord[]>([]);
   const [pdfReservations, setPdfReservations]           = useState<ReservationSummary[]>([]);
@@ -165,6 +171,7 @@ export default function SettingsPage() {
   const [selAgreementId, setSelAgreementId]             = useState('');
   const [selBuyerInfoId, setSelBuyerInfoId]             = useState('');
   const [selSOAId, setSelSOAId]                         = useState('');
+  const [selDelinquency1stId, setSelDelinquency1stId]   = useState('');
 
   // Email test section
   const [testTo,      setTestTo]      = useState('');
@@ -204,7 +211,8 @@ export default function SettingsPage() {
     fetch('/api/settings').then(r => r.json()).then(s => {
       if (s.app_name)        setAppName(s.app_name);
       if (s.logo_url)        { setLogoUrl(s.logo_url); setLogoPreview(s.logo_url); }
-      if (s.email_sender)    setEmailSender(s.email_sender);
+      if (s.email_sender)         setEmailSender(s.email_sender);
+      if (s.penalty_daily_rate)  setPenaltyRate(s.penalty_daily_rate);
       if (s.email_templates) {
         try {
           const saved = JSON.parse(s.email_templates) as EmailTemplates;
@@ -250,6 +258,16 @@ export default function SettingsPage() {
     });
     setSavingEmail(false); setEmailSaved(true);
     setTimeout(() => setEmailSaved(false), 2500);
+  };
+
+  const savePenaltySettings = async () => {
+    setSavingPenalty(true);
+    await fetch('/api/settings', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ penalty_daily_rate: penaltyRate }),
+    });
+    setSavingPenalty(false); setPenaltySaved(true);
+    setTimeout(() => setPenaltySaved(false), 2500);
   };
 
   const saveEmailTemplates = async () => {
@@ -413,6 +431,35 @@ export default function SettingsPage() {
           <ChevronRight size={16} className="text-[#C7C7CC] shrink-0" />
         </GlassCard>
       </Link>
+
+      {/* ── Penalty Settings ──────────────────────────────── */}
+      <GlassCard className="p-5 space-y-4">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-xl bg-[#C03D25]/10 flex items-center justify-center shrink-0">
+            <AlertTriangle size={16} className="text-[#C03D25]" />
+          </div>
+          <p className="text-base font-bold text-[#1C1C1E]">Penalty Settings</p>
+        </div>
+        <div className="space-y-1.5">
+          <p className="text-xs font-semibold text-[#6C6C70] uppercase tracking-wider">Daily Penalty Rate</p>
+          <div className="flex items-center gap-2">
+            <input
+              type="number" step="0.0001" min="0" max="1"
+              value={penaltyRate}
+              onChange={e => setPenaltyRate(e.target.value)}
+              className="flex-1 px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/70 text-sm text-[#1C1C1E] outline-none focus:border-black/20"
+            />
+            <span className="text-xs text-[#8E8E93] shrink-0 w-24">
+              = {(parseFloat(penaltyRate || '0') * 30 * 100).toFixed(2)}%/mo
+            </span>
+          </div>
+          <p className="text-[10px] text-[#8E8E93]">Applied as: principal × days overdue × rate. Default: 0.001 (≈ 3%/month).</p>
+        </div>
+        <button type="button" onClick={savePenaltySettings} disabled={savingPenalty}
+          className="w-full py-2.5 rounded-2xl bg-[#1C1C1E] text-sm font-semibold text-white flex items-center justify-center gap-2 active:opacity-80 disabled:opacity-50">
+          {penaltySaved ? <><Check size={15} /> Saved!</> : savingPenalty ? <><Loader2 size={14} className="animate-spin" /> Saving…</> : 'Save Penalty Settings'}
+        </button>
+      </GlassCard>
 
       {/* ── App Branding ───────────────────────────────────── */}
       <GlassCard className="p-5 space-y-5">
@@ -901,6 +948,26 @@ export default function SettingsPage() {
               </button>
             </div>
             <select value={selSOAId} onChange={e => setSelSOAId(e.target.value)}
+              className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none">
+              <option value="">— Select a reservation —</option>
+              {pdfReservations.map(r => (
+                <option key={r.reservation_id} value={r.reservation_id}>
+                  {r.reservation_id} — {r.client_name} ({r.inventory_code})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Delinquency 1st Notice */}
+          <div className="rounded-2xl border border-black/[0.07] p-3 bg-white space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-[#1C1C1E]">Delinquency 1st Notice</p>
+              <button type="button" onClick={() => generateDelinquency1stNotice(selDelinquency1stId || null)}
+                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70">
+                <Eye size={12} /> Preview
+              </button>
+            </div>
+            <select value={selDelinquency1stId} onChange={e => setSelDelinquency1stId(e.target.value)}
               className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none">
               <option value="">— Select a reservation —</option>
               {pdfReservations.map(r => (
