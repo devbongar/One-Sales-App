@@ -201,13 +201,12 @@ export async function updateSellerRecruit(
 }
 
 export async function fetchSellerSignature(sellerName: string): Promise<string | null> {
-  const { data, error } = await supabase
+  const { data } = await supabase
     .from('Salesperson')
     .select('signature_base64')
     .eq('Seller Name', sellerName)
-    .single();
-  if (error) return null;
-  return (data as { signature_base64: string | null })?.signature_base64 ?? null;
+    .maybeSingle();
+  return (data as { signature_base64: string | null } | null)?.signature_base64 ?? null;
 }
 
 export async function updateSellerSignature(sellerName: string, signatureBase64: string | null): Promise<void> {
