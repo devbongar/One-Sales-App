@@ -37,6 +37,8 @@ interface ReservationData {
   salesDivisionHeadId?: string | null;
   salesHeadId?: string | null;
   brokerSellerId?: string | null;
+  brokerNetworkAssociate?: string | null;
+  brokerNetworkAssociateId?: string | null;
   firstPaymentAgreed?: boolean;
   quotationId?: string | null;
 }
@@ -246,8 +248,10 @@ export default function ReservationAgreementPage() {
         sales_director_id:         data.salesDirectorId      ?? null,
         sales_division_head_id:    data.salesDivisionHeadId  ?? null,
         sales_head_id:             data.salesHeadId          ?? null,
-        broker_id:                 data.brokerSellerId        ?? null,
-        created_by_uuid:           creatorUuid,
+        broker_id:                    data.brokerSellerId           ?? null,
+        broker_network_associate:     data.brokerNetworkAssociate    ?? null,
+        broker_network_associate_id:  data.brokerNetworkAssociateId  ?? null,
+        created_by_uuid:              creatorUuid,
         seller_name:               data.sellerName,
         sales_manager:             data.salesManager,
         sales_director:            data.salesDirector,

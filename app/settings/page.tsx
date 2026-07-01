@@ -77,7 +77,10 @@ const EMAIL_DOCS: { key: string; label: string; defaultTriggers: TriggerKey[]; a
 const EMAIL_ROLES = [
   { key: 'client',             label: 'Client'             },
   { key: 'seller',             label: 'Seller'             },
+  { key: 'sales_manager',      label: 'Sales Manager'      },
   { key: 'sales_director',     label: 'Sales Director'     },
+  { key: 'sales_division_head',label: 'Sales Division Head'},
+  { key: 'sales_head',         label: 'Sales Head'         },
   { key: 'account_management', label: 'Account Management' },
   { key: 'finance',            label: 'Finance'            },
 ];
@@ -238,6 +241,33 @@ export default function SettingsPage() {
   const [delOpen,          setDelOpen]          = useState(false);
   const [lastRunAt,        setLastRunAt]        = useState<string | null>(null);
 
+  // SOA Automation policy
+  type SoaEmailCfg = { to: string[]; cc: string[]; subject: string; body: string };
+  const defaultSoaEmailCfg: SoaEmailCfg = {
+    to: ['client'], cc: [],
+    subject: 'Statement of Account — {reservation_id}',
+    body: 'Dear {client_name},\n\nPlease find attached your Statement of Account for {project} Unit {unit}.\n\nA payment is due on {due_date}. Please ensure timely payment to avoid penalties.\n\nThank you.',
+  };
+  const [soaEnabled,        setSoaEnabled]        = useState(false);
+  const [soaRunHour,        setSoaRunHour]        = useState(1);
+  const [soaGraceDays,      setSoaGraceDays]      = useState(5);
+  const [soaEmailCfg,       setSoaEmailCfg]       = useState<SoaEmailCfg>(defaultSoaEmailCfg);
+  const [soaOpen,           setSoaOpen]           = useState(false);
+  const [soaEmailCfgOpen,   setSoaEmailCfgOpen]   = useState(false);
+  const [savingSoaPolicy,   setSavingSoaPolicy]   = useState(false);
+  const [soaPolicySaved,    setSoaPolicySaved]    = useState(false);
+  const [savingSoaEmail,    setSavingSoaEmail]    = useState(false);
+  const [soaEmailSaved,     setSoaEmailSaved]     = useState(false);
+  const [runningSoa,        setRunningSoa]        = useState(false);
+  const [soaRunResult,      setSoaRunResult]      = useState<{ ok: boolean; message: string } | null>(null);
+  const [runningSOADryRun,  setRunningSOADryRun]  = useState(false);
+  const [soaDryRunResult,   setSoaDryRunResult]   = useState<{ reservation_id: string; client_name: string; inventory_code: string; target_date: string; has_client_email: boolean }[] | null>(null);
+  const [soaFailedNotices,  setSoaFailedNotices]  = useState<any[]>([]);
+  const [resendingSOA,      setResendingSOA]      = useState(false);
+  const [soaHistory,        setSoaHistory]        = useState<AutomationRun[]>([]);
+  const [soaHistoryOpen,    setSoaHistoryOpen]    = useState(false);
+  const [soaLastRunAt,      setSoaLastRunAt]      = useState<string | null>(null);
+
   // Email attachments
   const [pdfClients, setPdfClients]                     = useState<ClientRecord[]>([]);
   const [pdfReservations, setPdfReservations]           = useState<ReservationSummary[]>([]);
@@ -325,13 +355,29 @@ export default function SettingsPage() {
       const days = [...new Set((data ?? []).map((r: any) => Number(r.due_date)))].sort((a, b) => a - b);
       setDelDueDays(days);
     });
-    // Load automation history and failed notices
-    supabase.from('automation_runs').select('*').order('run_at', { ascending: false }).limit(5).then(({ data }) => {
+    // Load delinquency automation history and failed notices
+    supabase.from('automation_runs').select('*').eq('type', 'delinquency').order('run_at', { ascending: false }).limit(5).then(({ data }) => {
       setAutomationHistory((data ?? []) as AutomationRun[]);
       if (data?.[0]) setLastRunAt((data[0] as any).run_at as string);
     });
     supabase.from('delinquency_notices').select('id, reservation_id, notice_type, email_error, updated_at').eq('email_status', 'failed').then(({ data }) => {
       setFailedNotices(data ?? []);
+    });
+    // Load SOA policy, history, and failed notices
+    supabase.from('soa_policy').select('*').eq('id', 1).single().then(({ data }) => {
+      if (!data) return;
+      const p = data as any;
+      setSoaEnabled(p.automation_enabled ?? false);
+      setSoaRunHour(p.run_hour ?? 1);
+      setSoaGraceDays(p.grace_days ?? 5);
+      if (p.email_config && typeof p.email_config === 'object') setSoaEmailCfg(cfg => ({ ...cfg, ...p.email_config }));
+    });
+    supabase.from('automation_runs').select('*').eq('type', 'soa').order('run_at', { ascending: false }).limit(5).then(({ data }) => {
+      setSoaHistory((data ?? []) as AutomationRun[]);
+      if (data?.[0]) setSoaLastRunAt((data[0] as any).run_at as string);
+    });
+    supabase.from('soa_notices').select('id, reservation_id, client_name, target_date, email_error, updated_at').eq('email_status', 'failed').then(({ data }) => {
+      setSoaFailedNotices(data ?? []);
     });
     // Resume any in-progress correction job
     try {
@@ -466,13 +512,92 @@ export default function SettingsPage() {
   };
 
   const refreshDelHistory = () => {
-    supabase.from('automation_runs').select('*').order('run_at', { ascending: false }).limit(5).then(({ data }) => {
+    supabase.from('automation_runs').select('*').eq('type', 'delinquency').order('run_at', { ascending: false }).limit(5).then(({ data }) => {
       setAutomationHistory((data ?? []) as AutomationRun[]);
       if (data?.[0]) setLastRunAt((data[0] as any).run_at as string);
     });
     supabase.from('delinquency_notices').select('id, reservation_id, notice_type, email_error, updated_at').eq('email_status', 'failed').then(({ data }) => {
       setFailedNotices(data ?? []);
     });
+  };
+
+  const refreshSoaHistory = () => {
+    supabase.from('automation_runs').select('*').eq('type', 'soa').order('run_at', { ascending: false }).limit(5).then(({ data }) => {
+      setSoaHistory((data ?? []) as AutomationRun[]);
+      if (data?.[0]) setSoaLastRunAt((data[0] as any).run_at as string);
+    });
+    supabase.from('soa_notices').select('id, reservation_id, client_name, target_date, email_error, updated_at').eq('email_status', 'failed').then(({ data }) => {
+      setSoaFailedNotices(data ?? []);
+    });
+  };
+
+  const saveSoaPolicy = async () => {
+    setSavingSoaPolicy(true);
+    await supabase.from('soa_policy').update({ automation_enabled: soaEnabled, run_hour: soaRunHour, grace_days: soaGraceDays }).eq('id', 1);
+    setSavingSoaPolicy(false); setSoaPolicySaved(true);
+    setTimeout(() => setSoaPolicySaved(false), 2500);
+  };
+
+  const saveSoaEmailCfg = async () => {
+    setSavingSoaEmail(true);
+    await supabase.from('soa_policy').update({ email_config: soaEmailCfg }).eq('id', 1);
+    setSavingSoaEmail(false); setSoaEmailSaved(true);
+    setTimeout(() => setSoaEmailSaved(false), 2500);
+  };
+
+  const runSoaNow = async () => {
+    setRunningSoa(true); setSoaRunResult(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) { setSoaRunResult({ ok: false, message: 'Not authenticated' }); setRunningSoa(false); return; }
+      const res  = await fetch('/api/cron/soa-reminder', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'run' }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        const parts: string[] = [];
+        if (data.sent  !== undefined) parts.push(`${data.sent} emails sent`);
+        if (data.failed)              parts.push(`${data.failed} failed`);
+        setSoaRunResult({ ok: true, message: parts.length ? parts.join(' · ') : 'Completed — no emails sent' });
+        refreshSoaHistory();
+      } else {
+        setSoaRunResult({ ok: false, message: data.error ?? 'Run failed' });
+      }
+    } catch (e: any) { setSoaRunResult({ ok: false, message: e.message ?? 'Network error' }); }
+    setRunningSoa(false);
+  };
+
+  const runSoaDryRun = async () => {
+    setRunningSOADryRun(true); setSoaDryRunResult(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) { setRunningSOADryRun(false); return; }
+      const res  = await fetch('/api/cron/soa-reminder', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'dry_run' }),
+      });
+      const data = await res.json();
+      setSoaDryRunResult(data.preview ?? []);
+    } catch {}
+    setRunningSOADryRun(false);
+  };
+
+  const resendSoaFailed = async (noticeIds?: number[]) => {
+    setResendingSOA(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) { setResendingSOA(false); return; }
+      await fetch('/api/cron/soa-reminder', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'resend', ...(noticeIds ? { notice_ids: noticeIds } : {}) }),
+      });
+      refreshSoaHistory();
+    } catch {}
+    setResendingSOA(false);
   };
 
   const runDelNow = async () => {
@@ -1418,11 +1543,15 @@ export default function SettingsPage() {
               </p>
               <div className="flex gap-2 flex-wrap">
                 {delDueDays.length > 0
-                  ? delDueDays.map(d => (
-                      <span key={d} className="px-2.5 py-1.5 rounded-xl bg-[#F2F2F7] border border-[#E5E5EA] text-[11px] font-semibold text-[#1C1C1E]">
-                        {d}th
-                      </span>
-                    ))
+                  ? delDueDays.map(d => {
+                      const s = ['th','st','nd','rd']; const v = d % 100;
+                      const sfx = s[(v - 20) % 10] ?? s[v] ?? s[0];
+                      return (
+                        <span key={d} className="px-2.5 py-1.5 rounded-xl bg-[#F2F2F7] border border-[#E5E5EA] text-[11px] font-semibold text-[#1C1C1E]">
+                          {d}{sfx}
+                        </span>
+                      );
+                    })
                   : <span className="text-[11px] text-[#C7C7CC]">No due dates configured</span>
                 }
               </div>
@@ -1450,11 +1579,12 @@ export default function SettingsPage() {
                 <div className="flex gap-2 flex-wrap">
                   {delDueDays.map(d => {
                     const runDay = computeRunDay(d, delPolicy.grace_days);
+                    const ord = (n: number) => { const s = ['th','st','nd','rd']; const v = n % 100; return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]); };
                     return (
                       <div key={d} className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#F2F2F7] border border-[#E5E5EA]">
-                        <span className="text-[11px] text-[#8E8E93]">Due {d}th</span>
+                        <span className="text-[11px] text-[#8E8E93]">Due {ord(d)}</span>
                         <ChevronRight size={10} className="text-[#C7C7CC]" />
-                        <span className="text-[11px] font-semibold text-[#1C1C1E]">Run {runDay}th</span>
+                        <span className="text-[11px] font-semibold text-[#1C1C1E]">Run {ord(runDay)}</span>
                       </div>
                     );
                   })}
@@ -1562,7 +1692,7 @@ export default function SettingsPage() {
                       {/* To */}
                       <div className="space-y-1">
                         <p className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wider">Send To</p>
-                        {[{ key: 'client', label: 'Client' }, { key: 'seller', label: 'Seller' }, { key: 'sales_director', label: 'Sales Director' }].map(role => (
+                        {EMAIL_ROLES.map(role => (
                           <label key={role.key} className="flex items-center gap-2 text-xs text-[#1C1C1E] cursor-pointer">
                             <input
                               type="checkbox"
@@ -1580,7 +1710,7 @@ export default function SettingsPage() {
                       {/* CC */}
                       <div className="space-y-1">
                         <p className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wider">CC</p>
-                        {[{ key: 'client', label: 'Client' }, { key: 'seller', label: 'Seller' }, { key: 'sales_director', label: 'Sales Director' }].map(role => (
+                        {EMAIL_ROLES.map(role => (
                           <label key={role.key} className="flex items-center gap-2 text-xs text-[#1C1C1E] cursor-pointer">
                             <input
                               type="checkbox"
@@ -1779,6 +1909,295 @@ export default function SettingsPage() {
                           {run.accounts_processed} processed ·{' '}
                           {run.notices_created} notices ·{' '}
                           {run.emails_sent} sent
+                          {run.error_count > 0 && <> · <span className="text-[#C03D25]">{run.error_count} errors</span></>}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )
+            )}
+          </div>
+
+        </div>}
+      </GlassCard>
+
+      {/* ── SOA Automation ───────────────────────────────── */}
+      <GlassCard className="p-5">
+        <button
+          type="button"
+          onClick={() => setSoaOpen(o => !o)}
+          className="w-full flex items-center gap-2.5 text-left"
+        >
+          <div className="w-9 h-9 rounded-xl bg-[rgba(192,61,37,0.10)] flex items-center justify-center shrink-0">
+            <Mail size={16} className="text-[#C03D25]" />
+          </div>
+          <div className="flex-1">
+            <p className="text-base font-bold text-[#1C1C1E]">SOA Automation</p>
+            <p className="text-[11px] text-[#8E8E93]">Auto-generate and email SOA PDFs before the 15th and 30th due dates</p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <span onClick={e => { e.stopPropagation(); setSoaEnabled(v => !v); }}>
+              {soaEnabled
+                ? <ToggleRight size={28} className="text-[#C03D25]" />
+                : <ToggleLeft  size={28} className="text-[#8E8E93]" />}
+            </span>
+            {soaOpen ? <ChevronUp size={16} className="text-[#8E8E93]" /> : <ChevronDown size={16} className="text-[#8E8E93]" />}
+          </div>
+        </button>
+
+        {soaOpen && <div className="mt-4 space-y-4">
+
+          {/* ── Schedule ─────────────────────────────────────── */}
+          <div className="space-y-3">
+            <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-widest">Schedule</p>
+
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider flex items-center gap-1">
+                <Calendar size={11} /> Days Before Due Date
+              </p>
+              <input
+                type="number" min={1} max={14}
+                value={soaGraceDays}
+                onChange={e => setSoaGraceDays(parseInt(e.target.value, 10) || 5)}
+                className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider flex items-center gap-1">
+                <Calendar size={11} /> Computed Run Days
+              </p>
+              <div className="flex gap-2 flex-wrap">
+                {([15, 30] as const).map(target => {
+                  const runDay = target - soaGraceDays;
+                  const ord = (n: number) => {
+                    const s = ['th','st','nd','rd'];
+                    const v = n % 100;
+                    return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]);
+                  };
+                  return (
+                    <div key={target} className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#F2F2F7] border border-[#E5E5EA]">
+                      <span className="text-[11px] text-[#8E8E93]">Due {ord(target)}</span>
+                      <ChevronRight size={10} className="text-[#C7C7CC]" />
+                      <span className="text-[11px] font-semibold text-[#1C1C1E]">Run {ord(runDay)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider flex items-center gap-1">
+                <Clock size={11} /> Time of Sending (UTC)
+              </p>
+              <select
+                value={soaRunHour}
+                onChange={e => setSoaRunHour(parseInt(e.target.value, 10))}
+                className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none"
+              >
+                {Array.from({ length: 24 }, (_, h) => {
+                  const ampm = h < 12 ? 'AM' : 'PM';
+                  const h12  = h === 0 ? 12 : h > 12 ? h - 12 : h;
+                  return <option key={h} value={h}>{h12}:00 {ampm} UTC</option>;
+                })}
+              </select>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={saveSoaPolicy}
+            disabled={savingSoaPolicy}
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#C03D25] text-white text-xs font-semibold active:opacity-70 disabled:opacity-40"
+          >
+            {savingSoaPolicy ? <Loader2 size={13} className="animate-spin" /> : soaPolicySaved ? <CheckCircle2 size={13} /> : null}
+            {soaPolicySaved ? 'Saved' : 'Save Policy'}
+          </button>
+
+          {/* ── Email Config ──────────────────────────────────── */}
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-widest">Email Config</p>
+            <p className="text-[10px] text-[#8E8E93]">
+              Variables:{' '}
+              {['{client_name}', '{reservation_id}', '{project}', '{unit}', '{due_date}', '{amount_due}'].map(v => (
+                <code key={v} className="bg-[#F2F2F7] px-1 rounded text-[10px] mr-1">{v}</code>
+              ))}
+            </p>
+
+            <div className="rounded-xl border border-[#E5E5EA] overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setSoaEmailCfgOpen(o => !o)}
+                className="w-full flex items-center justify-between px-3 py-2.5 bg-[#F9F9F9] text-xs font-semibold text-[#1C1C1E]"
+              >
+                SOA Email
+                {soaEmailCfgOpen ? <ChevronUp size={13} className="text-[#8E8E93]" /> : <ChevronDown size={13} className="text-[#8E8E93]" />}
+              </button>
+              {soaEmailCfgOpen && (
+                <div className="p-3 space-y-3 bg-white">
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wider">Send To</p>
+                    {EMAIL_ROLES.map(role => (
+                      <label key={role.key} className="flex items-center gap-2 text-xs text-[#1C1C1E] cursor-pointer">
+                        <input type="checkbox" checked={soaEmailCfg.to.includes(role.key)}
+                          onChange={e => setSoaEmailCfg(c => ({ ...c, to: e.target.checked ? [...c.to, role.key] : c.to.filter(r => r !== role.key) }))}
+                          className="rounded" />
+                        {role.label}
+                      </label>
+                    ))}
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wider">CC</p>
+                    {EMAIL_ROLES.map(role => (
+                      <label key={role.key} className="flex items-center gap-2 text-xs text-[#1C1C1E] cursor-pointer">
+                        <input type="checkbox" checked={soaEmailCfg.cc.includes(role.key)}
+                          onChange={e => setSoaEmailCfg(c => ({ ...c, cc: e.target.checked ? [...c.cc, role.key] : c.cc.filter(r => r !== role.key) }))}
+                          className="rounded" />
+                        {role.label}
+                      </label>
+                    ))}
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wider">Subject</p>
+                    <input type="text" value={soaEmailCfg.subject}
+                      onChange={e => setSoaEmailCfg(c => ({ ...c, subject: e.target.value }))}
+                      className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wider">Body</p>
+                    <textarea rows={7} value={soaEmailCfg.body}
+                      onChange={e => setSoaEmailCfg(c => ({ ...c, body: e.target.value }))}
+                      className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none resize-none" />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={saveSoaEmailCfg}
+              disabled={savingSoaEmail}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#C03D25] text-white text-xs font-semibold active:opacity-70 disabled:opacity-40"
+            >
+              {savingSoaEmail ? <Loader2 size={13} className="animate-spin" /> : soaEmailSaved ? <CheckCircle2 size={13} /> : <Mail size={13} />}
+              {soaEmailSaved ? 'Saved' : 'Save Email Config'}
+            </button>
+          </div>
+
+          {/* ── Manual Run ───────────────────────────────────── */}
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-widest">Manual Run</p>
+
+            {soaLastRunAt && (
+              <div className="flex items-center gap-1.5 text-[11px] text-[#8E8E93]">
+                <Clock size={11} />
+                Last run: {new Date(soaLastRunAt).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}
+              </div>
+            )}
+
+            {soaRunResult && (
+              <div className={`flex items-center gap-2 text-xs rounded-xl px-3 py-2 ${soaRunResult.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-[#C03D25]'}`}>
+                {soaRunResult.ok ? <CheckCircle2 size={13} /> : <AlertTriangle size={13} />}
+                {soaRunResult.message}
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <button type="button" onClick={runSoaNow} disabled={runningSoa}
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#C03D25] text-white text-xs font-semibold active:opacity-70 disabled:opacity-40">
+                {runningSoa ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+                {runningSoa ? 'Running…' : 'Run Now'}
+              </button>
+              <button type="button" onClick={runSoaDryRun} disabled={runningSOADryRun}
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-[#C03D25] text-[#C03D25] text-xs font-semibold active:opacity-70 disabled:opacity-40">
+                {runningSOADryRun ? <Loader2 size={13} className="animate-spin" /> : <Eye size={13} />}
+                {runningSOADryRun ? 'Previewing…' : 'Dry Run'}
+              </button>
+            </div>
+
+            {soaDryRunResult !== null && (
+              <div className="space-y-1">
+                <p className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wider">
+                  Dry Run Preview ({soaDryRunResult.length} reservations)
+                </p>
+                {soaDryRunResult.length === 0
+                  ? <p className="text-[11px] text-[#8E8E93]">No SOA emails would be sent.</p>
+                  : (
+                    <div className="rounded-xl border border-[#E5E5EA] overflow-hidden divide-y divide-[#E5E5EA]">
+                      {soaDryRunResult.map(item => (
+                        <div key={item.reservation_id} className="px-3 py-2 bg-white">
+                          <div className="flex items-center justify-between">
+                            <p className="text-[11px] font-semibold text-[#1C1C1E]">{item.reservation_id}</p>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${item.has_client_email ? 'bg-green-100 text-green-700' : 'bg-red-100 text-[#C03D25]'}`}>
+                              {item.has_client_email ? 'has email' : 'no email'}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-[#8E8E93]">
+                            {item.client_name} · {item.inventory_code} · due {item.target_date}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                }
+              </div>
+            )}
+          </div>
+
+          {/* ── Failed Notices ────────────────────────────────── */}
+          {soaFailedNotices.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-widest">
+                  Failed Sends ({soaFailedNotices.length})
+                </p>
+                <button type="button" onClick={() => resendSoaFailed()} disabled={resendingSOA}
+                  className="flex items-center gap-1 text-[11px] font-semibold text-[#C03D25] disabled:opacity-40">
+                  {resendingSOA ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+                  Resend All
+                </button>
+              </div>
+              <div className="rounded-xl border border-[#E5E5EA] overflow-hidden divide-y divide-[#E5E5EA]">
+                {soaFailedNotices.map((n: any) => (
+                  <div key={n.id} className="px-3 py-2 bg-white flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold text-[#1C1C1E]">{n.reservation_id}</p>
+                      <p className="text-[10px] text-[#8E8E93] truncate">{n.client_name} · {n.email_error ?? 'Unknown error'}</p>
+                    </div>
+                    <button type="button" onClick={() => resendSoaFailed([n.id])} disabled={resendingSOA}
+                      className="shrink-0 text-[11px] font-semibold text-[#C03D25] disabled:opacity-40">
+                      Resend
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── Run History ───────────────────────────────────── */}
+          <div className="space-y-1">
+            <button type="button" onClick={() => setSoaHistoryOpen(h => !h)}
+              className="flex items-center gap-1 text-[10px] font-bold text-[#8E8E93] uppercase tracking-widest">
+              {soaHistoryOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+              Run History
+            </button>
+            {soaHistoryOpen && (
+              soaHistory.length === 0
+                ? <p className="text-[11px] text-[#8E8E93]">No runs yet.</p>
+                : (
+                  <div className="rounded-xl border border-[#E5E5EA] overflow-hidden divide-y divide-[#E5E5EA]">
+                    {soaHistory.map(run => (
+                      <div key={run.id} className="px-3 py-2 bg-white">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[11px] font-semibold text-[#1C1C1E]">
+                            {new Date(run.run_at).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}
+                          </p>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${run.status === 'completed' ? 'bg-green-100 text-green-700' : run.status === 'failed' ? 'bg-red-100 text-[#C03D25]' : 'bg-[#F2F2F7] text-[#8E8E93]'}`}>
+                            {run.status}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-[#8E8E93]">
+                          {run.triggered_by} · {run.emails_sent} sent
                           {run.error_count > 0 && <> · <span className="text-[#C03D25]">{run.error_count} errors</span></>}
                         </p>
                       </div>

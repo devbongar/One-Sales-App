@@ -127,20 +127,85 @@ async function sendEmail(
 
 // ── resolve email addresses for a notice ──────────────────────────────────────
 
+// Roles resolved via profiles table (system-wide, not reservation-specific)
+const PROFILE_ROLE_MAP: Record<string, string> = {
+  account_management: 'Account Management',
+  finance:            'Finance Verification',
+};
+
+// Reservation ID columns for hierarchy roles
+const HIERARCHY_RES_COL: Record<string, string> = {
+  seller:              'seller_id',
+  sales_manager:       'sales_manager_id',
+  sales_director:      'sales_director_id',
+  sales_division_head: 'sales_division_head_id',
+  sales_head:          'sales_head_id',
+};
+
 async function resolveRecipients(
   roles: string[],
-  clientId: string,
+  res: {
+    client_id?: string;
+    broker_id?: string | null;
+    broker_network_associate_id?: string | null;
+    seller_id?: string;
+    sales_manager_id?: string;
+    sales_director_id?: string;
+    sales_division_head_id?: string;
+    sales_head_id?: string;
+  },
 ): Promise<string[]> {
+  if (!roles.length) return [];
+
   const emails: string[] = [];
+  const isBroker = !!(res as any).broker_id;
+
   for (const role of roles) {
     if (role === 'client') {
-      const { data } = await adminClient.from('clients').select('email').eq('client_id', clientId).maybeSingle();
-      const e = (data as any)?.email;
-      if (e) emails.push(e);
+      if (res.client_id) {
+        const { data } = await adminClient.from('clients').select('email').eq('client_id', res.client_id).maybeSingle();
+        const e = (data as any)?.email;
+        if (e) emails.push(e);
+      }
+    } else if (isBroker && role === 'seller') {
+      // BNA acts as seller for broker reservations — look up in broker_personnel
+      const bnaId = (res as any).broker_network_associate_id;
+      if (bnaId) {
+        const { data: bp } = await adminClient.from('broker_personnel')
+          .select('email_address').eq('personnel_id', bnaId).maybeSingle();
+        const e = (bp as any)?.email_address;
+        if (e) emails.push(e);
+      }
+    } else if (isBroker && role === 'sales_manager') {
+      // BNO is stored in sales_manager_id for broker reservations — look up in broker_personnel
+      const bnoId = (res as any).sales_manager_id;
+      if (bnoId) {
+        const { data: bp } = await adminClient.from('broker_personnel')
+          .select('email_address').eq('personnel_id', bnoId).maybeSingle();
+        const e = (bp as any)?.email_address;
+        if (e) emails.push(e);
+      }
+    } else if (HIERARCHY_RES_COL[role]) {
+      // In-house hierarchy + broker SD/SDH/SH — all in Salesperson table
+      const personId = (res as any)[HIERARCHY_RES_COL[role]];
+      if (personId) {
+        const { data: sp } = await adminClient.from('Salesperson')
+          .select('"Email Address"').eq('Seller Id', personId).maybeSingle();
+        const e = (sp as any)?.['Email Address'];
+        if (e) emails.push(e);
+      }
+    } else {
+      const roleName = PROFILE_ROLE_MAP[role];
+      if (roleName) {
+        const { data: profiles } = await adminClient
+          .from('profiles')
+          .select('email, access_roles!inner(role_name)')
+          .eq('access_roles.role_name', roleName);
+        (profiles ?? []).forEach((p: any) => { if (p.email) emails.push(p.email); });
+      }
     }
-    // Additional roles (seller, sales_director, etc.) can be added here
   }
-  return emails.filter(Boolean);
+  return [...new Set(emails.filter(Boolean))];
 }
 
 // ── send queued notices ────────────────────────────────────────────────────────
@@ -190,8 +255,8 @@ async function sendQueuedNotices(
         penalty_balance:     fmtCurrency(Number(notice.total_penalty_balance ?? 0)),
       };
 
-      const toEmails = await resolveRecipients(emailCfg.to, notice.client_id);
-      const ccEmails = await resolveRecipients(emailCfg.cc, notice.client_id);
+      const toEmails = await resolveRecipients(emailCfg.to, resData ?? { client_id: notice.client_id });
+      const ccEmails = await resolveRecipients(emailCfg.cc, resData ?? { client_id: notice.client_id });
 
       if (toEmails.length === 0) throw new Error('No recipient email resolved');
 
@@ -245,7 +310,7 @@ async function runAutomation(
   // ── booked reservations ────────────────────────────────────────────────────
   const { data: bookedReservations, error: resErr } = await adminClient
     .from('reservations')
-    .select('reservation_id, client_id, client_name, inventory_code, project')
+    .select('reservation_id, client_id, client_name, inventory_code, project, broker_id, broker_network_associate_id, seller_id, sales_manager_id, sales_director_id, sales_division_head_id, sales_head_id')
     .eq('status', 'Booked');
 
   if (resErr) throw new Error(`Failed to fetch reservations: ${resErr.message}`);
@@ -461,7 +526,7 @@ export async function GET(req: NextRequest) {
   const startMs = Date.now();
 
   const { data: runRow } = await adminClient
-    .from('automation_runs').insert({ triggered_by: 'cron', status: 'running' }).select('id').single();
+    .from('automation_runs').insert({ triggered_by: 'cron', status: 'running', type: 'delinquency' }).select('id').single();
   const runId = (runRow as any)?.id as number | null;
 
   try {
@@ -513,7 +578,7 @@ export async function POST(req: NextRequest) {
     await filter;
 
     const { data: bookedReservations } = await adminClient
-      .from('reservations').select('reservation_id, client_id, client_name, inventory_code, project').eq('status', 'Booked');
+      .from('reservations').select('reservation_id, client_id, client_name, inventory_code, project, broker_id, broker_network_associate_id, seller_id, sales_manager_id, sales_director_id, sales_division_head_id, sales_head_id').eq('status', 'Booked');
     const emailResult = await sendQueuedNotices(policy, bookedReservations ?? []);
     return NextResponse.json({ ok: true, ...emailResult });
   }
@@ -527,7 +592,7 @@ export async function POST(req: NextRequest) {
   // ── full manual run ───────────────────────────────────────────────────────
   const startMs = Date.now();
   const { data: runRow } = await adminClient
-    .from('automation_runs').insert({ triggered_by: 'manual', status: 'running' }).select('id').single();
+    .from('automation_runs').insert({ triggered_by: 'manual', status: 'running', type: 'delinquency' }).select('id').single();
   const runId = (runRow as any)?.id as number | null;
 
   try {

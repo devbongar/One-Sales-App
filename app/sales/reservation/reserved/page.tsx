@@ -85,6 +85,7 @@ export default function ReservedUnitsPage() {
   const [sessionLoaded, setSessionLoaded] = useState(false);
   const [userRole,      setUserRole]      = useState('');
   const [userSellerId,  setUserSellerId]  = useState<string | null>(null);
+  const [userUuid,      setUserUuid]      = useState<string | null>(null);
 
   // Filter options (from DB)
   const [sellerOptions,  setSellerOptions]  = useState<string[]>([]);
@@ -105,6 +106,7 @@ export default function ReservedUnitsPage() {
     getSession().then(s => {
       setUserRole(s?.role_name ?? '');
       setUserSellerId(s?.seller_id ?? null);
+      setUserUuid(s?.id ?? null);
       setSessionLoaded(true);
     });
   }, []);
@@ -134,10 +136,18 @@ export default function ReservedUnitsPage() {
       .or('finance_status.is.null,finance_status.eq.proof-submitted,finance_status.eq.rf-rejected,finance_status.eq.rf-verified')
       .order('created_at', { ascending: false });
 
-    if (userSellerId && !SEE_ALL_ROLES.includes(userRole)) {
-      query = query.or(
-        `seller_id.eq.${userSellerId},sales_manager_id.eq.${userSellerId},sales_director_id.eq.${userSellerId},sales_division_head_id.eq.${userSellerId},sales_head_id.eq.${userSellerId},broker_id.eq.${userSellerId}`
+    if ((userSellerId || userUuid) && !SEE_ALL_ROLES.includes(userRole)) {
+      const parts: string[] = [];
+      if (userSellerId) parts.push(
+        `seller_id.eq.${userSellerId}`,
+        `sales_manager_id.eq.${userSellerId}`,
+        `sales_director_id.eq.${userSellerId}`,
+        `sales_division_head_id.eq.${userSellerId}`,
+        `sales_head_id.eq.${userSellerId}`,
+        `broker_id.eq.${userSellerId}`,
       );
+      if (userUuid) parts.push(`created_by_uuid.eq.${userUuid}`);
+      query = query.or(parts.join(','));
     } else {
       if (sellerFilter) query = query.eq('seller_name', sellerFilter);
     }
@@ -152,7 +162,7 @@ export default function ReservedUnitsPage() {
       setReservations(data as Reservation[]);
       setLoading(false);
     })();
-  }, [sessionLoaded, userRole, userSellerId, sellerFilter, statusFilter, projectFilter]);
+  }, [sessionLoaded, userRole, userSellerId, userUuid, sellerFilter, statusFilter, projectFilter]);
 
   // ── Client-side search filter ──────────────────────────────
   const filtered = search.trim()

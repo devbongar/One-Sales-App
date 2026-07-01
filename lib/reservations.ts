@@ -59,6 +59,8 @@ export interface ReservationPayload {
   sales_division_head_id?: string | null;
   sales_head_id?: string | null;
   broker_id?: string | null;
+  broker_network_associate?: string | null;
+  broker_network_associate_id?: string | null;
   created_by_uuid?: string | null;
   // Seller
   seller_name: string;

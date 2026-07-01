@@ -596,7 +596,8 @@ export default function ExistingClientPage() {
   const visibleClients = !user || SEE_ALL_ROLES.includes(user.role_name ?? '') || !user.seller_id
     ? allClients
     : allClients.filter(c =>
-        [c.seller_id, c.sales_manager_id, c.sales_director_id, c.sales_division_head_id, c.sales_head_id, c.broker_id]
+        [c.seller_id, c.sales_manager_id, c.sales_director_id, c.sales_division_head_id, c.sales_head_id,
+         c.broker_id, c.broker_network_associate_id, c.broker_network_officer_id, c.broker_sales_director_id, c.broker_director_head_id, c.broker_sales_head_id]
           .some(id => id && id === user!.seller_id)
       );
 

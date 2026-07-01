@@ -2623,11 +2623,13 @@ export default function NewReservationPage() {
                     brokerSalesHead: brokerClientInfo?.salesHead ?? '',
                     isBrokerSale: !!brokerClientInfo,
                     // Hierarchy IDs for seller-based filtering
-                    salesManagerId:       sellerRecord?.sales_manager_id       ?? brokerRec?.broker_network_associate_id ?? null,
-                    salesDirectorId:      sellerRecord?.sales_director_id      ?? brokerRec?.broker_network_officer_id   ?? null,
-                    salesDivisionHeadId:  sellerRecord?.sales_division_head_id ?? brokerRec?.sales_director_id           ?? null,
-                    salesHeadId:          sellerRecord?.sales_head_id          ?? brokerRec?.sales_director_head_id      ?? null,
-                    brokerSellerId:       brokerClientInfo?.brokerId ?? null,
+                    salesManagerId:              sellerRecord?.sales_manager_id       ?? brokerRec?.broker_network_officer_id   ?? null,
+                    salesDirectorId:             sellerRecord?.sales_director_id      ?? brokerRec?.sales_director_id           ?? null,
+                    salesDivisionHeadId:         sellerRecord?.sales_division_head_id ?? brokerRec?.sales_director_head_id      ?? null,
+                    salesHeadId:                 sellerRecord?.sales_head_id          ?? brokerRec?.sales_head_id               ?? null,
+                    brokerSellerId:              brokerClientInfo?.brokerId ?? null,
+                    brokerNetworkAssociate:      brokerRec?.broker_network_associate    ?? null,
+                    brokerNetworkAssociateId:    brokerRec?.broker_network_associate_id ?? null,
                     firstPaymentAgreed,
                     quotationId: quotationPrefillRef.current?.quotationId ?? null,
                   }));
