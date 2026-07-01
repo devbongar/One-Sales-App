@@ -971,7 +971,13 @@ export default function SettingsPage() {
                 onClick={async () => {
                   setGeneratingPenalties(true);
                   try {
-                    await supabase.rpc('generate_penalty_lines', { p_as_of_date: delinquency1stDate });
+                    const { data, error } = await supabase.rpc('generate_penalty_lines', { p_as_of_date: delinquency1stDate });
+                    if (error) {
+                      console.error('generate_penalty_lines error:', JSON.stringify(error));
+                      alert(`Penalty generation failed: ${error.message}\n\nCode: ${error.code}\nDetails: ${error.details}`);
+                      return;
+                    }
+                    console.log('generate_penalty_lines result:', data);
                   } finally {
                     setGeneratingPenalties(false);
                   }
