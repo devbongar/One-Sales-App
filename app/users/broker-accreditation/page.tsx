@@ -13,9 +13,33 @@ import {
   fetchAllBrokerRecruits, addBrokerRecruit, updateBrokerRecruit, BrokerRecruitRecord,
   generateNextBrokerId, fetchBrokerSignature, updateBrokerSignature,
 } from '@/lib/brokers';
-import { fetchAllBrokers, BrokerRecord } from '@/lib/brokers';
+import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
 import { fetchDropdownOptions } from '@/lib/admin';
+import { supabase } from '@/lib/supabase';
 import SavingOverlay from '@/components/ui/SavingOverlay';
+
+// ─── Broker Personnel ─────────────────────────────────────────────────────────
+
+interface BrokerPersonnelEntry {
+  personnel_id:           string | null;
+  full_name:              string;
+  position_rank:          string | null;
+  bno_name:               string | null;
+  sales_director:         string | null;
+  sales_director_id:      string | null;
+  sales_division_head:    string | null;
+  sales_division_head_id: string | null;
+  sales_head:             string | null;
+  sales_head_id:          string | null;
+}
+
+async function fetchBrokerPersonnelList(): Promise<BrokerPersonnelEntry[]> {
+  const { data } = await supabase
+    .from('broker_personnel')
+    .select('personnel_id,full_name,position_rank,bno_name,sales_director,sales_director_id,sales_division_head,sales_division_head_id,sales_head,sales_head_id')
+    .order('full_name');
+  return (data ?? []) as BrokerPersonnelEntry[];
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -150,12 +174,13 @@ function DetailSheet({ broker, onClose, onSaved, businessUnits }: {
   const sigLastPos   = useRef<{ x: number; y: number } | null>(null);
   const sigFileRef   = useRef<HTMLInputElement>(null);
 
-  const [allPeople,   setAllPeople]   = useState<BrokerRecord[]>([]);
-  const [psOptions,   setPsOptions]   = useState<string[]>([]);
-  const [smOptions,   setSmOptions]   = useState<string[]>([]);
-  const [sdOptions,   setSdOptions]   = useState<string[]>([]);
-  const [sdhOptions,  setSdhOptions]  = useState<string[]>([]);
-  const [shOptions,   setShOptions]   = useState<string[]>([]);
+  const [bpList,       setBpList]       = useState<BrokerPersonnelEntry[]>([]);
+  const [salespersons, setSalespersons] = useState<SalespersonRecord[]>([]);
+  const [bnaOptions,   setBnaOptions]   = useState<string[]>([]);
+  const [bnoOptions,   setBnoOptions]   = useState<string[]>([]);
+  const [sdOptions,    setSdOptions]    = useState<string[]>([]);
+  const [sdhOptions,   setSdhOptions]   = useState<string[]>([]);
+  const [shOptions,    setShOptions]    = useState<string[]>([]);
   const [cascadeSource, setCascadeSource] = useState<'associate' | 'officer' | 'sd' | 'sdh' | null>(() =>
     broker.broker_network_associate ? 'associate' :
     broker.broker_network_officer   ? 'officer'   :
@@ -164,13 +189,16 @@ function DetailSheet({ broker, onClose, onSaved, businessUnits }: {
   );
 
   useEffect(() => {
-    fetchAllBrokers().then(people => {
-      setAllPeople(people);
-      setPsOptions( people.filter(p => p.position_rank === 'PS' ).map(p => p.full_name ?? '').filter(Boolean));
-      setSmOptions( people.filter(p => p.position_rank === 'SM' ).map(p => p.full_name ?? '').filter(Boolean));
-      setSdOptions( people.filter(p => p.position_rank === 'SD' ).map(p => p.full_name ?? '').filter(Boolean));
-      setSdhOptions(people.filter(p => p.position_rank === 'SDH').map(p => p.full_name ?? '').filter(Boolean));
-      setShOptions( people.filter(p => p.position_rank === 'SH' ).map(p => p.full_name ?? '').filter(Boolean));
+    fetchBrokerPersonnelList().then(bp => {
+      setBpList(bp);
+      setBnaOptions(bp.filter(p => p.position_rank === 'BNA').map(p => p.full_name));
+      setBnoOptions(bp.filter(p => p.position_rank === 'BNO').map(p => p.full_name));
+    }).catch(() => {});
+    fetchAllSalespersons().then(sp => {
+      setSalespersons(sp);
+      setSdOptions( sp.filter(p => p.position_rank === 'SD' ).map(p => p.seller_name));
+      setSdhOptions(sp.filter(p => p.position_rank === 'SDH').map(p => p.seller_name));
+      setShOptions( sp.filter(p => p.position_rank === 'SH' ).map(p => p.seller_name));
     }).catch(() => {});
     if (broker.broker_id) {
       fetchBrokerSignature(broker.broker_id).then(sig => { if (sig) setSigPreview(sig); }).catch(() => {});
@@ -218,47 +246,48 @@ function DetailSheet({ broker, onClose, onSaved, businessUnits }: {
   }
 
   function onAssociateChange(name: string) {
-    const rec = name ? allPeople.find(p => p.full_name === name) : null;
+    const rec = name ? bpList.find(p => p.full_name === name && p.position_rank === 'BNA') : null;
+    const bno = rec?.bno_name ? bpList.find(p => p.full_name === rec.bno_name && p.position_rank === 'BNO') : null;
     setForm(f => ({
       ...f,
       broker_network_associate:    name || null,
-      broker_network_associate_id: rec?.broker_id                ?? null,
-      broker_network_officer:      rec?.broker_network_officer   ?? null,
-      broker_network_officer_id:   rec?.broker_network_officer_id ?? null,
-      sales_director:              rec?.sales_director           ?? null,
-      sales_director_id:           rec?.sales_director_id        ?? null,
-      sales_director_head:         rec?.sales_director_head      ?? null,
-      sales_director_head_id:      rec?.sales_director_head_id   ?? null,
-      sales_head:                  rec?.sales_head               ?? null,
-      sales_head_id:               rec?.sales_head_id            ?? null,
+      broker_network_associate_id: rec?.personnel_id           ?? null,
+      broker_network_officer:      rec?.bno_name               ?? null,
+      broker_network_officer_id:   bno?.personnel_id           ?? null,
+      sales_director:              rec?.sales_director         ?? null,
+      sales_director_id:           rec?.sales_director_id      ?? null,
+      sales_director_head:         rec?.sales_division_head    ?? null,
+      sales_director_head_id:      rec?.sales_division_head_id ?? null,
+      sales_head:                  rec?.sales_head             ?? null,
+      sales_head_id:               rec?.sales_head_id          ?? null,
     }));
     setCascadeSource(name ? 'associate' : null);
   }
 
   function onOfficerChange(name: string) {
-    const rec = name ? allPeople.find(p => p.full_name === name) : null;
+    const rec = name ? bpList.find(p => p.full_name === name && p.position_rank === 'BNO') : null;
     setForm(f => ({
       ...f,
       broker_network_officer:    name || null,
-      broker_network_officer_id: rec?.broker_id            ?? null,
-      sales_director:            rec?.sales_director       ?? null,
-      sales_director_id:         rec?.sales_director_id    ?? null,
-      sales_director_head:       rec?.sales_director_head  ?? null,
-      sales_director_head_id:    rec?.sales_director_head_id ?? null,
-      sales_head:                rec?.sales_head           ?? null,
-      sales_head_id:             rec?.sales_head_id        ?? null,
+      broker_network_officer_id: rec?.personnel_id           ?? null,
+      sales_director:            rec?.sales_director         ?? null,
+      sales_director_id:         rec?.sales_director_id      ?? null,
+      sales_director_head:       rec?.sales_division_head    ?? null,
+      sales_director_head_id:    rec?.sales_division_head_id ?? null,
+      sales_head:                rec?.sales_head             ?? null,
+      sales_head_id:             rec?.sales_head_id          ?? null,
     }));
     setCascadeSource(name ? 'officer' : null);
   }
 
   function onSdChange(name: string) {
-    const rec = name ? allPeople.find(p => p.full_name === name) : null;
+    const rec = name ? salespersons.find(p => p.seller_name === name && p.position_rank === 'SD') : null;
     setForm(f => ({
       ...f,
       sales_director:         name || null,
-      sales_director_id:      rec?.broker_id              ?? null,
-      sales_director_head:    rec?.sales_director_head    ?? null,
-      sales_director_head_id: rec?.sales_director_head_id ?? null,
+      sales_director_id:      rec?.seller_id              ?? null,
+      sales_director_head:    rec?.sales_division_head    ?? null,
+      sales_director_head_id: rec?.sales_division_head_id ?? null,
       sales_head:             rec?.sales_head             ?? null,
       sales_head_id:          rec?.sales_head_id          ?? null,
     }));
@@ -266,26 +295,26 @@ function DetailSheet({ broker, onClose, onSaved, businessUnits }: {
   }
 
   function onSdhChange(name: string) {
-    const rec = name ? allPeople.find(p => p.full_name === name) : null;
+    const rec = name ? salespersons.find(p => p.seller_name === name && p.position_rank === 'SDH') : null;
     setForm(f => ({
       ...f,
       sales_director_head:    name || null,
-      sales_director_head_id: rec?.broker_id    ?? null,
-      sales_head:             rec?.sales_head   ?? null,
+      sales_director_head_id: rec?.seller_id     ?? null,
+      sales_head:             rec?.sales_head    ?? null,
       sales_head_id:          rec?.sales_head_id ?? null,
     }));
     setCascadeSource(name ? 'sdh' : null);
   }
 
   const filteredSdhOptions = (cascadeSource === null && form.sales_head)
-    ? allPeople.filter(p => p.position_rank === 'SDH' && p.sales_head === form.sales_head).map(p => p.full_name ?? '')
+    ? salespersons.filter(p => p.position_rank === 'SDH' && p.sales_head === form.sales_head).map(p => p.seller_name)
     : sdhOptions;
   const filteredSdOptions = (['associate', 'officer'].includes(cascadeSource ?? '') || !form.sales_director_head)
     ? sdOptions
-    : allPeople.filter(p => p.position_rank === 'SD' && p.sales_director_head === form.sales_director_head).map(p => p.full_name ?? '');
-  const filteredSmOptions = (cascadeSource === 'associate' || !form.sales_director)
-    ? smOptions
-    : allPeople.filter(p => p.position_rank === 'SM' && p.sales_director === form.sales_director).map(p => p.full_name ?? '');
+    : salespersons.filter(p => p.position_rank === 'SD' && p.sales_division_head === form.sales_director_head).map(p => p.seller_name);
+  const filteredBnoOptions = (cascadeSource === 'associate' || !form.sales_director)
+    ? bnoOptions
+    : bpList.filter(p => p.position_rank === 'BNO' && p.sales_director === form.sales_director).map(p => p.full_name);
 
   const initials = (form.full_name ?? '').split(' ').filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase();
   const set = (key: keyof BrokerRecruitRecord) => (val: string) =>
@@ -447,10 +476,10 @@ function DetailSheet({ broker, onClose, onSaved, businessUnits }: {
             {/* Broker Hierarchy */}
             <SectionCard title="Broker Hierarchy">
               <ERow label="Broker Network Associate" icon={<Users size={10} />}>
-                <ESelect value={form.broker_network_associate ?? ''} options={psOptions} onChange={onAssociateChange} disabled={!editMode} />
+                <ESelect value={form.broker_network_associate ?? ''} options={bnaOptions} onChange={onAssociateChange} disabled={!editMode} />
               </ERow>
               <ERow label="Broker Network Officer" icon={<Users size={10} />}>
-                <ESelect value={form.broker_network_officer ?? ''} options={filteredSmOptions} onChange={onOfficerChange} disabled={!editMode || cascadeSource === 'associate'} />
+                <ESelect value={form.broker_network_officer ?? ''} options={filteredBnoOptions} onChange={onOfficerChange} disabled={!editMode || cascadeSource === 'associate'} />
               </ERow>
               <ERow label="Sales Director" icon={<User size={10} />}>
                 <ESelect value={form.sales_director ?? ''} options={filteredSdOptions} onChange={onSdChange} disabled={!editMode || cascadeSource === 'associate' || cascadeSource === 'officer'} />
@@ -460,8 +489,8 @@ function DetailSheet({ broker, onClose, onSaved, businessUnits }: {
               </ERow>
               <ERow label="Sales Head" icon={<User size={10} />}>
                 <ESelect value={form.sales_head ?? ''} options={shOptions} onChange={v => {
-                  const p = v ? allPeople.find(x => x.full_name === v) : null;
-                  setForm(f => ({ ...f, sales_head: v || null, sales_head_id: p?.broker_id ?? null }));
+                  const p = v ? salespersons.find(x => x.seller_name === v) : null;
+                  setForm(f => ({ ...f, sales_head: v || null, sales_head_id: p?.seller_id ?? null }));
                 }} disabled={!editMode || cascadeSource !== null} />
               </ERow>
             </SectionCard>
@@ -590,22 +619,26 @@ function AddSheet({ onClose, onAdded, businessUnits }: {
   const sigLastPos   = useRef<{ x: number; y: number } | null>(null);
   const sigFileRef   = useRef<HTMLInputElement>(null);
 
-  const [allPeople,   setAllPeople]   = useState<BrokerRecord[]>([]);
-  const [psOptions,   setPsOptions]   = useState<string[]>([]);
-  const [smOptions,   setSmOptions]   = useState<string[]>([]);
-  const [sdOptions,   setSdOptions]   = useState<string[]>([]);
-  const [sdhOptions,  setSdhOptions]  = useState<string[]>([]);
-  const [shOptions,   setShOptions]   = useState<string[]>([]);
+  const [bpList,       setBpList]       = useState<BrokerPersonnelEntry[]>([]);
+  const [salespersons, setSalespersons] = useState<SalespersonRecord[]>([]);
+  const [bnaOptions,   setBnaOptions]   = useState<string[]>([]);
+  const [bnoOptions,   setBnoOptions]   = useState<string[]>([]);
+  const [sdOptions,    setSdOptions]    = useState<string[]>([]);
+  const [sdhOptions,   setSdhOptions]   = useState<string[]>([]);
+  const [shOptions,    setShOptions]    = useState<string[]>([]);
   const [cascadeSource, setCascadeSource] = useState<'associate' | 'officer' | 'sd' | 'sdh' | null>(null);
 
   useEffect(() => {
-    fetchAllBrokers().then(people => {
-      setAllPeople(people);
-      setPsOptions( people.filter(p => p.position_rank === 'PS' ).map(p => p.full_name ?? '').filter(Boolean));
-      setSmOptions( people.filter(p => p.position_rank === 'SM' ).map(p => p.full_name ?? '').filter(Boolean));
-      setSdOptions( people.filter(p => p.position_rank === 'SD' ).map(p => p.full_name ?? '').filter(Boolean));
-      setSdhOptions(people.filter(p => p.position_rank === 'SDH').map(p => p.full_name ?? '').filter(Boolean));
-      setShOptions( people.filter(p => p.position_rank === 'SH' ).map(p => p.full_name ?? '').filter(Boolean));
+    fetchBrokerPersonnelList().then(bp => {
+      setBpList(bp);
+      setBnaOptions(bp.filter(p => p.position_rank === 'BNA').map(p => p.full_name));
+      setBnoOptions(bp.filter(p => p.position_rank === 'BNO').map(p => p.full_name));
+    }).catch(() => {});
+    fetchAllSalespersons().then(sp => {
+      setSalespersons(sp);
+      setSdOptions( sp.filter(p => p.position_rank === 'SD' ).map(p => p.seller_name));
+      setSdhOptions(sp.filter(p => p.position_rank === 'SDH').map(p => p.seller_name));
+      setShOptions( sp.filter(p => p.position_rank === 'SH' ).map(p => p.seller_name));
     }).catch(() => {});
     generateNextBrokerId().then(id => setForm(f => ({ ...f, broker_id: id }))).catch(() => {});
   }, []);
@@ -651,47 +684,48 @@ function AddSheet({ onClose, onAdded, businessUnits }: {
   }
 
   function onAssociateChange(name: string) {
-    const rec = name ? allPeople.find(p => p.full_name === name) : null;
+    const rec = name ? bpList.find(p => p.full_name === name && p.position_rank === 'BNA') : null;
+    const bno = rec?.bno_name ? bpList.find(p => p.full_name === rec.bno_name && p.position_rank === 'BNO') : null;
     setForm(f => ({
       ...f,
       broker_network_associate:    name || null,
-      broker_network_associate_id: rec?.broker_id                ?? null,
-      broker_network_officer:      rec?.broker_network_officer   ?? null,
-      broker_network_officer_id:   rec?.broker_network_officer_id ?? null,
-      sales_director:              rec?.sales_director           ?? null,
-      sales_director_id:           rec?.sales_director_id        ?? null,
-      sales_director_head:         rec?.sales_director_head      ?? null,
-      sales_director_head_id:      rec?.sales_director_head_id   ?? null,
-      sales_head:                  rec?.sales_head               ?? null,
-      sales_head_id:               rec?.sales_head_id            ?? null,
+      broker_network_associate_id: rec?.personnel_id           ?? null,
+      broker_network_officer:      rec?.bno_name               ?? null,
+      broker_network_officer_id:   bno?.personnel_id           ?? null,
+      sales_director:              rec?.sales_director         ?? null,
+      sales_director_id:           rec?.sales_director_id      ?? null,
+      sales_director_head:         rec?.sales_division_head    ?? null,
+      sales_director_head_id:      rec?.sales_division_head_id ?? null,
+      sales_head:                  rec?.sales_head             ?? null,
+      sales_head_id:               rec?.sales_head_id          ?? null,
     }));
     setCascadeSource(name ? 'associate' : null);
   }
 
   function onOfficerChange(name: string) {
-    const rec = name ? allPeople.find(p => p.full_name === name) : null;
+    const rec = name ? bpList.find(p => p.full_name === name && p.position_rank === 'BNO') : null;
     setForm(f => ({
       ...f,
       broker_network_officer:    name || null,
-      broker_network_officer_id: rec?.broker_id            ?? null,
-      sales_director:            rec?.sales_director       ?? null,
-      sales_director_id:         rec?.sales_director_id    ?? null,
-      sales_director_head:       rec?.sales_director_head  ?? null,
-      sales_director_head_id:    rec?.sales_director_head_id ?? null,
-      sales_head:                rec?.sales_head           ?? null,
-      sales_head_id:             rec?.sales_head_id        ?? null,
+      broker_network_officer_id: rec?.personnel_id           ?? null,
+      sales_director:            rec?.sales_director         ?? null,
+      sales_director_id:         rec?.sales_director_id      ?? null,
+      sales_director_head:       rec?.sales_division_head    ?? null,
+      sales_director_head_id:    rec?.sales_division_head_id ?? null,
+      sales_head:                rec?.sales_head             ?? null,
+      sales_head_id:             rec?.sales_head_id          ?? null,
     }));
     setCascadeSource(name ? 'officer' : null);
   }
 
   function onSdChange(name: string) {
-    const rec = name ? allPeople.find(p => p.full_name === name) : null;
+    const rec = name ? salespersons.find(p => p.seller_name === name && p.position_rank === 'SD') : null;
     setForm(f => ({
       ...f,
       sales_director:         name || null,
-      sales_director_id:      rec?.broker_id              ?? null,
-      sales_director_head:    rec?.sales_director_head    ?? null,
-      sales_director_head_id: rec?.sales_director_head_id ?? null,
+      sales_director_id:      rec?.seller_id              ?? null,
+      sales_director_head:    rec?.sales_division_head    ?? null,
+      sales_director_head_id: rec?.sales_division_head_id ?? null,
       sales_head:             rec?.sales_head             ?? null,
       sales_head_id:          rec?.sales_head_id          ?? null,
     }));
@@ -699,12 +733,12 @@ function AddSheet({ onClose, onAdded, businessUnits }: {
   }
 
   function onSdhChange(name: string) {
-    const rec = name ? allPeople.find(p => p.full_name === name) : null;
+    const rec = name ? salespersons.find(p => p.seller_name === name && p.position_rank === 'SDH') : null;
     setForm(f => ({
       ...f,
       sales_director_head:    name || null,
-      sales_director_head_id: rec?.broker_id    ?? null,
-      sales_head:             rec?.sales_head   ?? null,
+      sales_director_head_id: rec?.seller_id     ?? null,
+      sales_head:             rec?.sales_head    ?? null,
       sales_head_id:          rec?.sales_head_id ?? null,
     }));
     setCascadeSource(name ? 'sdh' : null);
@@ -714,14 +748,14 @@ function AddSheet({ onClose, onAdded, businessUnits }: {
     setForm(f => ({ ...f, [key]: val || null }));
 
   const filteredSdhOptions = (cascadeSource === null && form.sales_head)
-    ? allPeople.filter(p => p.position_rank === 'SDH' && p.sales_head === form.sales_head).map(p => p.full_name ?? '')
+    ? salespersons.filter(p => p.position_rank === 'SDH' && p.sales_head === form.sales_head).map(p => p.seller_name)
     : sdhOptions;
   const filteredSdOptions = (['associate', 'officer'].includes(cascadeSource ?? '') || !form.sales_director_head)
     ? sdOptions
-    : allPeople.filter(p => p.position_rank === 'SD' && p.sales_director_head === form.sales_director_head).map(p => p.full_name ?? '');
-  const filteredSmOptions = (cascadeSource === 'associate' || !form.sales_director)
-    ? smOptions
-    : allPeople.filter(p => p.position_rank === 'SM' && p.sales_director === form.sales_director).map(p => p.full_name ?? '');
+    : salespersons.filter(p => p.position_rank === 'SD' && p.sales_division_head === form.sales_director_head).map(p => p.seller_name);
+  const filteredBnoOptions = (cascadeSource === 'associate' || !form.sales_director)
+    ? bnoOptions
+    : bpList.filter(p => p.position_rank === 'BNO' && p.sales_director === form.sales_director).map(p => p.full_name);
 
   const displayName = [form.first_name, form.middle_name, form.last_name].filter(Boolean).join(' ');
   const initials = displayName.split(' ').filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase();
@@ -841,10 +875,10 @@ function AddSheet({ onClose, onAdded, businessUnits }: {
             {/* Broker Hierarchy */}
             <SectionCard title="Broker Hierarchy">
               <ERow label="Broker Network Associate" icon={<Users size={10} />}>
-                <ESelect value={form.broker_network_associate ?? ''} options={psOptions} onChange={onAssociateChange} />
+                <ESelect value={form.broker_network_associate ?? ''} options={bnaOptions} onChange={onAssociateChange} />
               </ERow>
               <ERow label="Broker Network Officer" icon={<Users size={10} />}>
-                <ESelect value={form.broker_network_officer ?? ''} options={filteredSmOptions} onChange={onOfficerChange} disabled={cascadeSource === 'associate'} />
+                <ESelect value={form.broker_network_officer ?? ''} options={filteredBnoOptions} onChange={onOfficerChange} disabled={cascadeSource === 'associate'} />
               </ERow>
               <ERow label="Sales Director" icon={<User size={10} />}>
                 <ESelect value={form.sales_director ?? ''} options={filteredSdOptions} onChange={onSdChange} disabled={cascadeSource === 'associate' || cascadeSource === 'officer'} />
@@ -854,8 +888,8 @@ function AddSheet({ onClose, onAdded, businessUnits }: {
               </ERow>
               <ERow label="Sales Head" icon={<User size={10} />}>
                 <ESelect value={form.sales_head ?? ''} options={shOptions} onChange={v => {
-                  const p = v ? allPeople.find(x => x.full_name === v) : null;
-                  setForm(f => ({ ...f, sales_head: v || null, sales_head_id: p?.broker_id ?? null }));
+                  const p = v ? salespersons.find(x => x.seller_name === v) : null;
+                  setForm(f => ({ ...f, sales_head: v || null, sales_head_id: p?.seller_id ?? null }));
                 }} disabled={cascadeSource !== null} />
               </ERow>
             </SectionCard>
