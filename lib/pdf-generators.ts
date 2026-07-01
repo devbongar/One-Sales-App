@@ -1954,12 +1954,10 @@ export async function generateDelinquency1stNotice(reservationId: string | null)
   if (res?.client_id) {
     const { data: clientRow } = await supabase
       .from('clients').select('id').eq('client_id', res.client_id).maybeSingle();
-    if (clientRow?.id) {
-      const bi = await fetchBuyerInfo(clientRow.id).catch(() => null);
-      if (bi) {
-        mailingAddress = [bi.home_street, bi.home_barangay, bi.home_city_municipality, bi.home_region_province]
-          .filter(Boolean).join(', ');
-      }
+    const bi = clientRow?.id ? await fetchBuyerInfo(clientRow.id).catch(() => null) : null;
+    if (bi) {
+      mailingAddress = [bi.home_street, bi.home_barangay, bi.home_city_municipality, bi.home_region_province]
+        .filter(Boolean).join(', ');
     }
   }
 
@@ -2019,8 +2017,9 @@ export async function generateDelinquency1stNotice(reservationId: string | null)
 
   // ── Property info ───────────────────────────────────────────────────────────
   const propRows: [string, string][] = [
-    ['Project',        res?.project ?? '—'],
-    ['Tower / Block',  res?.tower   ?? '—'],
+    ['Client ID',      res?.client_id      ?? '—'],
+    ['Project',        res?.project        ?? '—'],
+    ['Tower / Block',  res?.tower          ?? '—'],
     ['Unit',           res?.inventory_code ?? '—'],
     ['Payment Scheme', res?.payment_scheme ?? '—'],
   ];
