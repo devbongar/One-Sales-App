@@ -2092,7 +2092,7 @@ export async function generateDelinquency1stNotice(reservationId: string | null,
     doc.setTextColor(28, 28, 30);
     doc.text(fmtD(p.original_due_date),               cols[0].x + cols[0].w / 2, y + 4, { align: 'center' });
     doc.text(String(p.days_overdue ?? 0),              cols[1].x + cols[1].w / 2, y + 4, { align: 'center' });
-    doc.text((((p.daily_rate ?? 0) * 100).toFixed(3)) + '%', cols[2].x + cols[2].w / 2, y + 4, { align: 'center' });
+    doc.text((((p.daily_rate ?? 0) * 100).toFixed(2)) + '%', cols[2].x + cols[2].w / 2, y + 4, { align: 'center' });
     doc.text(fmtN(p.principal_basis ?? 0),             cols[3].x + cols[3].w,     y + 4, { align: 'right' });
     doc.text(fmtN(p.penalty_amount  ?? 0),             cols[4].x + cols[4].w,     y + 4, { align: 'right' });
     doc.text(p.payment_status ?? '—',                  cols[5].x + cols[5].w / 2, y + 4, { align: 'center' });
@@ -2124,7 +2124,7 @@ export async function generateDelinquency1stNotice(reservationId: string | null,
   doc.setFontSize(6.5);
   doc.setTextColor(100, 100, 105);
   doc.text(
-    `* Daily rate of ${(((penalties[0]?.daily_rate ?? 0.001) * 100)).toFixed(3)}% applies to the principal basis per overdue installment. ` +
+    `* Daily rate of ${(((penalties[0]?.daily_rate ?? 0.001) * 100)).toFixed(2)}% applies to the principal basis per overdue installment. ` +
     `Penalty amount = Principal Basis × Days Overdue × Daily Rate.`,
     L, y
   );
