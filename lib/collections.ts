@@ -311,6 +311,9 @@ export async function postCollection(
         dp_acknowledgement_receipt_no: orNo,
         dp_sales_invoice_no:           siNo,
       }).eq('reservation_id', reservationId);
+      generateCommissionSchedule(reservationId).catch(e =>
+        console.error('[commission] collection-posting dp stamp failed:', e)
+      );
     }
   }
 }
