@@ -62,12 +62,13 @@ interface ReviewBooking {
   additional_proof_of_income_urls:   string | null;
   signed_floor_layout_urls:          string | null;
   proof_of_valid_id_urls:            string | null;
-  co_owner_id_urls:      string[] | null;
-  atty_in_fact_id_urls:  string[] | null;
-  spouse_id_urls:        string[] | null;
-  has_co_ownership:      boolean | null;
-  has_atty_in_fact:      boolean | null;
-  has_spouse:            boolean | null;
+  co_owner_id_urls:        string[] | null;
+  atty_in_fact_id_urls:   string[] | null;
+  spouse_id_urls:         string[] | null;
+  co_owner_spouse_id_urls: string | null;
+  has_co_ownership:       boolean | null;
+  has_atty_in_fact:       boolean | null;
+  has_spouse:             boolean | null;
   signature_base64:      string | null;
   created_at:            string | null;
 }
@@ -435,6 +436,7 @@ export default function DirectorReviewPage() {
         <DocCard label="Signed Floor Layout"        urls={parseJson(booking.signed_floor_layout_urls)} onFileOpen={url => openFile(url, fileName(url))} />
         <DocCard label="Buyer Valid ID"             urls={parseJson(booking.proof_of_valid_id_urls)} onFileOpen={url => openFile(url, fileName(url))} />
         {booking.has_co_ownership  && <DocCard label="Co-Owner Valid ID"         urls={booking.co_owner_id_urls ?? []} onFileOpen={url => openFile(url, fileName(url))} />}
+        {booking.has_co_ownership && parseJson(booking.co_owner_spouse_id_urls).length > 0 && <DocCard label="Co-Owner Spouse Valid ID" urls={parseJson(booking.co_owner_spouse_id_urls)} onFileOpen={url => openFile(url, fileName(url))} />}
         {booking.has_spouse        && <DocCard label="Spouse Valid ID"           urls={booking.spouse_id_urls ?? []} onFileOpen={url => openFile(url, fileName(url))} />}
         {booking.has_atty_in_fact  && <DocCard label="Attorney in Fact Valid ID" urls={booking.atty_in_fact_id_urls ?? []} onFileOpen={url => openFile(url, fileName(url))} />}
 

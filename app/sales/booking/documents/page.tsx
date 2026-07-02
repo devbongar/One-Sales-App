@@ -139,6 +139,7 @@ export default function BookingDocumentsPage() {
   const [hasAttyInFact,    setHasAttyInFact]    = useState(false);
   const [hasSpouse,        setHasSpouse]        = useState(false);
   const [coOwnerIsSpouse,  setCoOwnerIsSpouse]  = useState(false);
+  const [coOwnerIsMarried, setCoOwnerIsMarried] = useState(false);
   const [isSaved,          setIsSaved]          = useState(false);
   const [loading,          setLoading]          = useState(true);
 
@@ -157,12 +158,14 @@ export default function BookingDocumentsPage() {
   const [uploadingFloorLayout,      setUploadingFloorLayout]      = useState(false);
 
   // Conditional ID docs
-  const [coOwnerFiles,    setCoOwnerFiles]    = useState<DocFile[]>([]);
-  const [attyFiles,       setAttyFiles]       = useState<DocFile[]>([]);
-  const [spouseFiles,     setSpouseFiles]     = useState<DocFile[]>([]);
-  const [uploadingCo,     setUploadingCo]     = useState(false);
-  const [uploadingAtty,   setUploadingAtty]   = useState(false);
-  const [uploadingSpouse, setUploadingSpouse] = useState(false);
+  const [coOwnerFiles,         setCoOwnerFiles]         = useState<DocFile[]>([]);
+  const [attyFiles,            setAttyFiles]            = useState<DocFile[]>([]);
+  const [spouseFiles,          setSpouseFiles]          = useState<DocFile[]>([]);
+  const [coOwnerSpouseFiles,   setCoOwnerSpouseFiles]   = useState<DocFile[]>([]);
+  const [uploadingCo,          setUploadingCo]          = useState(false);
+  const [uploadingAtty,        setUploadingAtty]        = useState(false);
+  const [uploadingSpouse,      setUploadingSpouse]      = useState(false);
+  const [uploadingCoSpouse,    setUploadingCoSpouse]    = useState(false);
 
   const [isSaving,         setIsSaving]         = useState(false);
   const [showDoneModal,    setShowDoneModal]     = useState(false);
@@ -180,6 +183,7 @@ export default function BookingDocumentsPage() {
   const coInputRef            = useRef<HTMLInputElement>(null);
   const attyInputRef          = useRef<HTMLInputElement>(null);
   const spouseInputRef        = useRef<HTMLInputElement>(null);
+  const coSpouseInputRef      = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const raw = sessionStorage.getItem('selectedReservation');
@@ -195,6 +199,7 @@ export default function BookingDocumentsPage() {
           setHasAttyInFact(p.has_atty_in_fact);
           setHasSpouse(p.has_spouse);
           setCoOwnerIsSpouse(p.co_owner_is_spouse);
+          setCoOwnerIsMarried(p.co_owner_is_married);
           const lockedStatuses = ['submitted', 'director-approved', 'amd-approved'];
           setIsSaved(p.documents_saved && lockedStatuses.includes(p.booking_review_status ?? ''));
 
@@ -206,6 +211,7 @@ export default function BookingDocumentsPage() {
           setCoOwnerFiles((docs.co_owner_id_urls ?? []).map(toDocFile));
           setAttyFiles((docs.atty_in_fact_id_urls ?? []).map(toDocFile));
           setSpouseFiles((docs.spouse_id_urls ?? []).map(toDocFile));
+          setCoOwnerSpouseFiles((docs.co_owner_spouse_id_urls ?? []).map(toDocFile));
 
           // Load billing, income, and optional docs from reservations table
           const { data: resData } = await supabase
@@ -270,6 +276,7 @@ export default function BookingDocumentsPage() {
         coOwnerFiles.map(f => f.url),
         attyFiles.map(f => f.url),
         spouseFiles.map(f => f.url),
+        coOwnerSpouseFiles.map(f => f.url),
       );
       await supabase
         .from('reservations')
@@ -291,13 +298,15 @@ export default function BookingDocumentsPage() {
     }
   }
 
-  const needsSpouseId     = hasSpouse && !coOwnerIsSpouse;
-  const hasAnyConditional = hasCoOwnership || hasAttyInFact || needsSpouseId;
+  const needsSpouseId        = hasSpouse && !coOwnerIsSpouse;
+  const needsCoOwnerSpouseId = hasCoOwnership && coOwnerIsMarried;
+  const hasAnyConditional    = hasCoOwnership || hasAttyInFact || needsSpouseId || needsCoOwnerSpouseId;
 
   const canSave = billingFiles.length > 0 && incomeFiles.length > 0
-    && (!hasCoOwnership || coOwnerFiles.length > 0)
-    && (!hasAttyInFact  || attyFiles.length > 0)
-    && (!needsSpouseId  || spouseFiles.length > 0);
+    && (!hasCoOwnership        || coOwnerFiles.length > 0)
+    && (!hasAttyInFact         || attyFiles.length > 0)
+    && (!needsSpouseId         || spouseFiles.length > 0)
+    && (!needsCoOwnerSpouseId  || coOwnerSpouseFiles.length > 0);
 
   return (
     <>
@@ -367,6 +376,26 @@ export default function BookingDocumentsPage() {
                   onChange={e => {
                     const file = e.target.files?.[0];
                     if (file) handleFileUpload(file, 'co-owner-id', setCoOwnerFiles, setUploadingCo);
+                    e.target.value = '';
+                  }} />
+              </>
+            )}
+
+            {needsCoOwnerSpouseId && (
+              <>
+                <DocSection
+                  label="Co-Owner Spouse Valid ID"
+                  files={coOwnerSpouseFiles}
+                  onAdd={() => coSpouseInputRef.current?.click()}
+                  onRemove={idx => handleRemove(idx, coOwnerSpouseFiles, setCoOwnerSpouseFiles)}
+                  onPreview={idx => openPreview(coOwnerSpouseFiles, idx)}
+                  uploading={uploadingCoSpouse}
+                  disabled={isSaved}
+                />
+                <input ref={coSpouseInputRef} type="file" accept="image/*,.pdf" className="hidden"
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) handleFileUpload(file, 'co-owner-spouse-id', setCoOwnerSpouseFiles, setUploadingCoSpouse);
                     e.target.value = '';
                   }} />
               </>

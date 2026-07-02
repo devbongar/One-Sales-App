@@ -1,9 +1,10 @@
 import { supabase } from '@/lib/supabase';
 
 export interface BookingDocuments {
-  co_owner_id_urls:     string[];
-  atty_in_fact_id_urls: string[];
-  spouse_id_urls:       string[];
+  co_owner_id_urls:        string[];
+  atty_in_fact_id_urls:    string[];
+  spouse_id_urls:          string[];
+  co_owner_spouse_id_urls: string[];
 }
 
 export async function fetchBookingDocuments(reservationId: string): Promise<BookingDocuments> {
@@ -11,7 +12,10 @@ export async function fetchBookingDocuments(reservationId: string): Promise<Book
     p_reservation_id: reservationId,
   });
   if (error) throw error;
-  return (data as BookingDocuments) ?? { co_owner_id_urls: [], atty_in_fact_id_urls: [], spouse_id_urls: [] };
+  return (data as BookingDocuments) ?? {
+    co_owner_id_urls: [], atty_in_fact_id_urls: [],
+    spouse_id_urls: [], co_owner_spouse_id_urls: [],
+  };
 }
 
 export async function saveBookingDocuments(
@@ -19,12 +23,14 @@ export async function saveBookingDocuments(
   coOwnerIdUrls: string[],
   attyInFactIdUrls: string[],
   spouseIdUrls: string[],
+  coOwnerSpouseIdUrls: string[],
 ): Promise<void> {
   const { error } = await supabase.rpc('save_booking_documents', {
-    p_reservation_id:        reservationId,
-    p_co_owner_id_urls:      coOwnerIdUrls,
-    p_atty_in_fact_id_urls:  attyInFactIdUrls,
-    p_spouse_id_urls:        spouseIdUrls,
+    p_reservation_id:             reservationId,
+    p_co_owner_id_urls:           coOwnerIdUrls,
+    p_atty_in_fact_id_urls:       attyInFactIdUrls,
+    p_spouse_id_urls:             spouseIdUrls,
+    p_co_owner_spouse_id_urls:    coOwnerSpouseIdUrls,
   });
   if (error) throw error;
 }

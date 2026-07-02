@@ -36,6 +36,7 @@ interface FolderReservation {
   co_owner_id_urls:                  string[] | null;
   atty_in_fact_id_urls:              string[] | null;
   spouse_id_urls:                    string[] | null;
+  co_owner_spouse_id_urls:           string | null;
   created_at:                        string | null;
 }
 
@@ -247,7 +248,8 @@ export default function BuyersFolderingDetailPage() {
         has_co_ownership, has_atty_in_fact, has_spouse,
         proof_of_billing_urls, proof_of_income_urls, additional_proof_of_income_urls,
         existing_loan_disclosure_urls, signed_floor_layout_urls, proof_of_valid_id_urls,
-        co_owner_id_urls, atty_in_fact_id_urls, spouse_id_urls, created_at`)
+        co_owner_id_urls, atty_in_fact_id_urls, spouse_id_urls,
+        co_owner_spouse_id_urls, created_at`)
       .eq('reservation_id', stored.reservation_id)
       .maybeSingle()
       .then(({ data }) => { if (data) setReservation(data as FolderReservation); });
@@ -321,6 +323,7 @@ export default function BuyersFolderingDetailPage() {
           <DocCard label="Signed Floor Layout"        urls={parseJson(reservation.signed_floor_layout_urls)}        onFileOpen={url => openFile(url, fileName(url))} />
           <DocCard label="Buyer Valid ID"             urls={parseJson(reservation.proof_of_valid_id_urls)}          onFileOpen={url => openFile(url, fileName(url))} />
           {reservation.has_co_ownership  && <DocCard label="Co-Owner Valid ID"         urls={reservation.co_owner_id_urls     ?? []} onFileOpen={url => openFile(url, fileName(url))} />}
+          {reservation.has_co_ownership && parseJson(reservation.co_owner_spouse_id_urls).length > 0 && <DocCard label="Co-Owner Spouse Valid ID" urls={parseJson(reservation.co_owner_spouse_id_urls)} onFileOpen={url => openFile(url, fileName(url))} />}
           {reservation.has_spouse        && <DocCard label="Spouse Valid ID"           urls={reservation.spouse_id_urls       ?? []} onFileOpen={url => openFile(url, fileName(url))} />}
           {reservation.has_atty_in_fact  && <DocCard label="Attorney in Fact Valid ID" urls={reservation.atty_in_fact_id_urls ?? []} onFileOpen={url => openFile(url, fileName(url))} />}
 

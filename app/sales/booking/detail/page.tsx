@@ -536,6 +536,7 @@ export default function BookingDetailPage() {
     ? progress.buyer_info_saved
       && (!progress.has_spouse  || progress.spouse_saved)
       && (!hasCoOwnership       || progress.co_owner_saved)
+      && (!hasCoOwnership       || !progress.co_owner_is_married || progress.co_owner_spouse_saved)
       && (!hasAttyInFact        || progress.atty_saved)
     : false;
 
@@ -571,6 +572,11 @@ export default function BookingDetailPage() {
     if (stage1Locked) sessionStorage.setItem('booking_view_only', '1');
     else sessionStorage.removeItem('booking_view_only');
     router.push('/sales/booking/co-owner');
+  }
+  function goToCoOwnerSpouse() {
+    if (stage1Locked) sessionStorage.setItem('booking_view_only', '1');
+    else sessionStorage.removeItem('booking_view_only');
+    router.push('/sales/booking/co-owner-spouse');
   }
   function goToAttyInFact() {
     sessionStorage.setItem('atty_hasCoOwnership', hasCoOwnership ? '1' : '0');
@@ -941,6 +947,15 @@ export default function BookingDetailPage() {
                   done={progress?.co_owner_saved ?? false}
                   viewOnly={stage1Locked}
                   onTap={goToCoOwner}
+                />
+              )}
+              {hasCoOwnership && progress?.co_owner_is_married && (
+                <StageRow
+                  icon={<Heart size={14} />}
+                  label="Co-Owner Spouse Information"
+                  done={progress?.co_owner_spouse_saved ?? false}
+                  viewOnly={stage1Locked}
+                  onTap={goToCoOwnerSpouse}
                 />
               )}
               {hasAttyInFact && (

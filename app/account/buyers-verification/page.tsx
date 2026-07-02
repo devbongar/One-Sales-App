@@ -40,6 +40,7 @@ interface PendingBooking {
   co_owner_id_urls:           string[] | null;
   atty_in_fact_id_urls:       string[] | null;
   spouse_id_urls:             string[] | null;
+  co_owner_spouse_id_urls:    string | null;
   has_co_ownership:           boolean | null;
   has_atty_in_fact:           boolean | null;
   has_spouse:                 boolean | null;
@@ -138,7 +139,7 @@ export default function BuyersVerificationPage() {
           payment_proof_url, proof_of_1st_dp_urls, proof_of_billing_urls, proof_of_income_urls,
           existing_loan_disclosure_urls, additional_proof_of_income_urls, signed_floor_layout_urls,
           proof_of_valid_id_urls, co_owner_id_urls, atty_in_fact_id_urls,
-          spouse_id_urls, has_co_ownership, has_atty_in_fact, has_spouse
+          spouse_id_urls, co_owner_spouse_id_urls, has_co_ownership, has_atty_in_fact, has_spouse
         `)
         .eq('documents_saved', true)
         .neq('status', 'Cancelled')

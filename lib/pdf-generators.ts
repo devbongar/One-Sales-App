@@ -5,6 +5,7 @@ import { fetchSellerSignature } from '@/lib/salesperson';
 import { fetchSpouseInfo } from '@/lib/spouse-info';
 import { fetchCoOwner } from '@/lib/co-owners';
 import { fetchAttyInFact } from '@/lib/atty-in-fact';
+import { fetchCoOwnerSpouse } from '@/lib/co-owner-spouse';
 import { getBookingProgress } from '@/lib/booking-progress';
 import { supabase } from '@/lib/supabase';
 
@@ -834,6 +835,10 @@ export async function generateBuyerInformationForm(reservationId: string | null,
     progress?.has_atty_in_fact ? fetchAttyInFact(reservationId).catch(() => null)   : Promise.resolve(null),
   ]);
 
+  const coOwnerSpouseInfo = (coOwnerInfo?.civil_status === 'Married')
+    ? await fetchCoOwnerSpouse(reservationId).catch(() => null)
+    : null;
+
   const logo     = await loadLogo();
   const hdrImg   = makeColorDataURL(238, 67, 78);
   const bifResId = (resRow as any)?.reservation_id ?? '';
@@ -895,7 +900,7 @@ export async function generateBuyerInformationForm(reservationId: string | null,
     d ? new Date(d + 'T00:00:00').toLocaleDateString('en-PH', { month: '2-digit', day: '2-digit', year: 'numeric' }) : '—';
 
   const C4 = W / 4;
-  void C2;
+  const C5 = W / 5;
 
   const subLabel = (text: string, y: number): number => {
     doc.setFont('helvetica', 'italic');
@@ -924,6 +929,7 @@ export async function generateBuyerInformationForm(reservationId: string | null,
       work_city_municipality?: string | null; work_barangay?: string | null;
       work_street?: string | null; work_building_unit?: string | null;
       mailing_type?: string | null;
+      mailing_other?: string | null;
       // Emergency contact (buyer only)
       emergency_contact_name?: string | null; emergency_contact_no?: string | null;
       emergency_contact_relation?: string | null; emergency_contact_email?: string | null;
@@ -933,9 +939,20 @@ export async function generateBuyerInformationForm(reservationId: string | null,
       alt_street?: string | null; alt_unit?: string | null;
     },
     currentY = 36,
-    opts: { preamble?: string; employmentPrefix?: string; showCivilStatus?: boolean; showHomeOwnership?: boolean } = {}
+    opts: {
+      preamble?: string;
+      employmentPrefix?: string;
+      showCivilStatus?: boolean;
+      showHomeOwnership?: boolean;
+      showAddress?: boolean;
+      showWorkAddress?: boolean;
+      showMailingAddress?: boolean;
+    } = {}
   ) => {
-    const { preamble, employmentPrefix = '', showCivilStatus = true, showHomeOwnership = true } = opts;
+    const {
+      preamble, employmentPrefix = '', showCivilStatus = true, showHomeOwnership = true,
+      showAddress = true, showWorkAddress = true, showMailingAddress = false,
+    } = opts;
     let y = currentY;
 
     if (preamble) {
@@ -957,10 +974,11 @@ export async function generateBuyerInformationForm(reservationId: string | null,
     doc.text('Full Name (As found in your valid government issued ID)', L, y + 3);
     y += 5;
 
-    drawCell('Last name',    p.last_name    ?? '—', L,           y, C4);
-    drawCell('First Name',   p.first_name   ?? '—', L + C4,      y, C4);
-    drawCell('Middle Name',  p.middle_name  ?? '—', L + C4 * 2,  y, C4);
-    drawCell('Date of Birth', fmtDate(p.date_of_birth), L + C4 * 3, y, C4); y += CELL + 2;
+    drawCell('Last Name',    p.last_name    ?? '—', L,           y, C5);
+    drawCell('First Name',   p.first_name   ?? '—', L + C5,      y, C5);
+    drawCell('Middle Name',  p.middle_name  ?? '—', L + C5 * 2,  y, C5);
+    drawCell('Suffix',       p.suffix       ?? '—', L + C5 * 3,  y, C5);
+    drawCell('Date of Birth', fmtDate(p.date_of_birth), L + C5 * 4, y, C5); y += CELL + 2;
 
     if (showCivilStatus) {
       drawCell('Gender',                p.gender       ?? '—', L,           y, C4);
@@ -968,9 +986,9 @@ export async function generateBuyerInformationForm(reservationId: string | null,
       drawCell('Civil Status',          p.civil_status ?? '—', L + C4 * 2,  y, C4);
       drawCell('Tax Identification No.', p.tin || (p.no_tin ? 'No TIN' : '—'), L + C4 * 3, y, C4);
     } else {
-      drawCell('Gender',                p.gender       ?? '—', L,           y, C3);
-      drawCell('Citizenship',           p.citizenship  ?? '—', L + C3,      y, C3);
-      drawCell('Tax Identification No.', p.tin || (p.no_tin ? 'No TIN' : '—'), L + C3 * 2, y, C3);
+      drawCell('Gender',                p.gender       ?? '—', L,           y, C4);
+      drawCell('Citizenship',           p.citizenship  ?? '—', L + C4,      y, C4);
+      drawCell('Tax Identification No.', p.tin || (p.no_tin ? 'No TIN' : '—'), L + C4 * 2, y, C2);
     }
     y += CELL + 4;
 
@@ -991,33 +1009,52 @@ export async function generateBuyerInformationForm(reservationId: string | null,
       y += CELL + 4;
     }
 
-    y = checkBreak(5 + (CELL + 2) * 2, y);
-    y = subLabel('Address', y);
-    drawCell('Unit No. Building / House No. Block No.', p.home_unit    ?? '—', L,          y, C3);
-    drawCell('Street, Subdivision / Village',           p.home_street  ?? '—', L + C3,     y, C3);
-    drawCell('Barangay',                                p.home_barangay ?? '—', L + C3 * 2, y, C3); y += CELL + 2;
-
-    if (showHomeOwnership) {
-      drawCell('City / Municipality', p.home_city_municipality ?? '—', L,          y, C4);
-      drawCell('Province / Region',   p.home_region_province   ?? '—', L + C4,     y, C4);
-      drawCell('Country',             p.home_country           ?? '—', L + C4 * 2, y, C4);
-      drawCell('Home Ownership',      p.home_ownership         ?? '—', L + C4 * 3, y, C4);
-    } else {
-      drawCell('City / Municipality', p.home_city_municipality ?? '—', L,          y, C3);
-      drawCell('Province / Region',   p.home_region_province   ?? '—', L + C3,     y, C3);
-      drawCell('Country',             p.home_country           ?? '—', L + C3 * 2, y, C3);
-    }
-    y += CELL + 2;
-
-    if (p.alt_country || p.alt_region_province || p.alt_city_municipality || p.alt_barangay) {
+    if (showAddress) {
       y = checkBreak(5 + (CELL + 2) * 2, y);
-      y = subLabel('Alternate Address', y);
-      drawCell('Unit No. / Building No.', p.alt_unit     ?? '—', L,          y, C3);
-      drawCell('Street / Subdivision',    p.alt_street   ?? '—', L + C3,     y, C3);
-      drawCell('Barangay',                p.alt_barangay ?? '—', L + C3 * 2, y, C3); y += CELL + 2;
-      drawCell('City / Municipality', p.alt_city_municipality ?? '—', L,          y, C3);
-      drawCell('Province / Region',   p.alt_region_province   ?? '—', L + C3,     y, C3);
-      drawCell('Country',             p.alt_country            ?? '—', L + C3 * 2, y, C3); y += CELL + 2;
+      y = subLabel('Address', y);
+      drawCell('Unit No. Building / House No. Block No.', p.home_unit    ?? '—', L,          y, C3);
+      drawCell('Street, Subdivision / Village',           p.home_street  ?? '—', L + C3,     y, C3);
+      drawCell('Barangay',                                p.home_barangay ?? '—', L + C3 * 2, y, C3); y += CELL + 2;
+
+      if (showHomeOwnership) {
+        drawCell('City / Municipality', p.home_city_municipality ?? '—', L,          y, C4);
+        drawCell('Province / Region',   p.home_region_province   ?? '—', L + C4,     y, C4);
+        drawCell('Country',             p.home_country           ?? '—', L + C4 * 2, y, C4);
+        drawCell('Home Ownership',      p.home_ownership         ?? '—', L + C4 * 3, y, C4);
+      } else {
+        drawCell('City / Municipality', p.home_city_municipality ?? '—', L,          y, C3);
+        drawCell('Province / Region',   p.home_region_province   ?? '—', L + C3,     y, C3);
+        drawCell('Country',             p.home_country           ?? '—', L + C3 * 2, y, C3);
+      }
+      y += CELL + 2;
+
+      if (p.alt_country || p.alt_region_province || p.alt_city_municipality || p.alt_barangay) {
+        y = checkBreak(5 + (CELL + 2) * 2, y);
+        y = subLabel('Alternate Address', y);
+        drawCell('Unit No. / Building No.', p.alt_unit     ?? '—', L,          y, C3);
+        drawCell('Street / Subdivision',    p.alt_street   ?? '—', L + C3,     y, C3);
+        drawCell('Barangay',                p.alt_barangay ?? '—', L + C3 * 2, y, C3); y += CELL + 2;
+        drawCell('City / Municipality', p.alt_city_municipality ?? '—', L,          y, C3);
+        drawCell('Province / Region',   p.alt_region_province   ?? '—', L + C3,     y, C3);
+        drawCell('Country',             p.alt_country            ?? '—', L + C3 * 2, y, C3); y += CELL + 2;
+      }
+    }
+
+    if (showMailingAddress && p.mailing_type) {
+      y = checkBreak(5 + CELL + 2, y);
+      y = subLabel('Mailing Address', y);
+      let mailingAddr = '—';
+      if (p.mailing_type === 'Home Address') {
+        const parts = [p.home_unit, p.home_street, p.home_barangay, p.home_city_municipality, p.home_region_province, p.home_country].filter(Boolean);
+        mailingAddr = parts.length > 0 ? parts.join(', ') : '—';
+      } else if (p.mailing_type === 'Office Address') {
+        const parts = [p.work_building_unit, p.work_street, p.work_barangay, p.work_city_municipality, p.work_region_province, p.work_country].filter(Boolean);
+        mailingAddr = parts.length > 0 ? parts.join(', ') : '—';
+      } else if (p.mailing_type === 'Others') {
+        mailingAddr = p.mailing_other ?? '—';
+      }
+      drawCell('Mailing Address', mailingAddr, L, y, W);
+      y += CELL + 2;
     }
 
     y += 3;
@@ -1026,14 +1063,14 @@ export async function generateBuyerInformationForm(reservationId: string | null,
     const empTitle = employmentPrefix ? `${employmentPrefix} EMPLOYMENT / BUSINESS INFORMATION` : 'EMPLOYMENT / BUSINESS INFORMATION';
     y = drawSecBar(empTitle, y) + 2;
 
-    drawCell('Employment Status',        p.employment_status  ?? '—', L,          y, C3);
-    drawCell('Employment Sector',        p.employment_sector  ?? '—', L + C3,     y, C3);
-    drawCell('Employer / Business Name', p.employer           ?? '—', L + C3 * 2, y, C3); y += CELL + 2;
+    drawCell('Employment Status',        p.employment_status  ?? '—', L,          y, C4);
+    drawCell('Employment Sector',        p.employment_sector  ?? '—', L + C4,     y, C4);
+    drawCell('Employer / Business Name', p.employer           ?? '—', L + C4 * 2, y, C4);
+    drawCell('Nature of Business',       p.nature_of_business ?? '—', L + C4 * 3, y, C4); y += CELL + 2;
 
-    drawCell('Nature of Business',   p.nature_of_business ?? '—', L,           y, C4);
-    drawCell('Rank',                  p.rank               ?? '—', L + C4,      y, C4);
-    drawCell('Job Title / Position',  p.job_title          ?? '—', L + C4 * 2,  y, C4);
-    drawCell('Salary Range',          p.salary_range       ?? '—', L + C4 * 3,  y, C4); y += CELL + 4;
+    drawCell('Rank',                 p.rank          ?? '—', L,          y, C3);
+    drawCell('Job Title / Position', p.job_title     ?? '—', L + C3,     y, C3);
+    drawCell('Salary Range',         p.salary_range  ?? '—', L + C3 * 2, y, C3); y += CELL + 4;
 
     y = checkBreak(5 + (CELL + 2), y);
     y = subLabel('Contact Information', y);
@@ -1042,16 +1079,20 @@ export async function generateBuyerInformationForm(reservationId: string | null,
     drawCell('Landline Number', p.work_landline ?? '—', L + C3,     y, C3);
     drawCell('Email Address',  p.work_email    ?? '—',  L + C3 * 2, y, C3); y += CELL + 4;
 
-    y = checkBreak(5 + (CELL + 2) * 2, y);
-    y = subLabel('Address', y);
-    drawCell('Unit No. Building / House No. Block No.', p.work_building_unit ?? '—', L,          y, C3);
-    drawCell('Street, Subdivision / Village',           p.work_street        ?? '—', L + C3,     y, C3);
-    drawCell('Barangay',                                p.work_barangay      ?? '—', L + C3 * 2, y, C3); y += CELL + 2;
+    if (showWorkAddress) {
+      y = checkBreak(5 + (CELL + 2) * 2, y);
+      y = subLabel('Address', y);
+      drawCell('Unit No. Building / House No. Block No.', p.work_building_unit ?? '—', L,          y, C3);
+      drawCell('Street, Subdivision / Village',           p.work_street        ?? '—', L + C3,     y, C3);
+      drawCell('Barangay',                                p.work_barangay      ?? '—', L + C3 * 2, y, C3); y += CELL + 2;
 
-    y = checkBreak(CELL + 2, y);
-    drawCell('City / Municipality', p.work_city_municipality ?? '—', L,          y, C3);
-    drawCell('Province / Region',   p.work_region_province   ?? '—', L + C3,     y, C3);
-    drawCell('Country',             p.work_country           ?? '—', L + C3 * 2, y, C3); y += CELL + 4;
+      y = checkBreak(CELL + 2, y);
+      drawCell('City / Municipality', p.work_city_municipality ?? '—', L,          y, C3);
+      drawCell('Province / Region',   p.work_region_province   ?? '—', L + C3,     y, C3);
+      drawCell('Country',             p.work_country           ?? '—', L + C3 * 2, y, C3); y += CELL + 4;
+    } else {
+      y += 4;
+    }
 
     return y;
   };
@@ -1078,6 +1119,7 @@ export async function generateBuyerInformationForm(reservationId: string | null,
     work_city_municipality: buyerInfo?.work_city_municipality, work_barangay: buyerInfo?.work_barangay,
     work_street: buyerInfo?.work_street, work_building_unit: buyerInfo?.work_building_unit,
     mailing_type: buyerInfo?.mailing_type,
+    mailing_other: buyerInfo?.mailing_other,
     emergency_contact_name:     buyerInfo?.emergency_contact_name,
     emergency_contact_no:       buyerInfo?.emergency_contact_no,
     emergency_contact_relation: buyerInfo?.emergency_contact_relation,
@@ -1089,7 +1131,7 @@ export async function generateBuyerInformationForm(reservationId: string | null,
     alt_street:            buyerInfo?.alt_street,
     alt_unit:              buyerInfo?.alt_unit,
   };
-  y = renderPersonBlock('BUYER INFORMATION', buyerPayload, y, { showCivilStatus: true, showHomeOwnership: true });
+  y = renderPersonBlock('BUYER INFORMATION', buyerPayload, y, { showCivilStatus: true, showHomeOwnership: true, showMailingAddress: true });
 
   if (progress?.has_spouse && spouseInfo) {
     y = renderPersonBlock('SPOUSE INFORMATION', {
@@ -1115,6 +1157,7 @@ export async function generateBuyerInformationForm(reservationId: string | null,
     }, y, {
       preamble: 'If Married, the Buyer agrees that his/her spouse (as applicable) shall sign the Contract-to-Sell.',
       employmentPrefix: 'SPOUSE', showCivilStatus: false, showHomeOwnership: false,
+      showAddress: false, showWorkAddress: false,
     });
   }
 
@@ -1139,25 +1182,43 @@ export async function generateBuyerInformationForm(reservationId: string | null,
       work_city_municipality: coOwnerInfo.work_city_municipality, work_barangay: coOwnerInfo.work_barangay,
       work_street: coOwnerInfo.work_street, work_building_unit: coOwnerInfo.work_building_unit,
       mailing_type: coOwnerInfo.mailing_type,
+      mailing_other: coOwnerInfo.mailing_other,
     }, y, {
       preamble: 'If with Co-Owner, the Buyer agrees that the co-owner and his/her spouse shall sign the Contract-to-Sell should they agree to be co-owners.',
-      employmentPrefix: 'CO-OWNER', showCivilStatus: true, showHomeOwnership: false,
+      employmentPrefix: 'CO-OWNER', showCivilStatus: true, showHomeOwnership: false, showMailingAddress: true,
     });
 
     if (coOwnerInfo.civil_status === 'Married') {
       y = renderPersonBlock('CO-OWNER SPOUSE INFORMATION', {
-        last_name: null, first_name: null, middle_name: null, suffix: null,
-        gender: null, civil_status: null, citizenship: null, date_of_birth: null,
-        mobile_code: null, mobile: null, landline: null, email: null,
-        tin: null, no_tin: false,
-        home_ownership: null, home_country: null, home_region_province: null,
-        home_city_municipality: null, home_barangay: null, home_street: null, home_unit: null,
-        employer: null, nature_of_business: null, employment_sector: null, employment_status: null,
-        job_title: null, rank: null, salary_range: null,
-        work_mobile_code: null, work_mobile: null, work_landline: null, work_email: null,
-        work_country: null, work_region_province: null, work_city_municipality: null,
-        work_barangay: null, work_street: null, work_building_unit: null, mailing_type: null,
-      }, y, { employmentPrefix: 'CO-OWNER SPOUSE', showCivilStatus: false, showHomeOwnership: false });
+        last_name:          coOwnerSpouseInfo?.last_name,
+        first_name:         coOwnerSpouseInfo?.first_name,
+        middle_name:        coOwnerSpouseInfo?.middle_name,
+        suffix:             coOwnerSpouseInfo?.suffix,
+        gender:             coOwnerSpouseInfo?.gender,
+        civil_status:       coOwnerSpouseInfo?.civil_status,
+        citizenship:        coOwnerSpouseInfo?.citizenship,
+        date_of_birth:      coOwnerSpouseInfo?.date_of_birth,
+        mobile_code:        coOwnerSpouseInfo?.mobile_code,
+        mobile:             coOwnerSpouseInfo?.mobile,
+        landline:           coOwnerSpouseInfo?.landline,
+        email:              coOwnerSpouseInfo?.email,
+        tin:                coOwnerSpouseInfo?.tin,
+        no_tin:             coOwnerSpouseInfo?.no_tin ?? false,
+        employer:           coOwnerSpouseInfo?.employer,
+        nature_of_business: coOwnerSpouseInfo?.nature_of_business,
+        employment_sector:  coOwnerSpouseInfo?.employment_sector,
+        employment_status:  coOwnerSpouseInfo?.employment_status,
+        job_title:          coOwnerSpouseInfo?.job_title,
+        rank:               coOwnerSpouseInfo?.rank,
+        salary_range:       coOwnerSpouseInfo?.salary_range,
+        work_mobile_code:   coOwnerSpouseInfo?.work_mobile_code,
+        work_mobile:        coOwnerSpouseInfo?.work_mobile,
+        work_landline:      coOwnerSpouseInfo?.work_landline,
+        work_email:         coOwnerSpouseInfo?.work_email,
+      }, y, {
+        employmentPrefix: 'CO-OWNER SPOUSE', showCivilStatus: false, showHomeOwnership: false,
+        showAddress: false, showWorkAddress: false,
+      });
     }
   }
 

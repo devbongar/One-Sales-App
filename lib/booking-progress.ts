@@ -10,6 +10,8 @@ export interface BookingProgress {
   co_owner_is_spouse: boolean;
   spouse_saved: boolean;
   co_owner_saved: boolean;
+  co_owner_is_married: boolean;
+  co_owner_spouse_saved: boolean;
   atty_saved: boolean;
   documents_saved: boolean;
   booking_review_status: string | null;
@@ -42,6 +44,8 @@ export async function getBookingProgress(reservationId: string): Promise<Booking
     co_owner_is_spouse: false,
     spouse_saved: false,
     co_owner_saved: false,
+    co_owner_is_married: false,
+    co_owner_spouse_saved: false,
     atty_saved: false,
     documents_saved: false,
     booking_review_status: null,
@@ -86,6 +90,7 @@ export async function getAllBookingProgress(): Promise<Record<string, BookingPro
 export function computeBookingStatus(p?: BookingProgress): BookingStatus {
   if (!p || !p.buyer_info_saved) return 'not-started';
   const stage1Done = (!p.has_co_ownership || p.co_owner_saved)
+                  && (!p.has_co_ownership || !p.co_owner_is_married || p.co_owner_spouse_saved)
                   && (!p.has_atty_in_fact  || p.atty_saved);
   if (!stage1Done) return 'in-progress';
   if (!p.documents_saved) return 'stage1-complete';
