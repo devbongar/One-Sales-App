@@ -1468,8 +1468,13 @@ export default function CollectionPostingPage() {
   const [projectFilter,setProjectFilter]= useState('');
   const [clientFilter, setClientFilter] = useState('');
   const [selected,     setSelected]     = useState<ReservationReceivableSummary | null>(null);
-  const [exporting,    setExporting]    = useState(false);
-  const [reporting,    setReporting]    = useState(false);
+  const [exporting,        setExporting]        = useState(false);
+  const [reporting,        setReporting]        = useState(false);
+  const [reportSheetOpen,  setReportSheetOpen]  = useState(false);
+  const [reportDueDateFrom,setReportDueDateFrom]= useState('');
+  const [reportDueDateTo,  setReportDueDateTo]  = useState('');
+  const [reportStatus,     setReportStatus]     = useState('');
+  const [reportProject,    setReportProject]    = useState('');
   const [loadError,    setLoadError]    = useState('');
   const [backfilling,  setBackfilling]  = useState(false);
   const [backfillDone, setBackfillDone] = useState<{ generated: number; skipped: number } | null>(null);
@@ -1537,19 +1542,24 @@ export default function CollectionPostingPage() {
   // ── Report ──────────────────────────────────────────────────────────────────
 
   async function handleDownloadReport() {
+    setReportSheetOpen(false);
     setReporting(true);
     try {
-      // Paginate through all rows — PostgREST caps at 1000 without .range()
       const PAGE = 1000;
       let from = 0;
       const allRows: Record<string, unknown>[] = [];
       while (true) {
-        const { data, error } = await supabase
+        let q = supabase
           .from('receivables_database')
-          .select('reservation_id, client_id, client_name, inventory_code, type_of_payment, due_date, total_amount_due, amount_paid, principal, hic, vat, other_charges, payment_status, mode_of_payment, acknowledgement_receipt_no, sales_invoice_number, posting_date, check_no, check_date')
+          .select('reservation_id, client_id, client_name, inventory_code, project, type_of_payment, due_date, total_amount_due, amount_paid, principal, hic, vat, other_charges, payment_status, mode_of_payment, acknowledgement_receipt_no, sales_invoice_number, posting_date, check_no, check_date')
           .order('reservation_id', { ascending: true })
           .order('due_date', { ascending: true })
           .range(from, from + PAGE - 1);
+        if (reportDueDateFrom) q = q.gte('due_date', reportDueDateFrom);
+        if (reportDueDateTo)   q = q.lte('due_date', reportDueDateTo);
+        if (reportStatus)      q = q.eq('payment_status', reportStatus);
+        if (reportProject)     q = q.eq('project', reportProject);
+        const { data, error } = await q;
         if (error) throw error;
         if (!data || data.length === 0) break;
         allRows.push(...(data as Record<string, unknown>[]));
@@ -1568,6 +1578,7 @@ export default function CollectionPostingPage() {
         { wch: 16 }, // client_id
         { wch: 28 }, // client_name
         { wch: 16 }, // inventory_code
+        { wch: 22 }, // project
         { wch: 28 }, // type_of_payment
         { wch: 14 }, // due_date
         { wch: 18 }, // total_amount_due
@@ -1764,14 +1775,14 @@ export default function CollectionPostingPage() {
             </button>
             <button
               type="button"
-              onClick={handleDownloadReport}
+              onClick={() => setReportSheetOpen(true)}
               disabled={reporting}
               className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-2xl bg-white/80 border border-black/[0.08] backdrop-blur-sm text-[#1C1C1E] text-sm font-semibold active:opacity-70 disabled:opacity-50 transition-opacity"
             >
               {reporting
                 ? <Loader2 size={15} className="animate-spin text-[#007AFF]" />
                 : <FileText size={15} className="text-[#007AFF]" />}
-              Report
+              Receivables
             </button>
             <input
               ref={fileInputRef}
@@ -1887,6 +1898,106 @@ export default function CollectionPostingPage() {
       </PageShell>
 
       {/* Filter sheet */}
+      {/* ── Receivables download filter sheet ───────────────────────── */}
+      {reportSheetOpen && (
+        <div className="fixed inset-0 z-[47] bg-black/40" onClick={() => setReportSheetOpen(false)} />
+      )}
+      <div className={`fixed inset-x-0 bottom-0 z-[48] transition-transform duration-300 ease-out ${reportSheetOpen ? 'translate-y-0' : 'translate-y-full'}`}>
+        <div className="bg-white rounded-t-3xl shadow-2xl max-h-[80vh] flex flex-col">
+          <div className="flex justify-center pt-3 pb-1 shrink-0">
+            <div className="w-9 h-1 rounded-full bg-[#D1D1D6]" />
+          </div>
+          <div className="flex items-center justify-between px-5 py-3 shrink-0">
+            <p className="text-base font-bold text-[#1C1C1E]">Receivables Filter</p>
+            <button type="button" onClick={() => setReportSheetOpen(false)}
+              className="w-7 h-7 rounded-full bg-[#F2F2F7] flex items-center justify-center">
+              <X size={14} className="text-[#8E8E93]" />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-5 min-h-0">
+
+            {/* Due Date */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Due Date</p>
+              <div className="flex gap-2">
+                <div className="flex-1 space-y-1">
+                  <p className="text-[11px] text-[#8E8E93]">From</p>
+                  <input
+                    type="date"
+                    value={reportDueDateFrom}
+                    onChange={e => setReportDueDateFrom(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-black/[0.08] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/50"
+                  />
+                </div>
+                <div className="flex-1 space-y-1">
+                  <p className="text-[11px] text-[#8E8E93]">To</p>
+                  <input
+                    type="date"
+                    value={reportDueDateTo}
+                    onChange={e => setReportDueDateTo(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-black/[0.08] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/50"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Status */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Status</p>
+              <div className="flex gap-2 flex-wrap">
+                {(['', 'Unpaid', 'Overdue', 'Complete']).map(s => (
+                  <button key={s} type="button" onClick={() => setReportStatus(s)}
+                    className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-colors flex items-center gap-1.5 ${
+                      reportStatus === s
+                        ? 'bg-[#C03D25] border-[#C03D25] text-white'
+                        : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
+                    }`}>
+                    {reportStatus === s && s && <Check size={11} />}
+                    {s || 'All'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Project */}
+            {(() => {
+              const projects = [...new Set(summaries.map(s => s.project).filter(Boolean))].sort();
+              if (projects.length === 0) return null;
+              return (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Project</p>
+                  <SearchableSelect
+                    value={reportProject}
+                    onChange={setReportProject}
+                    options={projects}
+                    placeholder="All projects"
+                  />
+                </div>
+              );
+            })()}
+
+          </div>
+
+          <div className="px-5 pb-10 pt-3 flex gap-3 shrink-0 border-t border-black/[0.06]">
+            <button type="button"
+              onClick={() => { setReportDueDateFrom(''); setReportDueDateTo(''); setReportStatus(''); setReportProject(''); }}
+              className="flex-1 py-3.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-70">
+              Clear
+            </button>
+            <button type="button"
+              onClick={handleDownloadReport}
+              disabled={reporting}
+              className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-[#007AFF] text-white text-sm font-bold active:opacity-80 disabled:opacity-50">
+              {reporting
+                ? <Loader2 size={15} className="animate-spin" />
+                : <Download size={15} />}
+              Download
+            </button>
+          </div>
+        </div>
+      </div>
+
       {filterOpen && (
         <div className="fixed inset-0 z-[45] bg-black/40" onClick={() => setFilterOpen(false)} />
       )}
