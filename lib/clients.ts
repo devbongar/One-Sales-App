@@ -143,6 +143,13 @@ function idFields(payload: ClientPayload) {
     sales_director_id:           payload.sales_director_id           ?? null,
     sales_division_head_id:      payload.sales_division_head_id      ?? null,
     sales_head_id:               payload.sales_head_id               ?? null,
+    // Broker name fields (not in RPC signature — stored directly on clients table)
+    broker_bir_name:             payload.broker_bir_name             || null,
+    broker_network_associate:    payload.broker_network_associate    || null,
+    broker_network_officer:      payload.broker_network_officer      || null,
+    broker_sales_director:       payload.broker_sales_director       || null,
+    broker_director_head:        payload.broker_director_head        || null,
+    broker_sales_head:           payload.broker_sales_head           || null,
     // Broker IDs
     broker_id:                   payload.broker_id                   ?? null,
     broker_network_associate_id: payload.broker_network_associate_id ?? null,
@@ -179,13 +186,6 @@ export async function saveClient(payload: ClientPayload): Promise<string> {
     p_sales_director:               payload.sales_director           || null,
     p_sales_division_head:          payload.sales_division_head      || null,
     p_sales_head:                   payload.sales_head               || null,
-    // Broker names
-    p_broker_bir_name:              payload.broker_bir_name          || null,
-    p_broker_network_associate:     payload.broker_network_associate || null,
-    p_broker_network_officer:       payload.broker_network_officer   || null,
-    p_broker_sales_director:        payload.broker_sales_director    || null,
-    p_broker_director_head:         payload.broker_director_head     || null,
-    p_broker_sales_head:            payload.broker_sales_head        || null,
   });
   if (error) throw error;
   const clientId = data as string;
@@ -220,13 +220,6 @@ export async function updateClient(id: string, payload: ClientPayload): Promise<
     p_sales_director:               payload.sales_director           || null,
     p_sales_division_head:          payload.sales_division_head      || null,
     p_sales_head:                   payload.sales_head               || null,
-    // Broker names
-    p_broker_bir_name:              payload.broker_bir_name          || null,
-    p_broker_network_associate:     payload.broker_network_associate || null,
-    p_broker_network_officer:       payload.broker_network_officer   || null,
-    p_broker_sales_director:        payload.broker_sales_director    || null,
-    p_broker_director_head:         payload.broker_director_head     || null,
-    p_broker_sales_head:            payload.broker_sales_head        || null,
   });
   if (error) throw error;
   await supabase.from('clients').update(idFields(payload)).eq('id', id);
