@@ -749,7 +749,7 @@ export default function NewReservationPage() {
   }
 
   function formatClientFullName(c: ClientRecord): string {
-    return [c.first_name, c.last_name, c.suffix]
+    return [c.first_name, c.middle_name, c.last_name, c.suffix]
       .filter(Boolean).join(' ');
   }
 
