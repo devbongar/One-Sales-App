@@ -196,17 +196,20 @@ export async function postCollection(
       .limit(2),
     supabase
       .from('reservations')
-      .select('first_payment_agreed, finance_status')
+      .select('first_payment_agreed, finance_status, booking_review_status, inventory_code')
       .eq('reservation_id', reservationId)
       .single(),
   ]);
 
-  const rfLineId           = (topLines as any[])?.[0]?.id            ?? null;
-  const dpLineId           = (topLines as any[])?.[1]?.id            ?? null;
-  const rfAlreadyPaid      = (topLines as any[])?.[0]?.payment_status === 'Paid';
-  const dpAlreadyPaid      = (topLines as any[])?.[1]?.payment_status === 'Paid';
-  const firstPaymentAgreed = !!((resRow as any)?.first_payment_agreed);
-  const currentFinStatus   = ((resRow as any)?.finance_status as string | null) ?? null;
+  const rfLineId              = (topLines as any[])?.[0]?.id            ?? null;
+  const dpLineId              = (topLines as any[])?.[1]?.id            ?? null;
+  const rfAlreadyPaid         = (topLines as any[])?.[0]?.payment_status === 'Paid';
+  const dpAlreadyPaid         = (topLines as any[])?.[1]?.payment_status === 'Paid';
+  const firstPaymentAgreed    = !!((resRow as any)?.first_payment_agreed);
+  const currentFinStatus      = ((resRow as any)?.finance_status            as string | null) ?? null;
+  const currentBookingStatus  = ((resRow as any)?.booking_review_status     as string | null) ?? null;
+  const inventoryCode         = ((resRow as any)?.inventory_code            as string | null) ?? null;
+  const amdAlreadyApproved    = currentBookingStatus === 'amd-approved';
 
   const { data: lines, error: linesErr } = await supabase
     .from('receivables_database')
@@ -285,7 +288,12 @@ export async function postCollection(
         date_of_1st_dp:               paymentDate,
         dp_acknowledgement_receipt_no: orNo,
         dp_sales_invoice_no:           siNo,
+        ...(amdAlreadyApproved ? { status: 'Booked' } : {}),
       }).eq('reservation_id', reservationId);
+      if (amdAlreadyApproved && inventoryCode) {
+        const { updateInventoryUnitStatus } = await import('@/lib/inventory');
+        updateInventoryUnitStatus(inventoryCode, 'Booked').catch(console.error);
+      }
       generateCommissionSchedule(reservationId).catch(e =>
         console.error('[commission] collection-posting combined stamp failed:', e)
       );
@@ -310,7 +318,12 @@ export async function postCollection(
         date_of_1st_dp:              paymentDate,
         dp_acknowledgement_receipt_no: orNo,
         dp_sales_invoice_no:           siNo,
+        ...(amdAlreadyApproved ? { status: 'Booked' } : {}),
       }).eq('reservation_id', reservationId);
+      if (amdAlreadyApproved && inventoryCode) {
+        const { updateInventoryUnitStatus } = await import('@/lib/inventory');
+        updateInventoryUnitStatus(inventoryCode, 'Booked').catch(console.error);
+      }
       generateCommissionSchedule(reservationId).catch(e =>
         console.error('[commission] collection-posting dp stamp failed:', e)
       );
