@@ -154,7 +154,7 @@ export default function BookingPage() {
   // ── Seller tab counts ──────────────────────────────────────
   useEffect(() => {
     if (!isSeller || !sellerUuid) return;
-    supabase.from('reservations').select('*', { count: 'exact', head: true }).in('status', ['Reserved', 'Booked']).eq('created_by_uuid', sellerUuid).eq('booking_review_status', 'director-rejected')
+    supabase.from('reservations').select('*', { count: 'exact', head: true }).in('status', ['Reserved', 'Booked']).eq('created_by_uuid', sellerUuid).in('booking_review_status', ['director-rejected', 'amd-rejected'])
       .then(({ count }) => setSellerRejectedCount(count ?? 0));
   }, [isSeller, sellerUuid]);
 
@@ -220,11 +220,11 @@ export default function BookingPage() {
     } else if (isSeller && sellerUuid) {
       query = query.eq('created_by_uuid', sellerUuid);
       if (sellerTab === 'to-submit') {
-        query = query.or('booking_review_status.is.null,booking_review_status.eq.director-rejected');
+        query = query.or('booking_review_status.is.null,booking_review_status.eq.director-rejected,booking_review_status.eq.amd-rejected');
       } else if (sellerTab === 'submitted') {
         query = query.eq('booking_review_status', 'submitted');
       } else if (sellerTab === 'rejected') {
-        query = query.eq('booking_review_status', 'director-rejected');
+        query = query.in('booking_review_status', ['director-rejected', 'amd-rejected']);
       } else if (sellerTab === 'approved') {
         query = query.in('booking_review_status', ['director-approved', 'amd-approved']);
       }
