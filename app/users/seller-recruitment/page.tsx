@@ -472,12 +472,12 @@ function DetailSheet({ seller, onClose, onSaved }: {
       if (form.email_address?.trim()) {
         const { data: dup } = await supabase
           .from('Salesperson')
-          .select('seller_name')
-          .ilike('"Email Address"', form.email_address.trim())
-          .neq('seller_name', seller.seller_name)
+          .select('"Seller Name"')
+          .ilike('Email Address', form.email_address.trim())
+          .neq('Seller Name', seller.seller_name)
           .limit(1);
         if (dup && dup.length > 0) {
-          setError(`Email address is already used by ${(dup[0] as any).seller_name}.`);
+          setError(`Email address is already used by ${(dup[0] as any)['Seller Name']}.`);
           return;
         }
       }
@@ -994,11 +994,11 @@ function AddSheet({ onClose, onAdded }: {
     try {
       const { data: dup } = await supabase
         .from('Salesperson')
-        .select('seller_name')
-        .ilike('"Email Address"', (form.email_address ?? '').trim())
+        .select('"Seller Name"')
+        .ilike('Email Address', (form.email_address ?? '').trim())
         .limit(1);
       if (dup && dup.length > 0) {
-        setError(`Email address is already used by ${(dup[0] as any).seller_name}.`);
+        setError(`Email address is already used by ${(dup[0] as any)['Seller Name']}.`);
         return;
       }
       const formWithId = { ...form, seller_id: generateSellerId() };

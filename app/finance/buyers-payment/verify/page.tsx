@@ -748,8 +748,8 @@ export default function FinanceVerifyPage() {
                       { label: 'Monthly End Date',   value: dpEndDate   ? new Date(dpEndDate   + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '—' },
                     ]
                   : [
-                      { label: 'DP Start Date', value: dpStartDate ? new Date(dpStartDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '—' },
-                      { label: 'DP End Date',   value: dpEndDate   ? new Date(dpEndDate   + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '—' },
+                      { label: 'Monthly Start Date', value: dpStartDate ? new Date(dpStartDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '—' },
+                      { label: 'Monthly End Date',   value: dpEndDate   ? new Date(dpEndDate   + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '—' },
                     ]),
               ].map(({ label, value }) => (
                 <div key={label} className="flex items-center justify-between gap-4">
