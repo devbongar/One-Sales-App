@@ -474,9 +474,21 @@ export default function ExistingClientPage() {
         if (isMegawideEmployee) {
           const sdRec = allSalespersons.find(s => s.seller_name === sellerDirector);
           sellerIds = { sales_director_id: sdRec?.seller_id ?? null, sales_division_head_id: sdRec?.sales_division_head_id ?? null, sales_head_id: sdRec?.sales_head_id ?? null };
-        } else {
+        } else if (sellerSpecialist) {
           const psRec = allSalespersons.find(s => s.seller_name === sellerSpecialist);
           sellerIds = { seller_id: psRec?.seller_id ?? null, sales_manager_id: psRec?.sales_manager_id ?? null, sales_director_id: psRec?.sales_director_id ?? null, sales_division_head_id: psRec?.sales_division_head_id ?? null, sales_head_id: psRec?.sales_head_id ?? null };
+        } else if (sellerManager) {
+          const smRec = allSalespersons.find(s => s.seller_name === sellerManager && s.position_rank === 'SM');
+          sellerIds = { sales_manager_id: smRec?.seller_id ?? null, sales_director_id: smRec?.sales_director_id ?? null, sales_division_head_id: smRec?.sales_division_head_id ?? null, sales_head_id: smRec?.sales_head_id ?? null };
+        } else if (sellerDirector) {
+          const sdRec2 = allSalespersons.find(s => s.seller_name === sellerDirector && s.position_rank === 'SD');
+          sellerIds = { sales_director_id: sdRec2?.seller_id ?? null, sales_division_head_id: sdRec2?.sales_division_head_id ?? null, sales_head_id: sdRec2?.sales_head_id ?? null };
+        } else if (sellerDivisionHead) {
+          const sdhRec = allSalespersons.find(s => s.seller_name === sellerDivisionHead && s.position_rank === 'SDH');
+          sellerIds = { sales_division_head_id: sdhRec?.seller_id ?? null, sales_head_id: sdhRec?.sales_head_id ?? null };
+        } else if (sellerSalesHead) {
+          const shRec = allSalespersons.find(s => s.seller_name === sellerSalesHead && s.position_rank === 'SH');
+          sellerIds = { sales_head_id: shRec?.seller_id ?? null };
         }
       } else if (form.sellerType === 'Broker') {
         const birRec = allBrokers.find(b => bName(b) === brokerBirName);
