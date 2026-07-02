@@ -687,7 +687,7 @@ export default function NewClientPage() {
   const lockBrokerSH  = isUserBroker || brokerRankLocks.sh;
   const canToggleMegawide = user?.role_name === 'Sales Director' || user?.role_name === 'All Access';
   const sellerTypeOptions = (['In House', 'Broker'] as const).filter(t =>
-    !(t === 'Broker' && (isMegawideEmployee || isUserPS)) &&
+    !(t === 'Broker' && (isMegawideEmployee || isUserPS || isUserSM)) &&
     !(t === 'In House' && isUserBroker)
   );
 
