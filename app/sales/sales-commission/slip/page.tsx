@@ -316,9 +316,19 @@ export default function CommissionSlipPage() {
                             );
 
                             const grossTotal = visibleLines.reduce((s, l) => s + l.gross_commission, 0);
-                            const vatAmt     = visibleLines.reduce((s, l) => s + (l.vat_amount  ?? l.gross_commission * (taxInfo?.vat_rate ?? 0)), 0);
-                            const ewtAmt     = visibleLines.reduce((s, l) => s + (l.ewt_amount  ?? l.gross_commission * (taxInfo?.ewt_rate ?? 0)), 0);
-                            const netAmt     = visibleLines.reduce((s, l) => s + (l.net_commission ?? (l.gross_commission - (l.vat_amount ?? 0) - (l.ewt_amount ?? 0))), 0);
+                            const vatAmt     = visibleLines.reduce((s, l) => {
+                              if (l.vat_amount != null) return s + l.vat_amount;
+                              const r = taxInfo?.vat_rate ?? 0;
+                              const base = r > 0 ? l.gross_commission / (1 + r) : l.gross_commission;
+                              return s + base * r;
+                            }, 0);
+                            const ewtAmt     = visibleLines.reduce((s, l) => {
+                              if (l.ewt_amount != null) return s + l.ewt_amount;
+                              const vr = taxInfo?.vat_rate ?? 0;
+                              const base = vr > 0 ? l.gross_commission / (1 + vr) : l.gross_commission;
+                              return s + base * (taxInfo?.ewt_rate ?? 0);
+                            }, 0);
+                            const netAmt     = grossTotal - ewtAmt;
 
                             return (
                               <>
@@ -390,9 +400,10 @@ export default function CommissionSlipPage() {
 
               {/* Total breakdown */}
               {(() => {
-                const totalVat = taxInfo ? totalCommission * taxInfo.vat_rate : 0;
-                const totalEwt = taxInfo ? totalCommission * taxInfo.ewt_rate : 0;
-                const totalNet = totalCommission - totalVat - totalEwt;
+                const totalBase = taxInfo && taxInfo.vat_rate > 0 ? totalCommission / (1 + taxInfo.vat_rate) : totalCommission;
+                const totalVat  = taxInfo ? totalBase * taxInfo.vat_rate : 0;
+                const totalEwt  = taxInfo ? totalBase * taxInfo.ewt_rate : 0;
+                const totalNet  = totalCommission - totalEwt;
                 return (
                   <div className="mt-1 rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(192,61,37,0.15)' }}>
                     <div className="flex justify-between px-4 py-2.5 bg-[rgba(192,61,37,0.04)] border-b border-[rgba(192,61,37,0.08)]">

@@ -403,15 +403,16 @@ export async function markPendingTranchesForRelease(
   await Promise.all(
     qualifying.map(line => {
       const tax = line.seller_name ? (taxInfoMap[line.seller_name] ?? { vat_rate: 0, ewt_rate: 0 }) : { vat_rate: 0, ewt_rate: 0 };
-      const vatAmt = line.gross_commission * tax.vat_rate;
-      const ewtAmt = line.gross_commission * tax.ewt_rate;
+      const base   = tax.vat_rate > 0 ? line.gross_commission / (1 + tax.vat_rate) : line.gross_commission;
+      const vatAmt = base * tax.vat_rate;
+      const ewtAmt = base * tax.ewt_rate;
       return supabase
         .from('commission_schedule')
         .update({
           status:         'For Release',
           vat_amount:     vatAmt,
           ewt_amount:     ewtAmt,
-          net_commission: line.gross_commission - vatAmt - ewtAmt,
+          net_commission: line.gross_commission - ewtAmt,
         })
         .eq('id', line.id);
     }),
@@ -531,14 +532,15 @@ export async function recomputeSellerTaxes(
 
   await Promise.all(
     (lines as { id: number; gross_commission: number }[]).map(line => {
-      const vatAmt = line.gross_commission * vatRate;
-      const ewtAmt = line.gross_commission * ewtRate;
+      const base   = vatRate > 0 ? line.gross_commission / (1 + vatRate) : line.gross_commission;
+      const vatAmt = base * vatRate;
+      const ewtAmt = base * ewtRate;
       return supabase
         .from('commission_schedule')
         .update({
           vat_amount:     vatAmt,
           ewt_amount:     ewtAmt,
-          net_commission: line.gross_commission - vatAmt - ewtAmt,
+          net_commission: line.gross_commission - ewtAmt,
         })
         .eq('id', line.id);
     }),
