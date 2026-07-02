@@ -161,6 +161,7 @@ export default function NewClientPage() {
   const [form, setForm]               = useState(EMPTY_FORM);
   const [errors, setErrors]           = useState<Record<string, string>>({});
   const [saving, setSaving]           = useState(false);
+  const [emailChecking, setEmailChecking] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [savedClient, setSavedClient] = useState<typeof EMPTY_FORM | null>(null);
   const [savedClientId, setSavedClientId] = useState<string>('');
@@ -254,9 +255,11 @@ export default function NewClientPage() {
     }
   }, [user?.seller_id, allSalespersons, allBrokerRecruits, allBrokers]);
 
-  // In House — specialist-first: pick PS, manager+director auto-fill from PS record
+  // In House — bidirectional cascade: PS ↔ SM ↔ SD
   const allPsRaw = allSalespersons.filter(s => s.position_code === 'Property Specialist');
-  const specialists = (() => {
+
+  // Base pool scoped to the logged-in user's rank
+  const basePsPool = (() => {
     if (!userSalesperson) return allPsRaw;
     const rank = userSalesperson.position_rank;
     if (rank === 'PS')  return allPsRaw.filter(s => s.seller_id === userSalesperson.seller_id);
@@ -266,13 +269,59 @@ export default function NewClientPage() {
     if (rank === 'SH')  return allPsRaw.filter(s => s.sales_head === userSalesperson.seller_name);
     return allPsRaw;
   })();
+
+  // SD options — derived from PS records scoped to user
+  const sdOptions = [...new Set(basePsPool.map(s => s.sales_director).filter(Boolean))] as string[];
+
+  // SM options — further filtered by selected SD
+  const smOptions = [...new Set(
+    (sellerDirector ? basePsPool.filter(s => s.sales_director === sellerDirector) : basePsPool)
+      .map(s => s.sales_manager).filter(Boolean)
+  )] as string[];
+
+  // PS options — filtered by selected SM (preferred) or SD
+  const specialists = (() => {
+    let pool = basePsPool;
+    if (sellerManager)       pool = pool.filter(s => s.sales_manager === sellerManager);
+    else if (sellerDirector) pool = pool.filter(s => s.sales_director === sellerDirector);
+    return pool;
+  })();
+
+  function handleDirectorChange(name: string) {
+    setSellerDirector(name);
+    const sample = name ? basePsPool.find(s => s.sales_director === name) : null;
+    if (!isUserSM) setSellerManager('');
+    setSellerSpecialist('');
+    setSellerDivisionHead(sample?.sales_division_head ?? (userSalesperson?.position_rank === 'SDH' ? userSalesperson.seller_name : ''));
+    setSellerSalesHead(sample?.sales_head ?? (userSalesperson?.position_rank === 'SH' ? userSalesperson.seller_name : ''));
+  }
+
+  function handleManagerChange(name: string) {
+    setSellerManager(name);
+    const sample = name ? basePsPool.find(s => s.sales_manager === name) : null;
+    setSellerSpecialist('');
+    if (!isUserSD) setSellerDirector(sample?.sales_director ?? '');
+    setSellerDivisionHead(sample?.sales_division_head ?? (userSalesperson?.position_rank === 'SDH' ? userSalesperson.seller_name : ''));
+    setSellerSalesHead(sample?.sales_head ?? (userSalesperson?.position_rank === 'SH' ? userSalesperson.seller_name : ''));
+  }
+
   function handleSpecialistChange(name: string) {
     setSellerSpecialist(name);
-    const ps = allSalespersons.find(s => s.seller_name === name);
-    setSellerManager(ps?.sales_manager ?? '');
-    setSellerDirector(ps?.sales_director ?? '');
-    setSellerDivisionHead(ps?.sales_division_head ?? '');
-    setSellerSalesHead(ps?.sales_head ?? '');
+    if (name) {
+      const ps = allSalespersons.find(s => s.seller_name === name);
+      if (!isUserSM) setSellerManager(ps?.sales_manager ?? '');
+      if (!isUserSD) setSellerDirector(ps?.sales_director ?? '');
+      setSellerDivisionHead(ps?.sales_division_head ?? '');
+      setSellerSalesHead(ps?.sales_head ?? '');
+    } else {
+      // Restore user's own locked rank values
+      const sp = userSalesperson;
+      const rank = sp?.position_rank ?? '';
+      if (!isUserSM) setSellerManager('');
+      if (!isUserSD) setSellerDirector(rank === 'SM' ? (sp?.sales_director ?? '') : '');
+      setSellerDivisionHead(rank === 'SDH' ? (sp?.seller_name ?? '') : rank === 'SM' || rank === 'SD' ? (sp?.sales_division_head ?? '') : '');
+      setSellerSalesHead(rank === 'SH' ? (sp?.seller_name ?? '') : rank === 'SM' || rank === 'SD' || rank === 'SDH' ? (sp?.sales_head ?? '') : '');
+    }
   }
 
   // Broker cascade — uses Brokers table (BIR → Associate → Officer → SDH → SH)
@@ -394,17 +443,14 @@ export default function NewClientPage() {
     if (!form.email.trim())                 e.email                 = 'Email address is required';
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
                                             e.email                 = 'Enter a valid email address';
-    else {
-      const taken = await checkEmailExists(form.email);
-      if (taken)                            e.email                 = 'This email is already registered';
-    }
     if (!form.reasonForBuying)              e.reasonForBuying       = 'Reason for buying is required';
     if (!form.sourceOfSale)                 e.sourceOfSale          = 'Source of sale is required';
     if (!form.monthlyHouseholdIncome)       e.monthlyHouseholdIncome = 'Monthly income is required';
     if (!sigPreview)                        e.signature              = 'Client signature is required';
     if (form.sellerType === 'In House') {
-      if (isMegawideEmployee && !sellerDirector)   e.sellerDirector    = 'Sales Director is required';
-      if (!isMegawideEmployee && !sellerSpecialist) e.sellerSpecialist = 'Property Specialist is required';
+      if (isMegawideEmployee && !sellerDirector) e.sellerDirector = 'Sales Director is required';
+      if (!isMegawideEmployee && !sellerSpecialist && !sellerManager && !sellerDirector && !sellerDivisionHead && !sellerSalesHead)
+        e.sellerSpecialist = 'At least one seller position is required';
     }
     if (form.sellerType === 'Broker' && !brokerBirName) e.brokerBirName = 'Broker Name is required';
     setErrors(e);
@@ -901,30 +947,41 @@ export default function NewClientPage() {
             />
           </InputRow>
           <InputRow label="Email Address" icon={<Mail size={11} />} error={errors.email} required>
-            <input
-              type="email"
-              inputMode="email"
-              value={form.email}
-              onChange={e => {
-                set('email')(e.target.value);
-                if (errors.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.target.value))
+            <div className="relative">
+              <input
+                type="email"
+                inputMode="email"
+                value={form.email}
+                onChange={e => {
+                  set('email')(e.target.value);
                   setErrors(prev => ({ ...prev, email: '' }));
-              }}
-              onBlur={() => {
-                if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
-                  setErrors(prev => ({ ...prev, email: 'Enter a valid email address' }));
-                else
-                  setErrors(prev => ({ ...prev, email: '' }));
-              }}
-              placeholder="juan@email.com"
-              className={`w-full px-3 py-2.5 rounded-xl border bg-white/80 text-sm text-[#1C1C1E] outline-none transition-colors placeholder:text-[#C7C7CC] focus:bg-white ${
-                errors.email ? 'border-red-400 focus:border-red-400' : 'border-black/[0.10] focus:border-black/20'
-              }`}
-            />
-            {!errors.email && form.email.trim().length > 0 &&
-              allClients.some(c => c.email?.toLowerCase() === form.email.trim().toLowerCase()) && (
-              <p className="text-xs text-amber-500 mt-0.5">This email is already registered.</p>
-            )}
+                }}
+                onBlur={async () => {
+                  const val = form.email.trim();
+                  if (!val) return;
+                  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) {
+                    setErrors(prev => ({ ...prev, email: 'Enter a valid email address' }));
+                    return;
+                  }
+                  setEmailChecking(true);
+                  try {
+                    const taken = await checkEmailExists(val);
+                    if (taken) setErrors(prev => ({ ...prev, email: 'This email is already registered' }));
+                  } finally {
+                    setEmailChecking(false);
+                  }
+                }}
+                placeholder="juan@email.com"
+                className={`w-full px-3 py-2.5 rounded-xl border bg-white/80 text-sm text-[#1C1C1E] outline-none transition-colors placeholder:text-[#C7C7CC] focus:bg-white ${
+                  errors.email ? 'border-red-400 focus:border-red-400' : 'border-black/[0.10] focus:border-black/20'
+                }`}
+              />
+              {emailChecking && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <Loader2 size={13} className="animate-spin text-[#8E8E93]" />
+                </div>
+              )}
+            </div>
           </InputRow>
         </div>
 
@@ -1041,10 +1098,34 @@ export default function NewClientPage() {
             </InputRow>
           )}
 
-          {/* In House — specialist-first, manager+director auto-fill */}
+          {/* In House — bidirectional cascade: SD → SM → PS */}
           {form.sellerType === 'In House' && !isMegawideEmployee && (
             <>
-              <InputRow label="Property Specialist" icon={<User size={11} />} error={errors.sellerSpecialist} required>
+              <InputRow label="Sales Director" icon={<UserCog size={11} />}>
+                {isUserSD ? (
+                  <ReadOnlyInput value={sellerDirector} placeholder="Auto-filled" />
+                ) : (
+                  <SearchableCombobox
+                    value={sellerDirector}
+                    options={sdOptions}
+                    onChange={handleDirectorChange}
+                    placeholder={sdOptions.length === 0 ? 'Loading…' : 'Search sales director…'}
+                  />
+                )}
+              </InputRow>
+              <InputRow label="Sales Manager" icon={<Users size={11} />}>
+                {isUserSM ? (
+                  <ReadOnlyInput value={sellerManager} placeholder="Auto-filled" />
+                ) : (
+                  <SearchableCombobox
+                    value={sellerManager}
+                    options={smOptions}
+                    onChange={handleManagerChange}
+                    placeholder={smOptions.length === 0 ? 'Loading…' : 'Search sales manager…'}
+                  />
+                )}
+              </InputRow>
+              <InputRow label="Property Specialist" icon={<User size={11} />} error={errors.sellerSpecialist}>
                 {isUserPS ? (
                   <ReadOnlyInput value={sellerSpecialist} placeholder="Auto-filled" />
                 ) : (
@@ -1055,12 +1136,6 @@ export default function NewClientPage() {
                     placeholder={specialists.length === 0 ? 'Loading…' : 'Search property specialist…'}
                   />
                 )}
-              </InputRow>
-              <InputRow label="Sales Manager" icon={<Users size={11} />}>
-                <ReadOnlyInput value={sellerManager} placeholder={isUserSM ? 'Auto-filled' : 'Auto-filled from specialist'} />
-              </InputRow>
-              <InputRow label="Sales Director" icon={<UserCog size={11} />}>
-                <ReadOnlyInput value={sellerDirector} placeholder={isUserSD ? 'Auto-filled' : 'Auto-filled from specialist'} />
               </InputRow>
             </>
           )}

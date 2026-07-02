@@ -11,7 +11,7 @@ import {
   X, Check, ChevronDown, ChevronLeft, Search, Edit2, UserCog,
   SlidersHorizontal, Plus, Building2, PenLine, Upload, RotateCcw,
 } from 'lucide-react';
-import { fetchAllClients, updateClient, updateClientSignature, ClientRecord } from '@/lib/clients';
+import { fetchAllClients, updateClient, updateClientSignature, checkEmailExists, ClientRecord } from '@/lib/clients';
 import { getSession } from '@/lib/auth';
 import type { AppUser } from '@/types';
 import {
@@ -217,6 +217,7 @@ export default function ExistingClientPage() {
   const [form, setForm]                                   = useState<FormState>(EMPTY_FORM);
   const [errors, setErrors]                               = useState<Record<string, string>>({});
   const [saving, setSaving]                               = useState(false);
+  const [emailChecking, setEmailChecking]                 = useState(false);
   const [returnTo, setReturnTo]                           = useState<string | null>(null);
   const [countryPickerOpen, setCountryPickerOpen]         = useState(false);
   const [countrySearch, setCountrySearch]                 = useState('');
@@ -463,8 +464,9 @@ export default function ExistingClientPage() {
     if (!form.sourceOfSale)           e.sourceOfSale           = 'Source of sale is required';
     if (!form.monthlyHouseholdIncome) e.monthlyHouseholdIncome = 'Monthly income is required';
     if (form.sellerType === 'In House') {
-      if (isMegawideEmployee && !sellerDirector)    e.sellerDirector    = 'Sales Director is required';
-      if (!isMegawideEmployee && !sellerSpecialist) e.sellerSpecialist  = 'Property Specialist is required';
+      if (isMegawideEmployee && !sellerDirector) e.sellerDirector = 'Sales Director is required';
+      if (!isMegawideEmployee && !sellerSpecialist && !sellerManager && !sellerDirector && !sellerDivisionHead && !sellerSalesHead)
+        e.sellerSpecialist = 'At least one seller position is required';
     }
     if (form.sellerType === 'Broker' && !brokerBirName) e.brokerBirName = 'Broker Name is required';
     setErrors(e);
@@ -591,6 +593,16 @@ export default function ExistingClientPage() {
         c.name.toLowerCase().includes(countrySearch.toLowerCase()) ||
         c.dial.includes(countrySearch))
     : COUNTRY_CODES;
+
+  const userSalesperson = user?.seller_id ? allSalespersons.find(s => s.seller_id === user.seller_id) ?? null : null;
+  const userBrokerRec   = user?.seller_id ? allBrokerRecruits.find(r => r.broker_id === user.seller_id) ?? null : null;
+  const isUserPS     = userSalesperson?.position_rank === 'PS';
+  const isUserSM     = userSalesperson?.position_rank === 'SM';
+  const isUserBroker = !!userBrokerRec;
+  const sellerTypeOptions = (['In House', 'Broker'] as const).filter(t =>
+    !(t === 'Broker' && (isMegawideEmployee || isUserPS || isUserSM)) &&
+    !(t === 'In House' && isUserBroker)
+  );
 
   const SEE_ALL_ROLES = ['All Access', 'Account Management', 'Finance Verification'];
   const visibleClients = !user || SEE_ALL_ROLES.includes(user.role_name ?? '') || !user.seller_id
@@ -963,7 +975,7 @@ export default function ExistingClientPage() {
                     />
                   </DarkInputRow>
                   <DarkInputRow label="Email Address" icon={<Mail size={11} />} error={errors.email} required={editMode}>
-                    <>
+                    <div className="relative">
                       <input
                         type="email"
                         inputMode="email"
@@ -972,17 +984,23 @@ export default function ExistingClientPage() {
                         onChange={e => {
                           if (!editMode) return;
                           set('email')(e.target.value);
-                          if (errors.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.target.value))
-                            setErrors(prev => ({ ...prev, email: '' }));
+                          setErrors(prev => ({ ...prev, email: '' }));
                         }}
-                        onBlur={() => {
+                        onBlur={async () => {
                           if (!editMode) return;
-                          if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
+                          const val = form.email.trim();
+                          if (!val) return;
+                          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) {
                             setErrors(prev => ({ ...prev, email: 'Enter a valid email address' }));
-                          else
-                            setErrors(prev =>
-                              prev.email === 'Enter a valid email address' ? { ...prev, email: '' } : prev
-                            );
+                            return;
+                          }
+                          setEmailChecking(true);
+                          try {
+                            const taken = await checkEmailExists(val, selectedClient?.id);
+                            if (taken) setErrors(prev => ({ ...prev, email: 'This email is already registered' }));
+                          } finally {
+                            setEmailChecking(false);
+                          }
                         }}
                         placeholder="juan@email.com"
                         className={
@@ -993,11 +1011,12 @@ export default function ExistingClientPage() {
                               : dInputCls
                         }
                       />
-                      {editMode && !errors.email && form.email.trim().length > 0 &&
-                        allClients.some(c => c.id !== selectedClient?.id && c.email?.toLowerCase() === form.email.trim().toLowerCase()) && (
-                        <p className="text-xs text-amber-500 mt-0.5">This email is already registered.</p>
+                      {emailChecking && (
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                          <Loader2 size={13} className="animate-spin text-[#8E8E93]" />
+                        </div>
                       )}
-                    </>
+                    </div>
                   </DarkInputRow>
                 </DarkSectionCard>
 
@@ -1055,7 +1074,7 @@ export default function ExistingClientPage() {
                 {/* Seller Information */}
                 <DarkSectionCard title="Seller Information" zIndex={2}>
                   <div className="grid grid-cols-2 gap-2">
-                    {(['In House', ...(!isMegawideEmployee ? ['Broker'] : [])] as const).map(t => (
+                    {sellerTypeOptions.map(t => (
                       <button key={t} type="button"
                         onClick={() => { if (editMode) { set('sellerType')(t); resetSellerSelections(); } }}
                         className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-semibold transition-all ${
