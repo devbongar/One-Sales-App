@@ -332,6 +332,9 @@ export default function BuyerInfoPage() {
   // Fields pulled from client record are always read-only once a client is matched
   const isClientLocked = !!clientRecord;
 
+  // Employment-specific fields only apply to Employee / Self Employed
+  const isEmployed = employmentStatus === 'Employee' || employmentStatus === 'Self Employed';
+
   // Derived mailing address text
   const homeAddressText   = [unitNo, barangayLine1, streetLine2, cityMunicipality, regionProvince, country].filter(Boolean).join(', ');
   const officeAddressText = [workBuildingUnit, workBarangay, workStreet, workCityMunicipality, workRegionProvince, workCountry].filter(Boolean).join(', ');
@@ -383,6 +386,8 @@ export default function BuyerInfoPage() {
       setMobileNumber(match.mobile_number ?? '');
       setLandline(match.landline_no ?? '');
       setEmail(match.email ?? '');
+      setGender(match.gender ?? '');
+      setCivilStatus(match.civil_status ?? '');
 
       // Fetch previously saved buyer info
       const info = await fetchBuyerInfo(match.id).catch(() => null);
@@ -458,8 +463,6 @@ export default function BuyerInfoPage() {
     if (isSaved) { setStep(1); return; }
     if (!lastName.trim())  { setStep0Error('Please enter a last name.'); return; }
     if (!firstName.trim()) { setStep0Error('Please enter a first name.'); return; }
-    if (!gender)           { setStep0Error('Please select a gender.'); return; }
-    if (!civilStatus)      { setStep0Error('Please select civil status.'); return; }
     if (!noTin && !tin.trim()) { setStep0Error('Please enter a TIN or check "No TIN".'); return; }
     if (!emergencyName.trim())    { setStep0Error('Please enter an emergency contact name.'); return; }
     if (!emergencyContact.trim()) { setStep0Error('Please enter an emergency contact number.'); return; }
@@ -491,22 +494,22 @@ export default function BuyerInfoPage() {
   // ── Validate Step 2 before showing confirm modal ──────────────────────────
   function handleSaveClick() {
     if (isSaved) return;
-    if (!employer.trim())         { setStep2Error('Please enter an employer / business.'); return; }
-    if (!natureOfBusiness)        { setStep2Error('Please select a nature of business.'); return; }
-    if (!employmentSector)        { setStep2Error('Please select an employment sector.'); return; }
-    if (!employmentStatus)        { setStep2Error('Please select an employment status.'); return; }
-    if (!jobTitle.trim())         { setStep2Error('Please enter a job title / position.'); return; }
-    if (!rank)                    { setStep2Error('Please select a rank.'); return; }
-    if (!salaryRange)             { setStep2Error('Please select a salary range.'); return; }
-    if (!workMobile.trim())       { setStep2Error('Please enter a work mobile number.'); return; }
-    if (!workCountry)             { setStep2Error('Please select a work country.'); return; }
-    if (!workRegionProvince.trim())      { setStep2Error('Please enter a work region / province.'); return; }
-    if (!workCityMunicipality.trim())    { setStep2Error('Please enter a work city / municipality.'); return; }
-    if (!workBarangay.trim())            { setStep2Error('Please enter a work barangay.'); return; }
-    if (!workStreet.trim())              { setStep2Error('Please enter a work street.'); return; }
-    if (!workBuildingUnit.trim())        { setStep2Error('Please enter a work building / unit no.'); return; }
-    if (!mailingType)                    { setStep2Error('Please select a mailing address type.'); return; }
-    if (mailingType === 'Others' && !mailingOther.trim()) { setStep2Error('Please enter the mailing address.'); return; }
+    if (isEmployed && !employer.trim())      { setStep2Error('Please enter an employer / business.'); return; }
+    if (isEmployed && !natureOfBusiness)    { setStep2Error('Please select a nature of business.'); return; }
+    if (isEmployed && !employmentSector)    { setStep2Error('Please select an employment sector.'); return; }
+    if (!employmentStatus)                  { setStep2Error('Please select an employment status.'); return; }
+    if (isEmployed && !jobTitle.trim())     { setStep2Error('Please enter a job title / position.'); return; }
+    if (isEmployed && !rank)               { setStep2Error('Please select a rank.'); return; }
+    if (isEmployed && !salaryRange)        { setStep2Error('Please select a salary range.'); return; }
+    if (isEmployed && !workMobile.trim())  { setStep2Error('Please enter a work mobile number.'); return; }
+    if (isEmployed && !workCountry)                    { setStep2Error('Please select a work country.'); return; }
+    if (isEmployed && !workRegionProvince.trim())      { setStep2Error('Please enter a work region / province.'); return; }
+    if (isEmployed && !workCityMunicipality.trim())    { setStep2Error('Please enter a work city / municipality.'); return; }
+    if (isEmployed && !workBarangay.trim())            { setStep2Error('Please enter a work barangay.'); return; }
+    if (isEmployed && !workStreet.trim())              { setStep2Error('Please enter a work street.'); return; }
+    if (isEmployed && !workBuildingUnit.trim())        { setStep2Error('Please enter a work building / unit no.'); return; }
+    if (!mailingType)                                                    { setStep2Error('Please select a mailing address type.'); return; }
+    if (mailingType === 'Others' && !mailingOther.trim())               { setStep2Error('Please enter the mailing address.'); return; }
     setStep2Error('');
     setShowConfirmModal(true);
   }
@@ -627,11 +630,11 @@ export default function BuyerInfoPage() {
             <TextInput value={suffix} onChange={setSuffix} placeholder="e.g. Jr., Sr., III" disabled={isSaved || isClientLocked} />
           </InputRow>
 
-          <InputRow label="Gender" icon={<User size={11} />} required={!isSaved}>
-            <SelectInput value={gender} options={GENDER_OPTIONS} onChange={v => { setGender(v); setStep0Error(''); }} placeholder="Select gender" disabled={isSaved} />
+          <InputRow label="Gender" icon={<User size={11} />}>
+            <SelectInput value={gender} options={GENDER_OPTIONS} onChange={v => { setGender(v); setStep0Error(''); }} placeholder="Select gender" disabled={isSaved || isClientLocked} />
           </InputRow>
-          <InputRow label="Civil Status" icon={<Heart size={11} />} required={!isSaved}>
-            <SelectInput value={civilStatus} options={CIVIL_STATUS_OPTIONS} onChange={v => { setCivilStatus(v); setStep0Error(''); }} placeholder="Select civil status" disabled={isSaved} />
+          <InputRow label="Civil Status" icon={<Heart size={11} />}>
+            <SelectInput value={civilStatus} options={CIVIL_STATUS_OPTIONS} onChange={v => { setCivilStatus(v); setStep0Error(''); }} placeholder="Select civil status" disabled={isSaved || isClientLocked} />
           </InputRow>
 
           <InputRow label="Citizenship" icon={<Globe size={11} />}>
@@ -841,46 +844,64 @@ export default function BuyerInfoPage() {
         <GlassCard className="p-4 space-y-4">
           <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Employment Information</p>
 
-          <InputRow label="Employer / Business" icon={<Briefcase size={11} />} required={!isSaved}>
-            <TextInput value={employer} onChange={setEmployer} placeholder="e.g. Megawide Construction" disabled={isSaved} />
-          </InputRow>
-          <InputRow label="Nature of Business" icon={<Briefcase size={11} />} required={!isSaved}>
-            <SelectInput value={natureOfBusiness} options={NATURE_OF_BUSINESS_OPTS} onChange={setNatureOfBusiness} placeholder="Select nature of business" disabled={isSaved} />
-          </InputRow>
-          <InputRow label="Employment Sector" icon={<Briefcase size={11} />} required={!isSaved}>
-            <SelectInput value={employmentSector} options={EMPLOYMENT_SECTOR_OPTS} onChange={setEmploymentSector} placeholder="Select employment sector" disabled={isSaved} />
-          </InputRow>
+          {isEmployed && (
+            <InputRow label="Employer / Business" icon={<Briefcase size={11} />} required={!isSaved}>
+              <TextInput value={employer} onChange={setEmployer} placeholder="e.g. Megawide Construction" disabled={isSaved} />
+            </InputRow>
+          )}
+          {isEmployed && (
+            <InputRow label="Nature of Business" icon={<Briefcase size={11} />} required={!isSaved}>
+              <SelectInput value={natureOfBusiness} options={NATURE_OF_BUSINESS_OPTS} onChange={setNatureOfBusiness} placeholder="Select nature of business" disabled={isSaved} />
+            </InputRow>
+          )}
+          {isEmployed && (
+            <InputRow label="Employment Sector" icon={<Briefcase size={11} />} required={!isSaved}>
+              <SelectInput value={employmentSector} options={EMPLOYMENT_SECTOR_OPTS} onChange={setEmploymentSector} placeholder="Select employment sector" disabled={isSaved} />
+            </InputRow>
+          )}
           <InputRow label="Employment Status" icon={<Briefcase size={11} />} required={!isSaved}>
             <SelectInput value={employmentStatus} options={EMPLOYMENT_STATUS_OPTS} onChange={setEmploymentStatus} placeholder="Select employment status" disabled={isSaved} />
           </InputRow>
-          <InputRow label="Job Title / Position" icon={<User size={11} />} required={!isSaved}>
-            <TextInput value={jobTitle} onChange={setJobTitle} placeholder="e.g. Software Engineer" disabled={isSaved} />
-          </InputRow>
-          <InputRow label="Rank" icon={<User size={11} />} required={!isSaved}>
-            <SelectInput value={rank} options={RANK_OPTS} onChange={setRank} placeholder="Select rank" disabled={isSaved} />
-          </InputRow>
-          <InputRow label="Salary Range" icon={<DollarSign size={11} />} required={!isSaved}>
-            <SelectInput value={salaryRange} options={SALARY_RANGE_OPTS} onChange={setSalaryRange} placeholder="Select salary range" disabled={isSaved} />
-          </InputRow>
-          <InputRow label="Mobile No." icon={<Phone size={11} />} required={!isSaved}>
-            <PhoneInputField code={workMobileCode} onCodeChange={setWorkMobileCode} number={workMobile} onNumberChange={setWorkMobile} disabled={isSaved} />
-          </InputRow>
-          <InputRow label="Landline No." icon={<Phone size={11} />}>
-            {isSaved
-              ? <div className="w-full px-3 py-2.5 rounded-xl border border-black/[0.06] bg-[#F2F2F7]/50 text-sm text-[#6C6C70]">{workLandline || '—'}</div>
-              : <input type="tel" value={workLandline}
-                  onChange={e => setWorkLandline(e.target.value.replace(/\D/g, ''))}
-                  placeholder="e.g. 028XXXXXXX"
-                  className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC]" />
-            }
-          </InputRow>
-          <InputRow label="Email Address" icon={<Mail size={11} />}>
-            <TextInput value={workEmail} onChange={setWorkEmail} placeholder="work@email.com" disabled={isSaved} />
-          </InputRow>
+          {isEmployed && (
+            <InputRow label="Job Title / Position" icon={<User size={11} />} required={!isSaved}>
+              <TextInput value={jobTitle} onChange={setJobTitle} placeholder="e.g. Software Engineer" disabled={isSaved} />
+            </InputRow>
+          )}
+          {isEmployed && (
+            <InputRow label="Rank" icon={<User size={11} />} required={!isSaved}>
+              <SelectInput value={rank} options={RANK_OPTS} onChange={setRank} placeholder="Select rank" disabled={isSaved} />
+            </InputRow>
+          )}
+          {isEmployed && (
+            <InputRow label="Salary Range" icon={<DollarSign size={11} />} required={!isSaved}>
+              <SelectInput value={salaryRange} options={SALARY_RANGE_OPTS} onChange={setSalaryRange} placeholder="Select salary range" disabled={isSaved} />
+            </InputRow>
+          )}
+          {isEmployed && (
+            <InputRow label="Mobile No." icon={<Phone size={11} />} required={!isSaved}>
+              <PhoneInputField code={workMobileCode} onCodeChange={setWorkMobileCode} number={workMobile} onNumberChange={setWorkMobile} disabled={isSaved} />
+            </InputRow>
+          )}
+          {isEmployed && (
+            <InputRow label="Landline No." icon={<Phone size={11} />}>
+              {isSaved
+                ? <div className="w-full px-3 py-2.5 rounded-xl border border-black/[0.06] bg-[#F2F2F7]/50 text-sm text-[#6C6C70]">{workLandline || '—'}</div>
+                : <input type="tel" value={workLandline}
+                    onChange={e => setWorkLandline(e.target.value.replace(/\D/g, ''))}
+                    placeholder="e.g. 028XXXXXXX"
+                    className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC]" />
+              }
+            </InputRow>
+          )}
+          {isEmployed && (
+            <InputRow label="Email Address" icon={<Mail size={11} />}>
+              <TextInput value={workEmail} onChange={setWorkEmail} placeholder="work@email.com" disabled={isSaved} />
+            </InputRow>
+          )}
         </GlassCard>
 
-        {/* Work Address Information */}
-        <GlassCard className="p-4 space-y-4">
+        {/* Work Address Information — only for Employee / Self Employed */}
+        {isEmployed && <GlassCard className="p-4 space-y-4">
           <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Work Address Information</p>
 
           <InputRow label="Country" icon={<Globe size={11} />} required={!isSaved}>
@@ -917,44 +938,42 @@ export default function BuyerInfoPage() {
             <TextInput value={workBuildingUnit} onChange={setWorkBuildingUnit} placeholder="e.g. 28F Tower 1" disabled={isSaved} />
           </InputRow>
 
-          {/* Mailing Address */}
-          <div className="space-y-2">
-            <label className="text-xs font-semibold text-[#8E8E93] flex items-center gap-1.5">
-              <Mail size={11} /> Mailing Address
-              {!isSaved && <span className="text-red-500 font-bold">*</span>}
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-              {MAILING_OPTS.map(opt => (
-                <button key={opt} type="button"
-                  onClick={() => !isSaved && setMailingType(p => p === opt ? '' : opt)}
-                  className={`flex flex-col items-center justify-center gap-1 py-2.5 px-1 rounded-xl border text-xs font-semibold transition-all leading-tight text-center ${
-                    mailingType === opt
-                      ? 'bg-[#C03D25] border-[#C03D25] text-white'
-                      : isSaved ? 'bg-[#F2F2F7]/50 border-transparent text-[#C7C7CC]'
-                      : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
-                  }`}>
-                  {mailingType === opt && <Check size={11} />}
-                  {opt}
-                </button>
-              ))}
-            </div>
+        </GlassCard>}
 
-            {/* Mailing address display / input */}
-            {mailingType && mailingType !== 'Others' && (
-              <div className="w-full px-3 py-2.5 rounded-xl border border-black/[0.06] bg-[#F2F2F7]/50 text-sm text-[#6C6C70] leading-relaxed">
-                {mailingDisplay || '—'}
-              </div>
-            )}
-            {mailingType === 'Others' && (
-              <textarea
-                value={mailingOther}
-                onChange={e => setMailingOther(e.target.value)}
-                placeholder="Enter mailing address..."
-                rows={3}
-                className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/50 focus:bg-white transition-colors placeholder:text-[#C7C7CC] resize-none"
-              />
-            )}
+        {/* Mailing Address */}
+        <GlassCard className="p-4 space-y-3">
+          <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider flex items-center gap-1">
+            Mailing Address <span className="text-red-500 font-bold">*</span>
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            {(isEmployed ? MAILING_OPTS : MAILING_OPTS.filter(o => o !== 'Office Address')).map(opt => (
+              <button key={opt} type="button"
+                onClick={() => !isSaved && setMailingType(p => p === opt ? '' : opt)}
+                className={`flex flex-col items-center justify-center gap-1 py-2.5 px-1 rounded-xl border text-xs font-semibold transition-all leading-tight text-center ${
+                  mailingType === opt
+                    ? 'bg-[#C03D25] border-[#C03D25] text-white'
+                    : isSaved ? 'bg-[#F2F2F7]/50 border-transparent text-[#C7C7CC]'
+                    : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
+                }`}>
+                {mailingType === opt && <Check size={11} />}
+                {opt}
+              </button>
+            ))}
           </div>
+          {mailingType && mailingType !== 'Others' && (
+            <div className="w-full px-3 py-2.5 rounded-xl border border-black/[0.06] bg-[#F2F2F7]/50 text-sm text-[#6C6C70] leading-relaxed">
+              {mailingDisplay || '—'}
+            </div>
+          )}
+          {mailingType === 'Others' && (
+            <textarea
+              value={mailingOther}
+              onChange={e => setMailingOther(e.target.value)}
+              placeholder="Enter mailing address..."
+              rows={3}
+              className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/50 focus:bg-white transition-colors placeholder:text-[#C7C7CC] resize-none"
+            />
+          )}
         </GlassCard>
 
         {/* Save / Back button */}

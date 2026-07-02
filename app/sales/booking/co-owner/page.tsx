@@ -4,11 +4,10 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
-import { COUNTRY_CODES } from '@/lib/client-form-options';
+import { COUNTRY_CODES, CITIZENSHIP_LIST } from '@/lib/client-form-options';
 import { PH_PROVINCES, PH_CITIES } from '@/lib/ph-locations';
 import { saveCoOwner, fetchCoOwner } from '@/lib/co-owners';
 import { supabase } from '@/lib/supabase';
-import { fetchSpouseInfo, SpouseInfoRecord } from '@/lib/spouse-info';
 import DatePickerInput from '@/components/ui/DatePickerInput';
 import {
   Building2, User,
@@ -251,8 +250,6 @@ export default function CoOwnerPage() {
   const [step1Error, setStep1Error] = useState('');
   const [step2Error, setStep2Error] = useState('');
   const [hasAttyInFact,    setHasAttyInFact]    = useState(false);
-  const [spouseInfo,       setSpouseInfo]       = useState<SpouseInfoRecord | null>(null);
-  const [sameAsSpouse,     setSameAsSpouse]     = useState(false);
 
   const [reservation, setReservation] = useState<{
     reservation_id?: string; project?: string; inventory_code?: string;
@@ -273,6 +270,13 @@ export default function CoOwnerPage() {
   const [civilStatus, setCivilStatus] = useState('');
   const [tin,         setTin]         = useState('');
   const [noTin,       setNoTin]       = useState(false);
+
+  // Citizenship picker
+  const [citizenshipPickerOpen,   setCitizenshipPickerOpen]   = useState(false);
+  const [citizenshipSearch,       setCitizenshipSearch]       = useState('');
+  const [citizenshipPickerTarget, setCitizenshipPickerTarget] = useState<'primary' | number>('primary');
+  const [hasMultipleCitizenship,  setHasMultipleCitizenship]  = useState(false);
+  const [otherCitizenships,       setOtherCitizenships]       = useState<string[]>([]);
 
   // ── Step 1: Address Information state ──
   const [homeOwnership,    setHomeOwnership]    = useState('');
@@ -325,11 +329,9 @@ export default function CoOwnerPage() {
     if (!r.reservation_id) { setLoading(false); return; }
 
     Promise.all([
-      fetchSpouseInfo(r.reservation_id).catch(() => null),
       fetchCoOwner(r.reservation_id).catch(() => null),
       supabase.from('reservations').select('booking_review_status').eq('reservation_id', r.reservation_id).single(),
-    ]).then(([spouse, info, { data: resRow }]) => {
-      if (spouse) setSpouseInfo(spouse);
+    ]).then(([info, { data: resRow }]) => {
       const brs = (resRow as any)?.booking_review_status ?? null;
       setIsSaved(!!info && LOCKED_STATUSES.includes(brs ?? ''));
 
@@ -340,7 +342,12 @@ export default function CoOwnerPage() {
       setSuffix(info.suffix ?? '');
       setGender(info.gender ?? '');
       setCivilStatus(info.civil_status ?? '');
-      setCitizenship(info.citizenship ?? '');
+      const citizenshipParts = (info.citizenship ?? '').split(' | ').filter(Boolean);
+      setCitizenship(citizenshipParts[0] ?? '');
+      if (citizenshipParts.length > 1) {
+        setHasMultipleCitizenship(true);
+        setOtherCitizenships(citizenshipParts.slice(1));
+      }
       setDateOfBirth(info.date_of_birth ?? '');
       setMobileCode(info.mobile_code ?? '+63');
       setMobile(info.mobile ?? '');
@@ -378,52 +385,6 @@ export default function CoOwnerPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  // ── Copy spouse fields into co-owner form ────────────────────────────────
-  function populateFromSpouse(checked: boolean) {
-    setSameAsSpouse(checked);
-    if (!checked || !spouseInfo) return;
-    setLastName(spouseInfo.last_name ?? '');
-    setFirstName(spouseInfo.first_name ?? '');
-    setMiddleName(spouseInfo.middle_name ?? '');
-    setSuffix(spouseInfo.suffix ?? '');
-    setGender(spouseInfo.gender ?? '');
-    setCivilStatus(spouseInfo.civil_status ?? '');
-    setCitizenship(spouseInfo.citizenship ?? '');
-    setDateOfBirth(spouseInfo.date_of_birth ?? '');
-    setMobileCode(spouseInfo.mobile_code ?? '+63');
-    setMobile(spouseInfo.mobile ?? '');
-    setLandline(spouseInfo.landline ?? '');
-    setEmail(spouseInfo.email ?? '');
-    setTin(spouseInfo.tin ?? '');
-    setNoTin(spouseInfo.no_tin ?? false);
-    setHomeOwnership(spouseInfo.home_ownership ?? '');
-    setCountry(spouseInfo.home_country ?? 'Philippines');
-    setRegionProvince(spouseInfo.home_region_province ?? '');
-    setCityMunicipality(spouseInfo.home_city_municipality ?? '');
-    setBarangayLine1(spouseInfo.home_barangay ?? '');
-    setStreetLine2(spouseInfo.home_street ?? '');
-    setUnitNo(spouseInfo.home_unit ?? '');
-    setEmployer(spouseInfo.employer ?? '');
-    setNatureOfBusiness(spouseInfo.nature_of_business ?? '');
-    setEmploymentSector(spouseInfo.employment_sector ?? '');
-    setEmploymentStatus(spouseInfo.employment_status ?? '');
-    setJobTitle(spouseInfo.job_title ?? '');
-    setRank(spouseInfo.rank ?? '');
-    setSalaryRange(spouseInfo.salary_range ?? '');
-    setWorkMobileCode(spouseInfo.work_mobile_code ?? '+63');
-    setWorkMobile(spouseInfo.work_mobile ?? '');
-    setWorkLandline(spouseInfo.work_landline ?? '');
-    setWorkEmail(spouseInfo.work_email ?? '');
-    setWorkCountry(spouseInfo.work_country ?? 'Philippines');
-    setWorkRegionProvince(spouseInfo.work_region_province ?? '');
-    setWorkCityMunicipality(spouseInfo.work_city_municipality ?? '');
-    setWorkBarangay(spouseInfo.work_barangay ?? '');
-    setWorkStreet(spouseInfo.work_street ?? '');
-    setWorkBuildingUnit(spouseInfo.work_building_unit ?? '');
-    setMailingType(spouseInfo.mailing_type ?? '');
-    setMailingOther(spouseInfo.mailing_other ?? '');
-  }
-
   function handleNextFromStep0() {
     if (isSaved) { setStep(1); return; }
     if (!lastName.trim())              { setStep0Error('Please enter the last name.'); return; }
@@ -451,22 +412,26 @@ export default function CoOwnerPage() {
     setStep(2);
   }
 
+  const isEmployed = employmentStatus === 'Employee' || employmentStatus === 'Self Employed';
+
   function handleSaveClick() {
     if (isSaved) { handleSave(); return; }
-    if (!employer.trim())                { setStep2Error('Please enter an employer / business.'); return; }
-    if (!natureOfBusiness)               { setStep2Error('Please select a nature of business.'); return; }
-    if (!employmentSector)               { setStep2Error('Please select an employment sector.'); return; }
     if (!employmentStatus)               { setStep2Error('Please select an employment status.'); return; }
-    if (!jobTitle.trim())                { setStep2Error('Please enter a job title / position.'); return; }
-    if (!rank)                           { setStep2Error('Please select a rank.'); return; }
-    if (!salaryRange)                    { setStep2Error('Please select a salary range.'); return; }
-    if (!workMobile.trim())              { setStep2Error('Please enter a work mobile number.'); return; }
-    if (!workCountry)                    { setStep2Error('Please select a work country.'); return; }
-    if (!workRegionProvince.trim())      { setStep2Error('Please enter a work region / province.'); return; }
-    if (!workCityMunicipality.trim())    { setStep2Error('Please enter a work city / municipality.'); return; }
-    if (!workBarangay.trim())            { setStep2Error('Please enter a work barangay.'); return; }
-    if (!workStreet.trim())              { setStep2Error('Please enter a work street.'); return; }
-    if (!workBuildingUnit.trim())        { setStep2Error('Please enter a work building / unit no.'); return; }
+    if (isEmployed) {
+      if (!employer.trim())              { setStep2Error('Please enter an employer / business.'); return; }
+      if (!natureOfBusiness)             { setStep2Error('Please select a nature of business.'); return; }
+      if (!employmentSector)             { setStep2Error('Please select an employment sector.'); return; }
+      if (!jobTitle.trim())              { setStep2Error('Please enter a job title / position.'); return; }
+      if (!rank)                         { setStep2Error('Please select a rank.'); return; }
+      if (!salaryRange)                  { setStep2Error('Please select a salary range.'); return; }
+      if (!workMobile.trim())            { setStep2Error('Please enter a work mobile number.'); return; }
+      if (!workCountry)                  { setStep2Error('Please select a work country.'); return; }
+      if (!workRegionProvince.trim())    { setStep2Error('Please enter a work region / province.'); return; }
+      if (!workCityMunicipality.trim())  { setStep2Error('Please enter a work city / municipality.'); return; }
+      if (!workBarangay.trim())          { setStep2Error('Please enter a work barangay.'); return; }
+      if (!workStreet.trim())            { setStep2Error('Please enter a work street.'); return; }
+      if (!workBuildingUnit.trim())      { setStep2Error('Please enter a work building / unit no.'); return; }
+    }
     if (!mailingType)                    { setStep2Error('Please select a mailing address type.'); return; }
     if (mailingType === 'Others' && !mailingOther.trim()) { setStep2Error('Please enter the mailing address.'); return; }
     setStep2Error('');
@@ -481,7 +446,9 @@ export default function CoOwnerPage() {
       await saveCoOwner({
         reservation_id: reservation?.reservation_id ?? '',
         last_name: lastName, first_name: firstName, middle_name: middleName, suffix,
-        gender, civil_status: civilStatus, citizenship, date_of_birth: dateOfBirth,
+        gender, civil_status: civilStatus,
+        citizenship: [citizenship, ...otherCitizenships.filter(Boolean)].join(' | '),
+        date_of_birth: dateOfBirth,
         mobile_code: mobileCode, mobile, landline, email,
         tin: noTin ? '' : tin, no_tin: noTin,
         home_ownership: homeOwnership, home_country: country,
@@ -496,7 +463,7 @@ export default function CoOwnerPage() {
         work_city_municipality: workCityMunicipality, work_barangay: workBarangay,
         work_street: workStreet, work_building_unit: workBuildingUnit,
         mailing_type: mailingType, mailing_other: mailingOther,
-        co_owner_is_spouse: sameAsSpouse,
+        co_owner_is_spouse: false,
       });
       if (reservation?.reservation_id) {
         await supabase
@@ -523,71 +490,166 @@ export default function CoOwnerPage() {
     </PageShell>
   );
 
+  // ── Citizenship full-page picker ─────────────────────────────────────────
+  const filteredCitizenships = citizenshipSearch
+    ? CITIZENSHIP_LIST.filter(c => c.toLowerCase().includes(citizenshipSearch.toLowerCase()))
+    : CITIZENSHIP_LIST;
+
+  if (citizenshipPickerOpen) return (
+    <PageShell title="Select Citizenship" backButton onBack={() => setCitizenshipPickerOpen(false)}>
+      <div className="flex items-center gap-2 px-3 py-2.5 bg-white rounded-xl border border-black/[0.08]">
+        <Search size={14} className="text-[#C7C7CC] shrink-0" />
+        <input autoFocus type="text" value={citizenshipSearch} onChange={e => setCitizenshipSearch(e.target.value)}
+          placeholder="Search citizenship..." className="flex-1 text-sm bg-transparent outline-none text-[#1C1C1E] placeholder:text-[#C7C7CC]" />
+        {citizenshipSearch && <button type="button" onClick={() => setCitizenshipSearch('')}><X size={13} className="text-[#C7C7CC]" /></button>}
+      </div>
+      <div className="bg-white rounded-2xl overflow-hidden border border-black/[0.06] mt-2">
+        {filteredCitizenships.map(c => {
+          const currentVal = citizenshipPickerTarget === 'primary'
+            ? citizenship
+            : otherCitizenships[citizenshipPickerTarget as number] ?? '';
+          return (
+            <button key={c} type="button"
+              onClick={() => {
+                if (citizenshipPickerTarget === 'primary') {
+                  setCitizenship(c);
+                } else {
+                  const idx = citizenshipPickerTarget as number;
+                  setOtherCitizenships(prev => prev.map((v, i) => i === idx ? c : v));
+                }
+                setCitizenshipPickerOpen(false);
+                setCitizenshipSearch('');
+              }}
+              className={`w-full flex items-center justify-between px-4 py-3 text-sm border-b border-black/[0.05] last:border-0 active:bg-gray-50 ${
+                c === currentVal ? 'bg-[#C03D25]/10 text-[#C03D25] font-semibold' : 'text-[#1C1C1E]'
+              }`}>
+              {c}
+              {c === currentVal && <Check size={13} className="shrink-0" />}
+            </button>
+          );
+        })}
+      </div>
+    </PageShell>
+  );
+
   // ── Step 0: Personal Information ─────────────────────────────────────────
   if (step === 0) return (
     <PageShell title="Co-Owner Information" backButton onBack={() => router.push('/sales/booking/detail')}>
       <div className="space-y-4 pb-6">
         <StepIndicator current={1} total={3} />
 
-        {/* Same as Spouse checkbox — only shown when spouse info exists and form not yet saved */}
-        {spouseInfo && !isSaved && (
-          <GlassCard className="px-4 py-1">
-            <button type="button" onClick={() => populateFromSpouse(!sameAsSpouse)}
-              className="w-full flex items-center gap-3 py-3.5 text-left active:opacity-70">
-              <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${
-                sameAsSpouse ? 'bg-[#C03D25] border-[#C03D25]' : 'border-[#C7C7CC] bg-white'
-              }`}>
-                {sameAsSpouse && <Check size={12} className="text-white" />}
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-[#1C1C1E]">Co-owner is the same as Spouse</p>
-                <p className="text-xs text-[#8E8E93] mt-0.5">Auto-fill form with saved spouse details</p>
-              </div>
-            </button>
-          </GlassCard>
-        )}
-
         <GlassCard className="p-4 space-y-4">
           <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Personal Information</p>
 
           <InputRow label="Last Name" icon={<User size={11} />} required>
-            <TextInput value={lastName} onChange={v => setLastName(v.replace(/\b\w/g, c => c.toUpperCase()))} placeholder="e.g. Santos" disabled={isSaved || sameAsSpouse} />
+            <TextInput value={lastName} onChange={v => setLastName(v.replace(/\b\w/g, c => c.toUpperCase()))} placeholder="e.g. Santos" disabled={isSaved} />
           </InputRow>
           <InputRow label="First Name" icon={<User size={11} />} required>
-            <TextInput value={firstName} onChange={v => setFirstName(v.replace(/\b\w/g, c => c.toUpperCase()))} placeholder="e.g. Maria" disabled={isSaved || sameAsSpouse} />
+            <TextInput value={firstName} onChange={v => setFirstName(v.replace(/\b\w/g, c => c.toUpperCase()))} placeholder="e.g. Maria" disabled={isSaved} />
           </InputRow>
           <InputRow label="Middle Name" icon={<User size={11} />}>
-            <TextInput value={middleName} onChange={v => setMiddleName(v.replace(/\b\w/g, c => c.toUpperCase()))} placeholder="e.g. Cruz" disabled={isSaved || sameAsSpouse} />
+            <TextInput value={middleName} onChange={v => setMiddleName(v.replace(/\b\w/g, c => c.toUpperCase()))} placeholder="e.g. Cruz" disabled={isSaved} />
           </InputRow>
           <InputRow label="Suffix" icon={<User size={11} />}>
-            <TextInput value={suffix} onChange={setSuffix} placeholder="e.g. Jr." disabled={isSaved || sameAsSpouse} />
+            <TextInput value={suffix} onChange={setSuffix} placeholder="e.g. Jr." disabled={isSaved} />
           </InputRow>
 
           <InputRow label="Gender" icon={<User size={11} />} required>
-            <SelectInput value={gender} options={GENDER_OPTIONS} onChange={setGender} placeholder="Select gender" disabled={isSaved || sameAsSpouse} />
+            <SelectInput value={gender} options={GENDER_OPTIONS} onChange={setGender} placeholder="Select gender" disabled={isSaved} />
           </InputRow>
           <InputRow label="Civil Status" icon={<Heart size={11} />} required>
-            <SelectInput value={civilStatus} options={CIVIL_STATUS_OPTIONS} onChange={setCivilStatus} placeholder="Select civil status" disabled={isSaved || sameAsSpouse} />
+            <SelectInput value={civilStatus} options={CIVIL_STATUS_OPTIONS} onChange={setCivilStatus} placeholder="Select civil status" disabled={isSaved} />
           </InputRow>
 
-          <InputRow label="Citizenship" icon={<Globe size={11} />} required={!isSaved}>
-            <SearchableSelect value={citizenship} options={COUNTRY_OPTIONS} onChange={setCitizenship} placeholder="Select citizenship" disabled={isSaved || sameAsSpouse} />
+          {/* Citizenship — primary */}
+          <InputRow label={hasMultipleCitizenship ? 'Citizenship 1' : 'Citizenship'} icon={<Globe size={11} />} required={!isSaved}>
+            {isSaved
+              ? <div className="w-full px-3 py-2.5 rounded-xl border border-black/[0.06] bg-[#F2F2F7]/50 text-sm text-[#6C6C70]">
+                  {[citizenship, ...otherCitizenships.filter(Boolean)].join(', ') || '—'}
+                </div>
+              : <div role="button" tabIndex={0}
+                  onClick={() => { setCitizenshipPickerTarget('primary'); setCitizenshipSearch(''); setCitizenshipPickerOpen(true); }}
+                  onKeyDown={e => e.key === 'Enter' && (setCitizenshipPickerTarget('primary'), setCitizenshipSearch(''), setCitizenshipPickerOpen(true))}
+                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.10] bg-[#F2F2F7] cursor-pointer">
+                  <span className={`text-sm ${citizenship ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
+                    {citizenship || 'Select citizenship'}
+                  </span>
+                  {citizenship
+                    ? <button type="button" onClick={e => { e.stopPropagation(); setCitizenship(''); }}>
+                        <X size={13} className="text-[#C7C7CC]" />
+                      </button>
+                    : <ChevronDown size={14} className="text-[#C7C7CC] shrink-0" />
+                  }
+                </div>
+            }
           </InputRow>
+
+          {/* Multiple citizenship toggle */}
+          {!isSaved && (
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-[#8E8E93] flex items-center gap-1.5">
+                <Globe size={11} /> Multiple Citizenship
+              </label>
+              <button type="button"
+                onClick={() => { setHasMultipleCitizenship(p => { if (p) setOtherCitizenships([]); return !p; }); }}
+                className="relative rounded-full shrink-0 transition-all duration-300 focus:outline-none"
+                style={{ width: 52, height: 28, background: hasMultipleCitizenship ? 'linear-gradient(90deg, #E05A3A 0%, #C03D25 100%)' : 'rgba(0,0,0,0.15)' }}>
+                <span className="absolute bg-white rounded-full transition-all duration-300"
+                  style={{ width: 24, height: 24, top: 2, left: hasMultipleCitizenship ? 26 : 2, boxShadow: '0 1px 4px rgba(0,0,0,0.25)' }} />
+              </button>
+            </div>
+          )}
+
+          {/* Secondary citizenships */}
+          {hasMultipleCitizenship && !isSaved && (
+            <>
+              {otherCitizenships.map((c, i) => (
+                <InputRow key={i} label={`Citizenship ${i + 2}`} icon={<Globe size={11} />}>
+                  <div className="flex gap-2">
+                    <div role="button" tabIndex={0}
+                      onClick={() => { setCitizenshipPickerTarget(i); setCitizenshipSearch(''); setCitizenshipPickerOpen(true); }}
+                      onKeyDown={e => e.key === 'Enter' && (setCitizenshipPickerTarget(i), setCitizenshipSearch(''), setCitizenshipPickerOpen(true))}
+                      className="flex-1 flex items-center justify-between px-3 py-2.5 rounded-xl border border-black/[0.10] bg-[#F2F2F7] cursor-pointer">
+                      <span className={`text-sm ${c ? 'text-[#1C1C1E]' : 'text-[#C7C7CC]'}`}>
+                        {c || 'Select citizenship'}
+                      </span>
+                      {c
+                        ? <button type="button" onClick={e => { e.stopPropagation(); setOtherCitizenships(prev => prev.map((v, j) => j === i ? '' : v)); }}>
+                            <X size={13} className="text-[#C7C7CC]" />
+                          </button>
+                        : <ChevronDown size={14} className="text-[#C7C7CC] shrink-0" />
+                      }
+                    </div>
+                    <button type="button"
+                      onClick={() => setOtherCitizenships(prev => prev.filter((_, j) => j !== i))}
+                      className="w-10 flex items-center justify-center rounded-xl border border-black/[0.10] bg-[#F2F2F7] active:opacity-70 shrink-0">
+                      <X size={14} className="text-[#8E8E93]" />
+                    </button>
+                  </div>
+                </InputRow>
+              ))}
+              <button type="button"
+                onClick={() => setOtherCitizenships(prev => [...prev, ''])}
+                className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl border border-dashed border-black/[0.15] bg-[#F2F2F7]/50 text-xs font-medium text-[#6C6C70] active:opacity-70">
+                + Add Citizenship
+              </button>
+            </>
+          )}
           <InputRow label="Date of Birth" icon={<Calendar size={11} />} required={!isSaved}>
-            <DatePickerInput value={dateOfBirth} onChange={setDateOfBirth} disabled={isSaved || sameAsSpouse} />
+            <DatePickerInput value={dateOfBirth} onChange={setDateOfBirth} disabled={isSaved} />
           </InputRow>
           <InputRow label="Mobile No." icon={<Phone size={11} />} required={!isSaved}>
-            <PhoneInputField code={mobileCode} onCodeChange={setMobileCode} number={mobile} onNumberChange={setMobile} disabled={isSaved || sameAsSpouse} />
+            <PhoneInputField code={mobileCode} onCodeChange={setMobileCode} number={mobile} onNumberChange={setMobile} disabled={isSaved} />
           </InputRow>
           <InputRow label="Landline No." icon={<Phone size={11} />}>
             <input type="tel" value={landline}
               onChange={e => setLandline(e.target.value.replace(/\D/g, ''))}
               placeholder="e.g. 028XXXXXXX"
-              disabled={isSaved || sameAsSpouse}
+              disabled={isSaved}
               className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC] disabled:border-black/[0.06] disabled:bg-[#F2F2F7]/50 disabled:text-[#6C6C70]" />
           </InputRow>
           <InputRow label="Email Address" icon={<Mail size={11} />}>
-            <TextInput value={email} onChange={setEmail} placeholder="email@example.com" disabled={isSaved || sameAsSpouse} />
+            <TextInput value={email} onChange={setEmail} placeholder="email@example.com" disabled={isSaved} />
           </InputRow>
 
           <InputRow label="Tax ID No. (TIN)" icon={<CreditCard size={11} />} required={!noTin}>
@@ -596,7 +658,7 @@ export default function CoOwnerPage() {
           </InputRow>
 
           {!isSaved && (
-            <button type="button" onClick={() => { if (sameAsSpouse) return; setNoTin(p => !p); if (!noTin) setTin(''); }}
+            <button type="button" onClick={() => { setNoTin(p => !p); if (!noTin) setTin(''); }}
               className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-semibold transition-all ${
                 noTin ? 'bg-[#C03D25] border-[#C03D25] text-white' : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
               }`}>
@@ -644,20 +706,20 @@ export default function CoOwnerPage() {
           <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Address Information</p>
 
           <InputRow label="Home Ownership" icon={<Home size={11} />} required={!isSaved}>
-            <SelectInput value={homeOwnership} options={HOME_OWNERSHIP_OPTIONS} onChange={setHomeOwnership} placeholder="Select home ownership" disabled={isSaved || sameAsSpouse} />
+            <SelectInput value={homeOwnership} options={HOME_OWNERSHIP_OPTIONS} onChange={setHomeOwnership} placeholder="Select home ownership" disabled={isSaved} />
           </InputRow>
           <InputRow label="Country" icon={<Globe size={11} />} required={!isSaved}>
             <SearchableSelect value={country} options={COUNTRY_OPTIONS}
               onChange={v => { setCountry(v); if (v !== 'Philippines') { setRegionProvince(''); setCityMunicipality(''); } }}
-              placeholder="Select country" disabled={isSaved || sameAsSpouse} />
+              placeholder="Select country" disabled={isSaved} />
           </InputRow>
           <InputRow label="Region / Province" icon={<MapPin size={11} />} required={!isSaved}>
             {country === 'Philippines'
               ? <SearchableSelect value={regionProvince}
                   options={PH_PROVINCES.map(p => ({ label: p }))}
                   onChange={v => { setRegionProvince(v); setCityMunicipality(''); }}
-                  placeholder="Select region / province" disabled={isSaved || sameAsSpouse} />
-              : <TextInput value={regionProvince} onChange={setRegionProvince} placeholder="e.g. Metro Manila" disabled={isSaved || sameAsSpouse} />
+                  placeholder="Select region / province" disabled={isSaved} />
+              : <TextInput value={regionProvince} onChange={setRegionProvince} placeholder="e.g. Metro Manila" disabled={isSaved} />
             }
           </InputRow>
           <InputRow label="City / Municipality" icon={<MapPin size={11} />} required={!isSaved}>
@@ -666,18 +728,18 @@ export default function CoOwnerPage() {
                   options={(PH_CITIES[regionProvince] ?? []).map(c => ({ label: c }))}
                   onChange={setCityMunicipality}
                   placeholder={regionProvince ? 'Select city / municipality' : 'Select region first'}
-                  disabled={isSaved || sameAsSpouse || !regionProvince} />
-              : <TextInput value={cityMunicipality} onChange={setCityMunicipality} placeholder="e.g. Quezon City" disabled={isSaved || sameAsSpouse} />
+                  disabled={isSaved || !regionProvince} />
+              : <TextInput value={cityMunicipality} onChange={setCityMunicipality} placeholder="e.g. Quezon City" disabled={isSaved} />
             }
           </InputRow>
           <InputRow label="Barangay / Address Line 1" icon={<MapPin size={11} />} required={!isSaved}>
-            <TextInput value={barangayLine1} onChange={setBarangayLine1} placeholder="e.g. Brgy. Commonwealth" disabled={isSaved || sameAsSpouse} />
+            <TextInput value={barangayLine1} onChange={setBarangayLine1} placeholder="e.g. Brgy. Commonwealth" disabled={isSaved} />
           </InputRow>
           <InputRow label="Street / Subdivision / Village / Address Line 2" icon={<MapPin size={11} />} required={!isSaved}>
-            <TextInput value={streetLine2} onChange={setStreetLine2} placeholder="e.g. Batangas St." disabled={isSaved || sameAsSpouse} />
+            <TextInput value={streetLine2} onChange={setStreetLine2} placeholder="e.g. Batangas St." disabled={isSaved} />
           </InputRow>
           <InputRow label="Unit / Building / House / Block No." icon={<Building2 size={11} />} required={!isSaved}>
-            <TextInput value={unitNo} onChange={setUnitNo} placeholder="e.g. Unit 12B" disabled={isSaved || sameAsSpouse} />
+            <TextInput value={unitNo} onChange={setUnitNo} placeholder="e.g. Unit 12B" disabled={isSaved} />
           </InputRow>
         </GlassCard>
 
@@ -706,117 +768,119 @@ export default function CoOwnerPage() {
         <GlassCard className="p-4 space-y-4">
           <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Employment Information</p>
 
-          <InputRow label="Employer / Business" icon={<Briefcase size={11} />} required={!isSaved}>
-            <TextInput value={employer} onChange={setEmployer} placeholder="e.g. Megawide Construction" disabled={isSaved || sameAsSpouse} />
-          </InputRow>
-          <InputRow label="Nature of Business" icon={<Briefcase size={11} />} required={!isSaved}>
-            <SelectInput value={natureOfBusiness} options={NATURE_OF_BUSINESS_OPTS} onChange={setNatureOfBusiness} placeholder="Select nature of business" disabled={isSaved || sameAsSpouse} />
-          </InputRow>
-          <InputRow label="Employment Sector" icon={<Briefcase size={11} />} required={!isSaved}>
-            <SelectInput value={employmentSector} options={EMPLOYMENT_SECTOR_OPTS} onChange={setEmploymentSector} placeholder="Select employment sector" disabled={isSaved || sameAsSpouse} />
-          </InputRow>
           <InputRow label="Employment Status" icon={<Briefcase size={11} />} required={!isSaved}>
-            <SelectInput value={employmentStatus} options={EMPLOYMENT_STATUS_OPTS} onChange={setEmploymentStatus} placeholder="Select employment status" disabled={isSaved || sameAsSpouse} />
+            <SelectInput value={employmentStatus} options={EMPLOYMENT_STATUS_OPTS} onChange={setEmploymentStatus} placeholder="Select employment status" disabled={isSaved} />
           </InputRow>
-          <InputRow label="Job Title / Position" icon={<User size={11} />} required={!isSaved}>
-            <TextInput value={jobTitle} onChange={setJobTitle} placeholder="e.g. Software Engineer" disabled={isSaved || sameAsSpouse} />
-          </InputRow>
-          <InputRow label="Rank" icon={<User size={11} />} required={!isSaved}>
-            <SelectInput value={rank} options={RANK_OPTS} onChange={setRank} placeholder="Select rank" disabled={isSaved || sameAsSpouse} />
-          </InputRow>
-          <InputRow label="Salary Range" icon={<DollarSign size={11} />} required={!isSaved}>
-            <SelectInput value={salaryRange} options={SALARY_RANGE_OPTS} onChange={setSalaryRange} placeholder="Select salary range" disabled={isSaved || sameAsSpouse} />
-          </InputRow>
-          <InputRow label="Mobile No." icon={<Phone size={11} />} required={!isSaved}>
-            <PhoneInputField code={workMobileCode} onCodeChange={setWorkMobileCode} number={workMobile} onNumberChange={setWorkMobile} disabled={isSaved || sameAsSpouse} />
-          </InputRow>
-          <InputRow label="Landline No." icon={<Phone size={11} />}>
-            <input type="tel" value={workLandline}
-              onChange={e => setWorkLandline(e.target.value.replace(/\D/g, ''))}
-              placeholder="e.g. 028XXXXXXX"
-              disabled={isSaved || sameAsSpouse}
-              className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC] disabled:border-black/[0.06] disabled:bg-[#F2F2F7]/50 disabled:text-[#6C6C70]" />
-          </InputRow>
-          <InputRow label="Email Address" icon={<Mail size={11} />}>
-            <TextInput value={workEmail} onChange={setWorkEmail} placeholder="work@email.com" disabled={isSaved || sameAsSpouse} />
-          </InputRow>
+          {isEmployed && (
+            <>
+              <InputRow label="Employer / Business" icon={<Briefcase size={11} />} required={!isSaved}>
+                <TextInput value={employer} onChange={setEmployer} placeholder="e.g. Megawide Construction" disabled={isSaved} />
+              </InputRow>
+              <InputRow label="Nature of Business" icon={<Briefcase size={11} />} required={!isSaved}>
+                <SelectInput value={natureOfBusiness} options={NATURE_OF_BUSINESS_OPTS} onChange={setNatureOfBusiness} placeholder="Select nature of business" disabled={isSaved} />
+              </InputRow>
+              <InputRow label="Employment Sector" icon={<Briefcase size={11} />} required={!isSaved}>
+                <SelectInput value={employmentSector} options={EMPLOYMENT_SECTOR_OPTS} onChange={setEmploymentSector} placeholder="Select employment sector" disabled={isSaved} />
+              </InputRow>
+              <InputRow label="Job Title / Position" icon={<User size={11} />} required={!isSaved}>
+                <TextInput value={jobTitle} onChange={setJobTitle} placeholder="e.g. Software Engineer" disabled={isSaved} />
+              </InputRow>
+              <InputRow label="Rank" icon={<User size={11} />} required={!isSaved}>
+                <SelectInput value={rank} options={RANK_OPTS} onChange={setRank} placeholder="Select rank" disabled={isSaved} />
+              </InputRow>
+              <InputRow label="Salary Range" icon={<DollarSign size={11} />} required={!isSaved}>
+                <SelectInput value={salaryRange} options={SALARY_RANGE_OPTS} onChange={setSalaryRange} placeholder="Select salary range" disabled={isSaved} />
+              </InputRow>
+              <InputRow label="Mobile No." icon={<Phone size={11} />} required={!isSaved}>
+                <PhoneInputField code={workMobileCode} onCodeChange={setWorkMobileCode} number={workMobile} onNumberChange={setWorkMobile} disabled={isSaved} />
+              </InputRow>
+              <InputRow label="Landline No." icon={<Phone size={11} />}>
+                <input type="tel" value={workLandline}
+                  onChange={e => setWorkLandline(e.target.value.replace(/\D/g, ''))}
+                  placeholder="e.g. 028XXXXXXX"
+                  disabled={isSaved}
+                  className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC] disabled:border-black/[0.06] disabled:bg-[#F2F2F7]/50 disabled:text-[#6C6C70]" />
+              </InputRow>
+              <InputRow label="Email Address" icon={<Mail size={11} />}>
+                <TextInput value={workEmail} onChange={setWorkEmail} placeholder="work@email.com" disabled={isSaved} />
+              </InputRow>
+            </>
+          )}
         </GlassCard>
 
         {/* Work Address Information */}
-        <GlassCard className="p-4 space-y-4">
-          <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Work Address Information</p>
+        {isEmployed && (
+          <GlassCard className="p-4 space-y-4">
+            <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider">Work Address Information</p>
 
-          <InputRow label="Country" icon={<Globe size={11} />} required={!isSaved}>
-            <SearchableSelect value={workCountry} options={COUNTRY_OPTIONS}
-              onChange={v => { setWorkCountry(v); if (v !== 'Philippines') { setWorkRegionProvince(''); setWorkCityMunicipality(''); } }}
-              placeholder="Select country" disabled={isSaved || sameAsSpouse} />
-          </InputRow>
-          <InputRow label="Region / Province" icon={<MapPin size={11} />} required={!isSaved}>
-            {workCountry === 'Philippines'
-              ? <SearchableSelect value={workRegionProvince}
-                  options={PH_PROVINCES.map(p => ({ label: p }))}
-                  onChange={v => { setWorkRegionProvince(v); setWorkCityMunicipality(''); }}
-                  placeholder="Select region / province" disabled={isSaved || sameAsSpouse} />
-              : <TextInput value={workRegionProvince} onChange={setWorkRegionProvince} placeholder="e.g. Metro Manila" disabled={isSaved || sameAsSpouse} />
-            }
-          </InputRow>
-          <InputRow label="City / Municipality" icon={<MapPin size={11} />} required={!isSaved}>
-            {workCountry === 'Philippines'
-              ? <SearchableSelect value={workCityMunicipality}
-                  options={(PH_CITIES[workRegionProvince] ?? []).map(c => ({ label: c }))}
-                  onChange={setWorkCityMunicipality}
-                  placeholder={workRegionProvince ? 'Select city / municipality' : 'Select region first'}
-                  disabled={isSaved || sameAsSpouse || !workRegionProvince} />
-              : <TextInput value={workCityMunicipality} onChange={setWorkCityMunicipality} placeholder="e.g. Makati City" disabled={isSaved || sameAsSpouse} />
-            }
-          </InputRow>
-          <InputRow label="Barangay" icon={<MapPin size={11} />} required={!isSaved}>
-            <TextInput value={workBarangay} onChange={setWorkBarangay} placeholder="e.g. Brgy. Poblacion" disabled={isSaved || sameAsSpouse} />
-          </InputRow>
-          <InputRow label="Street / Subdivision / Village" icon={<MapPin size={11} />} required={!isSaved}>
-            <TextInput value={workStreet} onChange={setWorkStreet} placeholder="e.g. Ayala Ave." disabled={isSaved || sameAsSpouse} />
-          </InputRow>
-          <InputRow label="Building / Unit No." icon={<Building2 size={11} />} required={!isSaved}>
-            <TextInput value={workBuildingUnit} onChange={setWorkBuildingUnit} placeholder="e.g. 28F Tower 1" disabled={isSaved || sameAsSpouse} />
-          </InputRow>
+            <InputRow label="Country" icon={<Globe size={11} />} required={!isSaved}>
+              <SearchableSelect value={workCountry} options={COUNTRY_OPTIONS}
+                onChange={v => { setWorkCountry(v); if (v !== 'Philippines') { setWorkRegionProvince(''); setWorkCityMunicipality(''); } }}
+                placeholder="Select country" disabled={isSaved} />
+            </InputRow>
+            <InputRow label="Region / Province" icon={<MapPin size={11} />} required={!isSaved}>
+              {workCountry === 'Philippines'
+                ? <SearchableSelect value={workRegionProvince}
+                    options={PH_PROVINCES.map(p => ({ label: p }))}
+                    onChange={v => { setWorkRegionProvince(v); setWorkCityMunicipality(''); }}
+                    placeholder="Select region / province" disabled={isSaved} />
+                : <TextInput value={workRegionProvince} onChange={setWorkRegionProvince} placeholder="e.g. Metro Manila" disabled={isSaved} />
+              }
+            </InputRow>
+            <InputRow label="City / Municipality" icon={<MapPin size={11} />} required={!isSaved}>
+              {workCountry === 'Philippines'
+                ? <SearchableSelect value={workCityMunicipality}
+                    options={(PH_CITIES[workRegionProvince] ?? []).map(c => ({ label: c }))}
+                    onChange={setWorkCityMunicipality}
+                    placeholder={workRegionProvince ? 'Select city / municipality' : 'Select region first'}
+                    disabled={isSaved || !workRegionProvince} />
+                : <TextInput value={workCityMunicipality} onChange={setWorkCityMunicipality} placeholder="e.g. Makati City" disabled={isSaved} />
+              }
+            </InputRow>
+            <InputRow label="Barangay" icon={<MapPin size={11} />} required={!isSaved}>
+              <TextInput value={workBarangay} onChange={setWorkBarangay} placeholder="e.g. Brgy. Poblacion" disabled={isSaved} />
+            </InputRow>
+            <InputRow label="Street / Subdivision / Village" icon={<MapPin size={11} />} required={!isSaved}>
+              <TextInput value={workStreet} onChange={setWorkStreet} placeholder="e.g. Ayala Ave." disabled={isSaved} />
+            </InputRow>
+            <InputRow label="Building / Unit No." icon={<Building2 size={11} />} required={!isSaved}>
+              <TextInput value={workBuildingUnit} onChange={setWorkBuildingUnit} placeholder="e.g. 28F Tower 1" disabled={isSaved} />
+            </InputRow>
+          </GlassCard>
+        )}
 
-          {/* Mailing Address */}
-          <div className="space-y-2">
-            <label className="text-xs font-semibold text-[#8E8E93] flex items-center gap-1.5">
-              <Mail size={11} /> Mailing Address
-              {!isSaved && <span className="text-red-500 font-bold">*</span>}
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-              {MAILING_OPTS.map(opt => (
-                <button key={opt} type="button"
-                  onClick={() => !isSaved && !sameAsSpouse && setMailingType(p => p === opt ? '' : opt)}
-                  className={`flex flex-col items-center justify-center gap-1 py-2.5 px-1 rounded-xl border text-xs font-semibold transition-all leading-tight text-center ${
-                    mailingType === opt
-                      ? 'bg-[#C03D25] border-[#C03D25] text-white'
-                      : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
-                  } ${isSaved || sameAsSpouse ? 'opacity-60 cursor-default' : ''}`}>
-                  {mailingType === opt && <Check size={11} />}
-                  {opt}
-                </button>
-              ))}
-            </div>
-
-            {mailingType && mailingType !== 'Others' && (
-              <div className="w-full px-3 py-2.5 rounded-xl border border-black/[0.06] bg-[#F2F2F7]/50 text-sm text-[#6C6C70] leading-relaxed">
-                {mailingDisplay || '—'}
-              </div>
-            )}
-            {mailingType === 'Others' && (
-              <textarea
-                value={mailingOther}
-                onChange={e => !isSaved && !sameAsSpouse && setMailingOther(e.target.value)}
-                placeholder="Enter mailing address..."
-                rows={3}
-                disabled={isSaved || sameAsSpouse}
-                className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/50 focus:bg-white transition-colors placeholder:text-[#C7C7CC] resize-none disabled:border-black/[0.06] disabled:bg-[#F2F2F7]/50 disabled:text-[#6C6C70]"
-              />
-            )}
+        {/* Mailing Address */}
+        <GlassCard className="p-4 space-y-3">
+          <p className="text-xs font-bold text-[#8E8E93] uppercase tracking-wider flex items-center gap-1">
+            Mailing Address <span className="text-red-500 font-bold">*</span>
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            {(isEmployed ? MAILING_OPTS : MAILING_OPTS.filter(o => o !== 'Office Address')).map(opt => (
+              <button key={opt} type="button"
+                onClick={() => !isSaved && setMailingType(p => p === opt ? '' : opt)}
+                className={`flex flex-col items-center justify-center gap-1 py-2.5 px-1 rounded-xl border text-xs font-semibold transition-all leading-tight text-center ${
+                  mailingType === opt ? 'bg-[#C03D25] border-[#C03D25] text-white' : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
+                } ${isSaved ? 'opacity-60 cursor-default' : ''}`}>
+                {mailingType === opt && <Check size={11} />}
+                {opt}
+              </button>
+            ))}
           </div>
+          {mailingType && mailingType !== 'Others' && (
+            <div className="w-full px-3 py-2.5 rounded-xl border border-black/[0.06] bg-[#F2F2F7]/50 text-sm text-[#6C6C70] leading-relaxed">
+              {mailingDisplay || '—'}
+            </div>
+          )}
+          {mailingType === 'Others' && (
+            <textarea
+              value={mailingOther}
+              onChange={e => !isSaved && setMailingOther(e.target.value)}
+              placeholder="Enter mailing address..."
+              rows={3}
+              disabled={isSaved}
+              className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/50 focus:bg-white transition-colors placeholder:text-[#C7C7CC] resize-none disabled:border-black/[0.06] disabled:bg-[#F2F2F7]/50 disabled:text-[#6C6C70]"
+            />
+          )}
         </GlassCard>
 
         {step2Error && (
