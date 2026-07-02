@@ -1470,10 +1470,12 @@ export default function CollectionPostingPage() {
   const [selected,     setSelected]     = useState<ReservationReceivableSummary | null>(null);
   const [exporting,        setExporting]        = useState(false);
   const [reporting,        setReporting]        = useState(false);
-  const [reportSheetOpen,  setReportSheetOpen]  = useState(false);
-  const [reportDueDateFrom,setReportDueDateFrom]= useState('');
-  const [reportDueDateTo,  setReportDueDateTo]  = useState('');
+  const [reportModalOpen,  setReportModalOpen]  = useState(false);
+  const [reportLoadingOpts,setReportLoadingOpts]= useState(false);
+  const [reportDueMonth,   setReportDueMonth]   = useState('');
+  const [reportDueDateOpts,setReportDueDateOpts]= useState<{ label: string; value: string }[]>([]);
   const [reportStatus,     setReportStatus]     = useState('');
+  const [reportStatusOpts, setReportStatusOpts] = useState<string[]>([]);
   const [reportProject,    setReportProject]    = useState('');
   const [loadError,    setLoadError]    = useState('');
   const [backfilling,  setBackfilling]  = useState(false);
@@ -1541,8 +1543,41 @@ export default function CollectionPostingPage() {
 
   // ── Report ──────────────────────────────────────────────────────────────────
 
+  const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+  function formatDueDate(iso: string): string {
+    const [y, mo, d] = iso.split('-');
+    return `${MONTH_NAMES[+mo - 1]} ${+d}, ${y}`;
+  }
+
+  async function openReportModal() {
+    setReportModalOpen(true);
+    if (reportDueDateOpts.length > 0) return;
+    setReportLoadingOpts(true);
+    try {
+      // Distinct due dates
+      const dates = new Set<string>();
+      let cursor = 0;
+      while (true) {
+        const { data } = await supabase.from('receivables_database').select('due_date').not('due_date', 'is', null).order('due_date').range(cursor, cursor + 999);
+        if (!data || data.length === 0) break;
+        data.forEach((r: any) => { if (r.due_date) dates.add(String(r.due_date).substring(0, 10)); });
+        if (data.length < 1000) break;
+        cursor += 1000;
+      }
+      setReportDueDateOpts(
+        [...dates].sort().map(iso => ({ label: formatDueDate(iso), value: iso }))
+      );
+      // Distinct payment_status (sample 2000 — all statuses will appear)
+      const { data: sd } = await supabase.from('receivables_database').select('payment_status').not('payment_status', 'is', null).limit(2000);
+      setReportStatusOpts([...new Set((sd ?? []).map((r: any) => r.payment_status))].filter(Boolean).sort());
+    } finally {
+      setReportLoadingOpts(false);
+    }
+  }
+
   async function handleDownloadReport() {
-    setReportSheetOpen(false);
+    setReportModalOpen(false);
     setReporting(true);
     try {
       const PAGE = 1000;
@@ -1555,10 +1590,11 @@ export default function CollectionPostingPage() {
           .order('reservation_id', { ascending: true })
           .order('due_date', { ascending: true })
           .range(from, from + PAGE - 1);
-        if (reportDueDateFrom) q = q.gte('due_date', reportDueDateFrom);
-        if (reportDueDateTo)   q = q.lte('due_date', reportDueDateTo);
-        if (reportStatus)      q = q.eq('payment_status', reportStatus);
-        if (reportProject)     q = q.eq('project', reportProject);
+        if (reportDueMonth) {
+          q = q.eq('due_date', reportDueMonth);
+        }
+        if (reportStatus)  q = q.eq('payment_status', reportStatus);
+        if (reportProject) q = q.eq('project', reportProject);
         const { data, error } = await q;
         if (error) throw error;
         if (!data || data.length === 0) break;
@@ -1775,7 +1811,7 @@ export default function CollectionPostingPage() {
             </button>
             <button
               type="button"
-              onClick={() => setReportSheetOpen(true)}
+              onClick={openReportModal}
               disabled={reporting}
               className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-2xl bg-white/80 border border-black/[0.08] backdrop-blur-sm text-[#1C1C1E] text-sm font-semibold active:opacity-70 disabled:opacity-50 transition-opacity"
             >
@@ -1897,106 +1933,102 @@ export default function CollectionPostingPage() {
         </div>
       </PageShell>
 
-      {/* Filter sheet */}
-      {/* ── Receivables download filter sheet ───────────────────────── */}
-      {reportSheetOpen && (
-        <div className="fixed inset-0 z-[47] bg-black/40" onClick={() => setReportSheetOpen(false)} />
-      )}
-      <div className={`fixed inset-x-0 bottom-0 z-[48] transition-transform duration-300 ease-out ${reportSheetOpen ? 'translate-y-0' : 'translate-y-full'}`}>
-        <div className="bg-white rounded-t-3xl shadow-2xl max-h-[80vh] flex flex-col">
-          <div className="flex justify-center pt-3 pb-1 shrink-0">
-            <div className="w-9 h-1 rounded-full bg-[#D1D1D6]" />
-          </div>
-          <div className="flex items-center justify-between px-5 py-3 shrink-0">
-            <p className="text-base font-bold text-[#1C1C1E]">Receivables Filter</p>
-            <button type="button" onClick={() => setReportSheetOpen(false)}
-              className="w-7 h-7 rounded-full bg-[#F2F2F7] flex items-center justify-center">
-              <X size={14} className="text-[#8E8E93]" />
-            </button>
-          </div>
+      {/* ── Receivables download modal ───────────────────────────────── */}
+      {reportModalOpen && (
+        <div
+          className="fixed inset-0 z-[47] flex items-center justify-center p-5 bg-black/60 backdrop-blur-sm"
+          onClick={e => { if (e.target === e.currentTarget) setReportModalOpen(false); }}
+        >
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm">
 
-          <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-5 min-h-0">
-
-            {/* Due Date */}
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Due Date</p>
-              <div className="flex gap-2">
-                <div className="flex-1 space-y-1">
-                  <p className="text-[11px] text-[#8E8E93]">From</p>
-                  <input
-                    type="date"
-                    value={reportDueDateFrom}
-                    onChange={e => setReportDueDateFrom(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl border border-black/[0.08] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/50"
-                  />
+            {/* Red header bar */}
+            <div className="bg-[#C03D25] rounded-t-3xl px-5 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-2xl bg-white/20 flex items-center justify-center shrink-0">
+                  <FileText size={17} className="text-white" />
                 </div>
-                <div className="flex-1 space-y-1">
-                  <p className="text-[11px] text-[#8E8E93]">To</p>
-                  <input
-                    type="date"
-                    value={reportDueDateTo}
-                    onChange={e => setReportDueDateTo(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl border border-black/[0.08] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/50"
-                  />
+                <div>
+                  <p className="text-white font-bold text-sm leading-tight">Download Receivables</p>
+                  <p className="text-white/65 text-[11px] mt-0.5">Filter before exporting to Excel</p>
                 </div>
               </div>
+              <button
+                type="button"
+                onClick={() => setReportModalOpen(false)}
+                className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center shrink-0"
+              >
+                <X size={14} className="text-white" />
+              </button>
             </div>
 
-            {/* Status */}
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Status</p>
-              <div className="flex gap-2 flex-wrap">
-                {(['', 'Unpaid', 'Overdue', 'Complete']).map(s => (
-                  <button key={s} type="button" onClick={() => setReportStatus(s)}
-                    className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-colors flex items-center gap-1.5 ${
-                      reportStatus === s
-                        ? 'bg-[#C03D25] border-[#C03D25] text-white'
-                        : 'bg-[#F2F2F7] border-transparent text-[#6C6C70]'
-                    }`}>
-                    {reportStatus === s && s && <Check size={11} />}
-                    {s || 'All'}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Project */}
-            {(() => {
-              const projects = [...new Set(summaries.map(s => s.project).filter(Boolean))].sort();
-              if (projects.length === 0) return null;
-              return (
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider">Project</p>
-                  <SearchableSelect
-                    value={reportProject}
-                    onChange={setReportProject}
-                    options={projects}
-                    placeholder="All projects"
-                  />
+            {/* Filter fields */}
+            <div className="px-5 pt-5 pb-4 space-y-4">
+              {reportLoadingOpts ? (
+                <div className="flex items-center justify-center py-8 gap-2">
+                  <Loader2 size={18} className="animate-spin text-[#C03D25]" />
+                  <p className="text-sm text-[#8E8E93]">Loading options…</p>
                 </div>
-              );
-            })()}
+              ) : (
+                <>
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-widest">Due Date</p>
+                    <SearchableSelect
+                      value={reportDueMonth}
+                      onChange={setReportDueMonth}
+                      options={reportDueDateOpts}
+                      placeholder="All dates"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-widest">Status</p>
+                    <SearchableSelect
+                      value={reportStatus}
+                      onChange={setReportStatus}
+                      options={reportStatusOpts}
+                      placeholder="All statuses"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-bold text-[#8E8E93] uppercase tracking-widest">Project</p>
+                    <SearchableSelect
+                      value={reportProject}
+                      onChange={setReportProject}
+                      options={[...new Set(summaries.map(s => s.project).filter(Boolean))].sort() as string[]}
+                      placeholder="All projects"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
 
-          </div>
+            {/* Divider */}
+            <div className="h-px bg-black/[0.06] mx-5" />
 
-          <div className="px-5 pb-10 pt-3 flex gap-3 shrink-0 border-t border-black/[0.06]">
-            <button type="button"
-              onClick={() => { setReportDueDateFrom(''); setReportDueDateTo(''); setReportStatus(''); setReportProject(''); }}
-              className="flex-1 py-3.5 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-70">
-              Clear
-            </button>
-            <button type="button"
-              onClick={handleDownloadReport}
-              disabled={reporting}
-              className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-[#007AFF] text-white text-sm font-bold active:opacity-80 disabled:opacity-50">
-              {reporting
-                ? <Loader2 size={15} className="animate-spin" />
-                : <Download size={15} />}
-              Download
-            </button>
+            {/* Action buttons */}
+            <div className="px-5 py-4 flex gap-3">
+              <button
+                type="button"
+                onClick={() => { setReportDueMonth(''); setReportStatus(''); setReportProject(''); }}
+                className="flex-1 py-3 rounded-2xl bg-[#F2F2F7] text-[#1C1C1E] text-sm font-semibold active:opacity-70 transition-opacity"
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                onClick={handleDownloadReport}
+                disabled={reporting || reportLoadingOpts}
+                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-[#C03D25] text-white text-sm font-bold active:opacity-80 disabled:opacity-50 transition-opacity"
+              >
+                {reporting
+                  ? <Loader2 size={15} className="animate-spin" />
+                  : <Download size={15} />}
+                Download
+              </button>
+            </div>
+
           </div>
         </div>
-      </div>
+      )}
 
       {filterOpen && (
         <div className="fixed inset-0 z-[45] bg-black/40" onClick={() => setFilterOpen(false)} />
