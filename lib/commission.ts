@@ -82,7 +82,7 @@ export async function generateCommissionSchedule(reservationId: string): Promise
     const { data: clientRow } = await supabase
       .from('clients')
       .select('is_megawide_employee')
-      .eq('id', client_id)
+      .eq('client_id', client_id)
       .maybeSingle();
     if ((clientRow as any)?.is_megawide_employee === true) return { ok: true };
   }
@@ -467,7 +467,7 @@ export async function regenerateCommissionSchedule(reservationId: string): Promi
     const { data: clientRow } = await supabase
       .from('clients')
       .select('is_megawide_employee')
-      .eq('id', regenClientId)
+      .eq('client_id', regenClientId)
       .maybeSingle();
     if ((clientRow as any)?.is_megawide_employee === true) return { ok: true };
   }
