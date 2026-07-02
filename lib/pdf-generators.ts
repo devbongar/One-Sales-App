@@ -319,7 +319,7 @@ export async function generateClientRegistration(client: ClientRecord | null): P
 
   footerBlock(doc);
   const crfFilename = `CRF-${client?.client_id ?? 'unknown'}.pdf`;
-  const crfBlobUrl  = doc.output('bloburl') as string;
+  const crfBlobUrl  = doc.output('bloburl') as unknown as string;
   if (win && typeof (win as any).close === 'function') {
     (win as Window).close();
     const a = document.createElement('a'); a.href = crfBlobUrl; a.download = crfFilename;
@@ -519,7 +519,7 @@ export async function generateTermsOfPayment(reservationId: string | null, openI
   }
 
   footerBlock(doc);
-  const blobUrl0   = doc.output('bloburl') as string;
+  const blobUrl0   = doc.output('bloburl') as unknown as string;
   const topFilename = `TOP-${res?.client_id ?? 'unknown'}_${reservationId ?? ''}.pdf`;
   if (!openInNewTab) return blobUrl0;
   if (win && typeof (win as any).close === 'function') {
@@ -748,7 +748,7 @@ export async function generateReservationAgreement(reservationId: string | null,
   doc.text('Seller Signature over Printed Name', rightSigX, y + 10);
 
   footerBlock(doc);
-  const blobUrl1   = doc.output('bloburl') as string;
+  const blobUrl1   = doc.output('bloburl') as unknown as string;
   const raFilename = `RA-${res?.client_id ?? 'unknown'}_${reservationId ?? ''}.pdf`;
   if (!openInNewTab) return blobUrl1;
   if (win && typeof (win as any).close === 'function') {
@@ -1292,7 +1292,7 @@ export async function generateBuyerInformationForm(reservationId: string | null,
   doc.text('Buyer Signature over Printed Name', cx2, pY + 10);
 
   footerBlock(doc);
-  const blobUrl2    = doc.output('bloburl') as string;
+  const blobUrl2    = doc.output('bloburl') as unknown as string;
   const bifFilename = `BIF-${displayClientId ?? 'unknown'}_${reservationId ?? ''}.pdf`;
   if (!openInNewTab) return blobUrl2;
   if (win && typeof (win as any).close === 'function') {
@@ -2189,7 +2189,7 @@ export async function generateSOA(reservationId: string | null): Promise<void> {
   }
 
   const soaFilename = `SOA-${res?.client_id ?? 'unknown'}_${reservationId}.pdf`;
-  const blobUrl = doc.output('bloburl') as string;
+  const blobUrl = doc.output('bloburl') as unknown as string;
   if (win && typeof (win as any).close === 'function') {
     // Real browser window — close blank tab and trigger named download
     (win as Window).close();
@@ -2513,7 +2513,7 @@ export async function generateDelinquency1stNotice(reservationId: string | null)
   doc.text('Page 1 of 1', R, pageH - 6, { align: 'right' });
 
   const noticeFilename = `1st Notice-${res?.client_id ?? 'unknown'}_${reservationId}.pdf`;
-  const noticeBlobUrl  = doc.output('bloburl') as string;
+  const noticeBlobUrl  = doc.output('bloburl') as unknown as string;
   if (win && typeof (win as any).close === 'function') {
     (win as Window).close();
     const a = document.createElement('a');
@@ -2754,7 +2754,7 @@ export async function generateDelinquency2ndNotice(reservationId: string | null)
   doc.text('Page 1 of 1', R, pageH - 6, { align: 'right' });
 
   const notice2Filename = `2nd Notice-${res?.client_id ?? 'unknown'}_${reservationId}.pdf`;
-  const notice2BlobUrl  = doc.output('bloburl') as string;
+  const notice2BlobUrl  = doc.output('bloburl') as unknown as string;
   if (win && typeof (win as any).close === 'function') {
     (win as Window).close();
     const a = document.createElement('a');
@@ -3028,7 +3028,7 @@ export async function generateDelinquencyFinalNotice(reservationId: string | nul
   doc.text('Page 1 of 1', R, pageH - 6, { align: 'right' });
 
   const finalFilename = `Final Notice-${res?.client_id ?? 'unknown'}_${reservationId}.pdf`;
-  const finalBlobUrl  = doc.output('bloburl') as string;
+  const finalBlobUrl  = doc.output('bloburl') as unknown as string;
   if (win && typeof (win as any).close === 'function') {
     (win as Window).close();
     const a = document.createElement('a');
