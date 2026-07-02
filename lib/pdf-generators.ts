@@ -281,22 +281,34 @@ export async function generateClientRegistration(client: ClientRecord | null): P
   const buyerSig  = client?.signature_base64 ?? null;
   const rightSigX = pageW - L - sigW;
 
-  if (buyerSig)  { const c = await compressImage(buyerSig,  300, 50); doc.addImage(c, 'JPEG', L,         y - sigImgH, sigW, sigImgH); }
-  if (sellerSig) { const c = await compressImage(sellerSig, 300, 50); doc.addImage(c, 'JPEG', rightSigX, y - sigImgH, sigW, sigImgH); }
+  if (buyerSig)  { const c = await compressImage(buyerSig,  600, 100, 0.92); doc.addImage(c, 'JPEG', L,         y - sigImgH, sigW, sigImgH); }
+  if (sellerSig) { const c = await compressImage(sellerSig, 600, 100, 0.92); doc.addImage(c, 'JPEG', rightSigX, y - sigImgH, sigW, sigImgH); }
+
+  const clientFullName = [client?.first_name, client?.middle_name, client?.last_name, client?.suffix].filter(Boolean).join(' ');
+  const sellerFullName = client?.property_specialist ?? '';
+
+  // names above the line, below the signature image
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(28, 28, 30);
+  if (clientFullName) doc.text(clientFullName, L, y + 3);
+  if (sellerFullName) doc.text(sellerFullName, rightSigX, y + 3);
 
   doc.setDrawColor(100, 100, 100);
   doc.setLineWidth(0.4);
-  doc.line(L, y, L + sigW, y);
-  doc.line(rightSigX, y, pageW - L, y);
+  doc.line(L, y + 6, L + sigW, y + 6);
+  doc.line(rightSigX, y + 6, pageW - L, y + 6);
+  doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.setTextColor(28, 28, 30);
-  doc.text(today, L + sigW, y - 1, { align: 'right' });
-  doc.text(today, pageW - L, y - 1, { align: 'right' });
+  doc.text(today, L + sigW, y + 5, { align: 'right' });
+  doc.text(today, pageW - L, y + 5, { align: 'right' });
   doc.setFontSize(7);
   doc.setTextColor(110, 110, 115);
-  doc.text('Buyer Signature over Printed Name', L, y + 4);
-  doc.text('Seller Signature over Printed Name', rightSigX, y + 4);
-  y += 10;
+  doc.text('Buyer Signature over Printed Name', L, y + 10);
+  doc.text('Seller Signature over Printed Name', rightSigX, y + 10);
+  doc.setFont('helvetica', 'normal');
+  y += 14;
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.5);
@@ -306,7 +318,13 @@ export async function generateClientRegistration(client: ClientRecord | null): P
   doc.text(noteLines, L, y);
 
   footerBlock(doc);
-  if (win) win.location.href = doc.output('bloburl') as unknown as string;
+  const crfFilename = `CRF-${client?.client_id ?? 'unknown'}.pdf`;
+  const crfBlobUrl  = doc.output('bloburl') as string;
+  if (win && typeof (win as any).close === 'function') {
+    (win as Window).close();
+    const a = document.createElement('a'); a.href = crfBlobUrl; a.download = crfFilename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  } else if (win) { win.location.href = crfBlobUrl; }
   else doc.output('dataurlnewwindow');
 }
 
@@ -501,9 +519,14 @@ export async function generateTermsOfPayment(reservationId: string | null, openI
   }
 
   footerBlock(doc);
-  const blobUrl0 = doc.output('bloburl') as unknown as string;
+  const blobUrl0   = doc.output('bloburl') as string;
+  const topFilename = `TOP-${res?.client_id ?? 'unknown'}_${reservationId ?? ''}.pdf`;
   if (!openInNewTab) return blobUrl0;
-  if (win) win.location.href = blobUrl0;
+  if (win && typeof (win as any).close === 'function') {
+    (win as Window).close();
+    const a = document.createElement('a'); a.href = blobUrl0; a.download = topFilename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  } else if (win) { win.location.href = blobUrl0; }
   else doc.output('dataurlnewwindow');
 }
 
@@ -725,16 +748,15 @@ export async function generateReservationAgreement(reservationId: string | null,
   doc.text('Seller Signature over Printed Name', rightSigX, y + 10);
 
   footerBlock(doc);
-  const blobUrl1 = doc.output('bloburl') as unknown as string;
+  const blobUrl1   = doc.output('bloburl') as string;
+  const raFilename = `RA-${res?.client_id ?? 'unknown'}_${reservationId ?? ''}.pdf`;
   if (!openInNewTab) return blobUrl1;
-  if (win) { win.location.href = blobUrl1; return; }
-  const raFilename = res?.client_id && reservationId
-    ? `RA-${res.client_id}${reservationId}.pdf`
-    : 'reservation-agreement.pdf';
-  const raLink = document.createElement('a');
-  raLink.href = blobUrl1;
-  raLink.download = raFilename;
-  raLink.click();
+  if (win && typeof (win as any).close === 'function') {
+    (win as Window).close();
+    const a = document.createElement('a'); a.href = blobUrl1; a.download = raFilename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  } else if (win) { win.location.href = blobUrl1; }
+  else doc.output('dataurlnewwindow');
 }
 
 // ── Buyer Information Form ────────────────────────────────────────────────────
@@ -1257,24 +1279,33 @@ export async function generateBuyerInformationForm(reservationId: string | null,
   const sigImgH2 = 18;
   const today2   = new Date().toLocaleDateString('en-PH', { month: '2-digit', day: '2-digit', year: 'numeric' });
   const clientSigB64 = clientRow?.signature_base64 ?? null;
-  if (clientSigB64) { const c = await compressImage(clientSigB64, 300, 60); doc.addImage(c, 'JPEG', cx2, pY - sigImgH2, sigW2, sigImgH2); }
+  if (clientSigB64) { const c = await compressImage(clientSigB64, 600, 100, 0.92); doc.addImage(c, 'JPEG', cx2, pY - sigImgH2, sigW2, sigImgH2); }
+  const bifClientName = [clientRow?.first_name, clientRow?.middle_name, clientRow?.last_name, clientRow?.suffix].filter(Boolean).join(' ');
+
+  // name above the line, below the signature image
+  if (bifClientName) { doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(28, 28, 30); doc.text(bifClientName, cx2, pY + 3); }
   doc.setDrawColor(100, 100, 100); doc.setLineWidth(0.4);
-  doc.line(cx2, pY, cx2 + sigW2, pY);
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(110, 110, 115);
-  doc.text('Buyer Signature over Printed Name', cx2, pY + 4);
-  doc.setFontSize(7.5); doc.setTextColor(28, 28, 30);
-  doc.text(today2, cx2 + sigW2, pY - 1, { align: 'right' });
+  doc.line(cx2, pY + 6, cx2 + sigW2, pY + 6);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(28, 28, 30);
+  doc.text(today2, cx2 + sigW2, pY + 5, { align: 'right' });
+  doc.setFontSize(7); doc.setTextColor(110, 110, 115);
+  doc.text('Buyer Signature over Printed Name', cx2, pY + 10);
 
   footerBlock(doc);
-  const blobUrl2 = doc.output('bloburl') as unknown as string;
+  const blobUrl2    = doc.output('bloburl') as string;
+  const bifFilename = `BIF-${displayClientId ?? 'unknown'}_${reservationId ?? ''}.pdf`;
   if (!openInNewTab) return blobUrl2;
-  if (win) win.location.href = blobUrl2;
+  if (win && typeof (win as any).close === 'function') {
+    (win as Window).close();
+    const a = document.createElement('a'); a.href = blobUrl2; a.download = bifFilename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  } else if (win) { win.location.href = blobUrl2; }
   else doc.output('dataurlnewwindow');
 }
 
 // ── Sample Computation ────────────────────────────────────────────────────────
 
-export async function generateSampleComputation(): Promise<void> {
+export async function generateSampleComputation(clientId?: string | null, inventoryCode?: string | null): Promise<void> {
   const win  = window.open('', '_blank');
   const doc  = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
@@ -1317,8 +1348,295 @@ export async function generateSampleComputation(): Promise<void> {
   fieldRow(doc, 'Bank Monthly (20 yrs)', '₱18,500.00', 14 + 90, y);
 
   footerBlock(doc);
-  if (win) win.location.href = doc.output('bloburl') as unknown as string;
-  else doc.output('dataurlnewwindow');
+  if (typeof (win as any)?.close === 'function') {
+    win!.close();
+    const blob = doc.output('blob');
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `SC-${clientId ?? 'unknown'}_${inventoryCode ?? 'unknown'}.pdf`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  } else if (win) {
+    (win as any).location.href = doc.output('bloburl');
+  }
+}
+
+// ── Quotation / Comparison PDF ────────────────────────────────────────────────
+
+export interface ComparisonCard {
+  id?: string;
+  project: string; tower: string; floor: string; unitNo: string;
+  inventoryCode: string | null;
+  unitType: string; unitArea: number; unitCategory: string;
+  paymentScheme: string; schemeName: string;
+  dpRate: string; paymentTerm: string; termMonths: number;
+  listPrice: number; promoAmount: number; promoPct: number;
+  employeeAmount: number;
+  paytermAmount: number; paytermPctDisplay?: number;
+  hicDiscount: number;
+  netListPrice: number; vat: number; otherCharges: number;
+  totalContractPrice: number; netAmount: number;
+  monthlyDeferred: number; dpAmount: number; netSpotDP: number;
+  balanceForFinancing: number; monthlyStretchedDP: number;
+  bankMonthly: number; hdmfMonthly: number;
+  reservationFee: number;
+}
+
+export interface QuotationClientInfo {
+  firstName: string; middleName: string; lastName: string;
+  suffix: string; mobile: string; countryCode: string; email: string;
+}
+
+/**
+ * Generates the quotation/comparison PDF used in sample-computation emails.
+ * When returnBase64 is true, returns the base64 string instead of triggering download.
+ */
+export async function generateQuotationPDF(
+  cards: ComparisonCard[],
+  clientInfo: QuotationClientInfo,
+  options?: { returnBase64?: boolean; clientId?: string | null },
+): Promise<string | undefined> {
+  const RETENTION_FEE = 50_000;
+  const pad2 = (s: string) => /^\d+$/.test(s ?? '') ? String(parseInt(s) || 0).padStart(2, '0') : (s ?? '');
+
+  const { jsPDF } = await import('jspdf');
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageW  = 210;
+  const pageH  = 297;
+  const mg     = 15;
+  const HDR          = 32;
+  const STRIP        = 13;
+  const CLIENT_STRIP = 13;
+  const BODY_T       = HDR + STRIP + CLIENT_STRIP + 7;
+  const DISC_Y  = pageH - 28;
+  const coral: [number,number,number] = [238, 67, 78];
+  const dark:  [number,number,number] = [28, 28, 30];
+  const lt:    [number,number,number] = [142, 142, 147];
+  const grn:   [number,number,number] = [22, 101, 52];
+
+  const now     = new Date();
+  const dateStr = now.toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
+  const timeStr = now.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
+
+  // Read seller from session
+  let sellerName = '';
+  let sellerContact = '';
+  let sellerMobile = '';
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem('osa_session') : null;
+    if (raw) {
+      const s = JSON.parse(raw);
+      sellerName    = s.full_name ?? '';
+      sellerContact = s.email     ?? '';
+    }
+  } catch {}
+  if (sellerContact) {
+    try {
+      const { data } = await supabase
+        .from('Salesperson')
+        .select('"Mobile Number"')
+        .eq('Email Address', sellerContact)
+        .maybeSingle();
+      sellerMobile = (data as any)?.['Mobile Number'] ?? '';
+    } catch {}
+  }
+
+  const { b64: logoB64, w: logoW, h: logoH } = await loadLogo();
+
+  const drawHeader = () => {
+    doc.setFillColor(...coral);
+    doc.rect(0, 0, pageW, HDR, 'F');
+    if (logoB64) doc.addImage(logoB64, 'PNG', mg, (HDR - logoH) / 2, logoW, logoH);
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.text('SAMPLE COMPUTATION', pageW - mg, 15, { align: 'right' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.text(`${dateStr}  ·  ${timeStr}`, pageW - mg, 24, { align: 'right' });
+
+    const clientFullName = [clientInfo.firstName, clientInfo.middleName, clientInfo.lastName].filter(Boolean).join(' ') +
+      (clientInfo.suffix ? `, ${clientInfo.suffix}` : '');
+    const clientMobileStr = clientInfo.mobile ? `${clientInfo.countryCode} ${clientInfo.mobile}` : '';
+    const colMobile = mg + 100;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(...lt);
+    doc.text('CLIENT', mg, HDR + 5);
+    if (clientMobileStr) doc.text('MOBILE NO.', colMobile, HDR + 5);
+    if (clientInfo.email) doc.text('EMAIL ADDRESS', pageW - mg, HDR + 5, { align: 'right' });
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...dark);
+    doc.text(clientFullName || '—', mg, HDR + 10.5);
+    if (clientMobileStr) {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...dark);
+      doc.text(clientMobileStr, colMobile, HDR + 10.5);
+    }
+    if (clientInfo.email) {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...dark);
+      doc.text(clientInfo.email, pageW - mg, HDR + 10.5, { align: 'right' });
+    }
+
+    const colSellerMobile = mg + 100;
+    const ss = HDR + STRIP;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(...lt);
+    doc.text('SELLER',        mg,              ss + 5);
+    doc.text('MOBILE NO.',    colSellerMobile, ss + 5);
+    if (sellerContact) doc.text('EMAIL ADDRESS', pageW - mg, ss + 5, { align: 'right' });
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...dark);
+    doc.text(sellerName || '—', mg, ss + 10.5);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...dark);
+    doc.text(sellerMobile || '—', colSellerMobile, ss + 10.5);
+    if (sellerContact) {
+      doc.text(sellerContact, pageW - mg, ss + 10.5, { align: 'right' });
+    }
+
+    const lineY = HDR + STRIP + CLIENT_STRIP + 1;
+    doc.setDrawColor(210, 210, 220); doc.setLineWidth(0.4);
+    doc.line(mg, lineY, pageW - mg, lineY);
+  };
+
+  const drawFooter = () => {
+    const boxW = pageW - mg * 2;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(...coral);
+    doc.text('DISCLAIMER', mg, DISC_Y);
+    const discText =
+      'This is a computer-generated document. Prices, discounts, terms, and availability are ' +
+      'subject to change without prior notice. This computation is for reference purposes only ' +
+      'and does not constitute a binding offer or contract.';
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...lt);
+    const lines = doc.splitTextToSize(discText, boxW);
+    doc.text(lines, mg, DISC_Y + 4.5);
+    doc.setDrawColor(...coral); doc.setLineWidth(0.4);
+    doc.line(mg, DISC_Y + 16, pageW - mg, DISC_Y + 16);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...lt);
+    doc.text(`Generated: ${dateStr}  at  ${timeStr}`, mg, DISC_Y + 21);
+  };
+
+  let y = BODY_T;
+  const RH = 6;
+
+  const secLabel = (t: string) => {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(...lt);
+    doc.text(t.toUpperCase(), mg, y); y += 5.5;
+  };
+  const row = (label: string, value: string, bold = false, color: [number,number,number] = dark) => {
+    doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.setFontSize(9.5); doc.setTextColor(...color);
+    doc.text(label, mg, y);
+    doc.text(value, pageW - mg, y, { align: 'right' });
+    y += RH;
+  };
+  const hr = () => {
+    doc.setDrawColor(229, 229, 234); doc.setLineWidth(0.25);
+    doc.line(mg, y + 1, pageW - mg, y + 1); y += 6;
+  };
+  const subHr = () => {
+    doc.setDrawColor(229, 229, 234); doc.setLineWidth(0.25);
+    doc.line(mg, y - 2, pageW - mg, y - 2); y += 4;
+  };
+
+  const p = (n: number) => 'PHP ' + n.toLocaleString();
+
+  cards.forEach((c, idx) => {
+    if (idx > 0) { doc.addPage(); }
+    drawHeader();
+    drawFooter();
+    y = BODY_T;
+
+    secLabel(`Computation ${idx + 1}`);
+
+    const r1c1 = mg, r1c2 = mg + 60, r1c3 = mg + 105, r1c4 = mg + 145;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...lt);
+    doc.text('Project',  r1c1, y); doc.text('Tower',    r1c2, y);
+    doc.text('Floor',    r1c3, y); doc.text('Unit No.', r1c4, y);
+    y += 3.5;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(...dark);
+    doc.text(c.project, r1c1, y); doc.text(c.tower, r1c2, y);
+    doc.text(pad2(c.floor), r1c3, y); doc.text(pad2(c.unitNo), r1c4, y);
+    y += RH;
+
+    const r2c1 = mg, r2c2 = mg + 60, r2c3 = mg + 115;
+    let termDetail = '';
+    if (c.paymentScheme === 'deferred_cash')  termDetail = `${c.termMonths} months`;
+    else if (c.paymentScheme === 'spot_dp')   termDetail = `DP ${c.dpRate}%`;
+    else if (c.paymentScheme === 'stretched_dp') termDetail = `DP ${c.dpRate}%  ·  ${c.termMonths} months`;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...lt);
+    doc.text('Unit Type',      r2c1, y);
+    doc.text('Area',           r2c2, y);
+    doc.text('Payment Scheme', r2c3, y);
+    y += 3.5;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(...dark);
+    doc.text(c.unitType || '—',      r2c1, y);
+    doc.text(`${c.unitArea} sqm`,    r2c2, y);
+    doc.setTextColor(...coral);
+    doc.text(c.schemeName,           r2c3, y);
+    if (termDetail) {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...lt);
+      doc.text(termDetail, r2c3, y + 4);
+    }
+    y += RH + (termDetail ? 3 : 0);
+    hr();
+
+    secLabel('Price Computation');
+    row('List Price', p(c.listPrice));
+    if (c.promoAmount > 0)    row(`Less: Promo Discount (${Math.round(c.promoPct)}%)`, p(c.promoAmount), false, grn);
+    if (c.employeeAmount > 0) row('Less: Employee Discount (10%)', p(c.employeeAmount), false, grn);
+    if (c.paytermAmount > 0)  row(`Less: Payterm Discount (${Number(c.paytermPctDisplay ?? 0).toFixed(1)}%)`, p(c.paytermAmount), false, grn);
+    if (c.hicDiscount > 0) {
+      const hicBase = c.listPrice - c.promoAmount - c.employeeAmount - c.paytermAmount;
+      row(`Less: Special Discount (${Math.round(c.hicDiscount / hicBase * 100)}%)`, p(c.hicDiscount), false, [94, 92, 230]);
+    }
+    subHr();
+    row('Net List Price', p(c.netListPrice), true);
+    hr();
+
+    secLabel('Taxes & Charges');
+    row(c.vat === 0 ? 'VAT (Exempt)' : 'VAT (12%)', p(c.vat));
+    row('Other Charges (7%)', p(c.otherCharges));
+    if (c.hicDiscount > 0) {
+      const hicBase = c.listPrice - c.promoAmount - c.employeeAmount - c.paytermAmount;
+      row(`Home Improvement Contract (${Math.round(c.hicDiscount / hicBase * 100)}%)`, p(c.hicDiscount), false, [94, 92, 230]);
+    }
+    subHr();
+    row('Total Contract Price', p(c.totalContractPrice), true, coral);
+    hr();
+
+    secLabel('Fees');
+    row('Reservation Fee', p(c.reservationFee));
+    if (!['spot_dp', 'stretched_dp'].includes(c.paymentScheme))
+      row('Retention Fee', p(RETENTION_FEE));
+    hr();
+
+    secLabel('Payment Summary');
+    if (c.paymentScheme === 'spot_cash' || c.paymentScheme === 'deferred_cash') {
+      row(`Net ${c.schemeName}`, p(c.netAmount));
+      if (c.paymentScheme === 'deferred_cash')
+        row(`Monthly Deferred (${c.termMonths} mo)`, p(c.monthlyDeferred) + '/mo', true, coral);
+    } else if (c.paymentScheme === 'spot_dp') {
+      row(`DP (${c.dpRate}%)`, p(c.dpAmount));
+      row(`Net ${c.schemeName}`, p(c.netSpotDP));
+      row('Balance for Financing', p(c.balanceForFinancing));
+      hr();
+      secLabel('Indicative Financing');
+      row('Bank (6.5% p.a., 20 yrs)', p(c.bankMonthly) + '/mo');
+      row('HDMF (6.25% p.a., 25 yrs)', p(c.hdmfMonthly) + '/mo');
+    } else if (c.paymentScheme === 'stretched_dp') {
+      row(`DP (${c.dpRate}%)`, p(c.dpAmount));
+      row(`Net ${c.schemeName}`, p(c.netSpotDP));
+      row(`Monthly DP (${c.termMonths} mo)`, p(c.monthlyStretchedDP) + '/mo', true, coral);
+      row('Balance for Financing', p(c.balanceForFinancing));
+      hr();
+      secLabel('Indicative Financing');
+      row('Bank (6.5% p.a., 20 yrs)', p(c.bankMonthly) + '/mo');
+      row('HDMF (6.25% p.a., 25 yrs)', p(c.hdmfMonthly) + '/mo');
+    }
+  });
+
+  if (options?.returnBase64) {
+    return doc.output('datauristring').split(',')[1];
+  }
+
+  const cid  = options?.clientId ?? 'unknown';
+  const code = cards[0]?.inventoryCode ?? 'unknown';
+  doc.save(`SC-${cid}_${code}.pdf`);
 }
 
 // ── SOA ───────────────────────────────────────────────────────────────────────
@@ -1334,7 +1652,7 @@ export async function generateSOA(reservationId: string | null): Promise<void> {
   let pageNum = 1;
 
   // ── Data fetch ────────────────────────────────────────────────────────────
-  const [resResult, linesRaw] = await Promise.all([
+  const [resResult, linesRaw, penaltyResult, settingsResult] = await Promise.all([
     supabase
       .from('reservations')
       .select(`reservation_id, client_id, client_name, project, tower, inventory_code,
@@ -1344,9 +1662,22 @@ export async function generateSOA(reservationId: string | null): Promise<void> {
       .eq('reservation_id', reservationId)
       .single(),
     fetchReceivableLines(reservationId),
+    supabase
+      .from('penalty_lines')
+      .select('*')
+      .eq('reservation_id', reservationId)
+      .order('original_due_date'),
+    supabase
+      .from('app_settings')
+      .select('key, value')
+      .in('key', ['penalty_daily_rate']),
   ]);
-  const res = resResult.data as any;
-  const isHIC = (res?.hic_discount ?? 0) > 0;
+  const res       = resResult.data as any;
+  const penalties = (penaltyResult.data ?? []) as any[];
+  const settings  = Object.fromEntries(((settingsResult.data ?? []) as any[]).map((r: any) => [r.key, r.value]));
+  const dailyRate = parseFloat(settings['penalty_daily_rate']) || 0.001;
+  const isHIC              = (res?.hic_discount              ?? 0) > 0;
+  const isEmployeeDiscount = (res?.employee_discount_amount  ?? 0) > 0;
 
   let mailingAddress = '';
   if (res?.client_id) {
@@ -1434,20 +1765,10 @@ export async function generateSOA(reservationId: string | null): Promise<void> {
   const amountDue   = Math.max(0, totalBilled - totalPaid);
   const creditBal   = Math.max(0, totalPaid - totalBilled);
 
-  // Penalty lines — overdue unpaid/partial schedule lines
-  const overdueLines = schedLines.filter(
-    (l) => l.due_date < todayStr && l.payment_status !== 'Paid'
-  );
-  const DAILY_RATE   = 0.001; // ~3% per month
-  const penaltyLines = overdueLines.map((l) => {
-    const daysOverdue = Math.floor(
-      (today.getTime() - new Date(l.due_date + 'T00:00:00').getTime()) / 86400000
-    );
-    const basis       = l.principal ?? l.total_amount_due;
-    const penAmt      = basis * daysOverdue * DAILY_RATE;
-    return { ...l, daysOverdue, basis, penAmt };
-  });
-  const totalPenalty = penaltyLines.reduce((s, p) => s + p.penAmt, 0);
+  // Penalty totals from penalty_lines — outstanding only for billing summary
+  const totalPenalty = penalties
+    .filter((p: any) => ['Unpaid', 'Partial'].includes(p.payment_status))
+    .reduce((s: number, p: any) => s + (p.penalty_amount ?? 0), 0);
   const totalAmtDue  = amountDue + totalPenalty;
 
   // Next unpaid due date
@@ -1486,10 +1807,6 @@ export async function generateSOA(reservationId: string | null): Promise<void> {
     pageNum++;
     doc.addPage();
     drawPageHeader();
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6);
-    doc.setTextColor(160, 160, 165);
-    doc.text(`Page ${pageNum}`, R, pageH - 6, { align: 'right' });
   };
   const checkBreak = (needed: number, y: number): number => {
     if (y + needed > pageH - 10) { addPage(); return HDR + 4; }
@@ -1525,7 +1842,7 @@ export async function generateSOA(reservationId: string | null): Promise<void> {
   ];
   infoRows.forEach(([lbl, val]) => {
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7);
+    doc.setFontSize(8);
     doc.setTextColor(110, 110, 115);
     doc.text(lbl, L, y);
     doc.setFont('helvetica', 'bold');
@@ -1555,11 +1872,11 @@ export async function generateSOA(reservationId: string | null): Promise<void> {
   ];
   billingRows.forEach(([lbl, val, bold]) => {
     doc.setFont('helvetica', bold ? 'bold' : 'normal');
-    doc.setFontSize(7.5);
+    doc.setFontSize(8);
     doc.setTextColor(110, 110, 115);
     doc.text(lbl, COL2X, ry);
     doc.setFont('helvetica', bold ? 'bold' : 'normal');
-    doc.setFontSize(bold ? 9 : 8);
+    doc.setFontSize(8);
     doc.setTextColor(bold ? 28 : 50, bold ? 28 : 50, bold ? 30 : 55);
     doc.text(val, R, ry, { align: 'right' });
     ry += 6.5;
@@ -1580,7 +1897,8 @@ export async function generateSOA(reservationId: string | null): Promise<void> {
   const cdLeft: [string, string, boolean][] = [
     ['Net List Price (incl. VAT)', fmtN((res?.net_list_price ?? 0) + (res?.vat ?? 0), 'PHP '), false],
     ['Other Charges',              fmtN(res?.other_charges, 'PHP '),                            false],
-    ...(isHIC ? [['Home Improvement Contract', fmtN(res?.hic_discount, 'PHP '), false] as [string, string, boolean]] : []),
+    ...(isHIC              ? [['Home Improvement Contract', fmtN(res?.hic_discount,             'PHP '), false] as [string, string, boolean]] : []),
+    ...(isEmployeeDiscount ? [['Employee Discount',         fmtN(res?.employee_discount_amount, 'PHP '), false] as [string, string, boolean]] : []),
     ['Total Contract Price',       fmtN(res?.total_contract_price, 'PHP '),                     true ],
   ];
   const cdRight: [string, string, boolean][] = [
@@ -1598,11 +1916,11 @@ export async function generateSOA(reservationId: string | null): Promise<void> {
     rows.forEach((row, i) => {
       const ry2 = y + i * CD_ROW_H;
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7);
+      doc.setFontSize(8);
       doc.setTextColor(110, 110, 115);
       doc.text(row[0], lx, ry2 + 4.5);
       doc.setFont('helvetica', row[2] ? 'bold' : 'normal');
-      doc.setFontSize(row[2] ? 8.5 : 8);
+      doc.setFontSize(8);
       doc.setTextColor(28, 28, 30);
       doc.text(row[1], rx, ry2 + 4.5, { align: 'right' });
     });
@@ -1637,19 +1955,17 @@ export async function generateSOA(reservationId: string | null): Promise<void> {
   const AR_PAD_T  = 1.5;
   const staticColCount = isHIC ? 9 : 8; // cols before the 3 stacked AR cols
 
+  doc.addImage(makeColorDataURL(90, 90, 95), 'PNG', L, y, W, tblHdrH);
   let cx2 = L;
   schedCols.forEach((col, i) => {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(6);
-    doc.setTextColor(28, 28, 30);
+    doc.setTextColor(255, 255, 255);
     const truncatedHdr = doc.splitTextToSize(col, schedColW[i] - 1)[0] ?? '';
     doc.text(truncatedHdr, cx2 + 1, y + 5);
     cx2 += schedColW[i];
   });
   y += tblHdrH;
-  doc.setDrawColor(200, 200, 205);
-  doc.setLineWidth(0.2);
-  doc.line(L, y, R, y);
 
   schedLines.forEach((ln, idx) => {
     const arEntries: ArEntry[] = arMap[ln.id]?.length > 0
@@ -1756,6 +2072,7 @@ export async function generateSOA(reservationId: string | null): Promise<void> {
   y += 9;
 
   // ── Penalties table ───────────────────────────────────────────────────────
+  // ── Penalties table (same layout as Delinquency 1st Notice) ─────────────
   y = checkBreak(20, y);
   doc.addImage(darkImg, 'PNG', L, y, W, 7);
   doc.setFont('helvetica', 'bold');
@@ -1764,71 +2081,130 @@ export async function generateSOA(reservationId: string | null): Promise<void> {
   doc.text('PENALTIES', L + 3, y + 5);
   y += 7;
 
-  const penCols  = ['Original Due Date', 'Days Overdue', 'Daily Rate*', 'Principal Basis', 'Penalty Amount', 'Collection', 'Status', 'Remarks', 'AR No.', 'AR Date'];
-  const penColW  = [30, 22, 18, 30, 30, 25, 18, 30, 28, 22];
-  let px = L;
-  penCols.forEach((col, i) => {
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6.5);
-    doc.setTextColor(28, 28, 30);
-    doc.text(col, px + 1, y + 4.5);
-    px += penColW[i];
-  });
-  y += tblHdrH;
-  doc.line(L, y, R, y);
+  // Column definitions — widths sum to W (186mm for SOA margins L=12)
+  // 22+14+12+22+22+20+17+17+20+20 = 186
+  const penColDefs = [
+    { label: 'Original Due Date', w: 22 },
+    { label: 'Days Overdue',      w: 14 },
+    { label: 'Daily Rate*',       w: 12 },
+    { label: 'Principal Basis',   w: 22 },
+    { label: 'Penalty Amount',    w: 22 },
+    { label: 'Collection',        w: 20 },
+    { label: 'Status',            w: 17 },
+    { label: 'Remarks',           w: 17 },
+    { label: 'AR No.',            w: 20 },
+    { label: 'AR Date',           w: 20 },
+  ];
+  const penCols2 = penColDefs.reduce<{ label: string; x: number; w: number }[]>((acc, col) => {
+    const x = acc.length === 0 ? L : acc[acc.length - 1].x + acc[acc.length - 1].w;
+    return [...acc, { ...col, x }];
+  }, []);
 
-  const penRowH = 7.5;
-  if (penaltyLines.length === 0) {
-    doc.setFont('helvetica', 'italic');
-    doc.setFontSize(7.5);
-    doc.setTextColor(160, 160, 165);
-    doc.text('No penalties', L + 3, y + 5);
-    y += 8;
+  // Sub-header with auto-wrapping
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6);
+  const splitPenHdrs = penCols2.map(col => doc.splitTextToSize(col.label, col.w - 1) as string[]);
+  const maxPenHdrLines = Math.max(...splitPenHdrs.map(h => h.length));
+  const PEN_HDR_LINE_H = 2.8;
+  const PEN_HDR_PAD    = 1.8;
+  const PEN_SUB_HDR_H  = maxPenHdrLines * PEN_HDR_LINE_H + PEN_HDR_PAD * 2;
+  const subHdrImg      = makeColorDataURL(90, 90, 95);
+  doc.addImage(subHdrImg, 'PNG', L, y, W, PEN_SUB_HDR_H);
+  doc.setTextColor(255, 255, 255);
+  for (let ci = 0; ci < penCols2.length; ci++) {
+    const col   = penCols2[ci];
+    const lines = splitPenHdrs[ci];
+    const blockH = lines.length * PEN_HDR_LINE_H;
+    const startY = y + PEN_HDR_PAD + (PEN_SUB_HDR_H - PEN_HDR_PAD * 2 - blockH) / 2 + PEN_HDR_LINE_H * 0.75;
+    lines.forEach((line, li) => doc.text(line, col.x + col.w / 2, startY + li * PEN_HDR_LINE_H, { align: 'center' }));
+  }
+  y += PEN_SUB_HDR_H;
+
+  // Data rows
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6);
+  const PEN_ROW_H = 6;
+  if (penalties.length === 0) {
+    doc.setTextColor(120, 120, 125);
+    doc.setFontSize(8);
+    doc.text('No penalty lines found for this reservation.', pageW / 2, y + 5, { align: 'center' });
+    y += 10;
   } else {
-    penaltyLines.forEach((pl, idx) => {
-      y = checkBreak(penRowH + 2, y);
-      if (idx % 2 === 0) { doc.setFillColor(248, 248, 250); doc.rect(L, y, W, penRowH, 'F'); }
-      const pCols = [
-        fmtD(pl.due_date),
-        String(pl.daysOverdue),
-        '0.1%/day',
-        fmtN(pl.basis),
-        fmtN(pl.penAmt),
-        '-', pl.payment_status, '-', '-', '-',
-      ];
-      let ptx = L;
-      pCols.forEach((val, i) => {
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(6.5);
-        doc.setTextColor(40, 40, 45);
-        doc.text(String(val), ptx + 1, y + 4.5);
-        ptx += penColW[i];
-      });
-      y += penRowH;
+    penalties.forEach((p: any, i: number) => {
+      y = checkBreak(PEN_ROW_H + 2, y);
+      if (i % 2 === 0) {
+        const stripe = makeColorDataURL(245, 245, 247);
+        doc.addImage(stripe, 'PNG', L, y, W, PEN_ROW_H);
+      }
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6);
+      doc.setTextColor(28, 28, 30);
+      doc.text(fmtD(p.original_due_date),                            penCols2[0].x + penCols2[0].w / 2, y + 4, { align: 'center' });
+      doc.text(String(p.days_overdue ?? 0),                          penCols2[1].x + penCols2[1].w / 2, y + 4, { align: 'center' });
+      doc.text((((p.daily_rate ?? dailyRate) * 100).toFixed(2)) + '%', penCols2[2].x + penCols2[2].w / 2, y + 4, { align: 'center' });
+      doc.text(fmtN(p.balance_receivables ?? 0),                     penCols2[3].x + penCols2[3].w - 1,  y + 4, { align: 'right' });
+      doc.text(fmtN(p.penalty_amount ?? 0),                          penCols2[4].x + penCols2[4].w - 1,  y + 4, { align: 'right' });
+      doc.text(p.collection ? fmtN(p.collection) : '—',             penCols2[5].x + penCols2[5].w - 1,  y + 4, { align: 'right' });
+      doc.text(p.payment_status ?? '—',                              penCols2[6].x + penCols2[6].w / 2, y + 4, { align: 'center' });
+      doc.text(p.remarks ?? '—',                                     penCols2[7].x + penCols2[7].w / 2, y + 4, { align: 'center' });
+      doc.text(p.ar_no ?? '—',                                       penCols2[8].x + penCols2[8].w / 2, y + 4, { align: 'center' });
+      doc.text(fmtD(p.ar_date),                                      penCols2[9].x + penCols2[9].w / 2, y + 4, { align: 'center' });
+      y += PEN_ROW_H;
     });
   }
 
+  // Totals row
+  const totalPenaltyAll = penalties.reduce((s: number, p: any) => s + (p.penalty_amount ?? 0), 0);
+  const totalBarImg = makeColorDataURL(70, 70, 75);
+  doc.addImage(totalBarImg, 'PNG', L, y, W, 7);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6);
+  doc.setTextColor(255, 255, 255);
+  doc.text('TOTAL PENALTIES', L + 1, y + 4.5);
+  doc.text(fmtN(totalPenaltyAll), R - 2, y + 4.5, { align: 'right' });
+  y += 7;
+
   y += 4;
   doc.setFont('helvetica', 'italic');
-  doc.setFontSize(6);
-  doc.setTextColor(130, 130, 135);
-  doc.text('*effectively 3% per month', L, y);
+  doc.setFontSize(6.5);
+  doc.setTextColor(100, 100, 105);
+  doc.text(`Effective ${(dailyRate * 30 * 100).toFixed(2)}% per month`, L, y);
+  y += 4;
 
-  // ── Footer ────────────────────────────────────────────────────────────────
-  const now   = new Date();
-  const stamp = now.toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' })
+  // ── Footer — drawn on every page after all content is rendered ───────────
+  const now        = new Date();
+  const stamp      = now.toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' })
     + '  ' + now.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  doc.setDrawColor(220, 220, 220);
-  doc.setLineWidth(0.3);
-  doc.line(L, pageH - 10, R, pageH - 10);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(6);
-  doc.setTextColor(160, 160, 165);
-  doc.text(`Generated: ${stamp}`, L, pageH - 6);
-  doc.text(`Page 1 of ${pageNum}`, R, pageH - 6, { align: 'right' });
+  const totalPages = doc.getNumberOfPages();
+  for (let p = 1; p <= totalPages; p++) {
+    doc.setPage(p);
+    doc.setDrawColor(220, 220, 220);
+    doc.setLineWidth(0.3);
+    doc.line(L, pageH - 10, R, pageH - 10);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6);
+    doc.setTextColor(160, 160, 165);
+    doc.text(`Generated: ${stamp}`, L, pageH - 6);
+    doc.text(`Page ${p} of ${totalPages}`, R, pageH - 6, { align: 'right' });
+  }
 
-  if (win) win.location.href = doc.output('bloburl') as unknown as string;
-  else doc.output('dataurlnewwindow');
+  const soaFilename = `SOA-${res?.client_id ?? 'unknown'}_${reservationId}.pdf`;
+  const blobUrl = doc.output('bloburl') as string;
+  if (win && typeof (win as any).close === 'function') {
+    // Real browser window — close blank tab and trigger named download
+    (win as Window).close();
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = soaFilename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } else if (win) {
+    // Mock window from buildPDFBase64 — set href for blob capture
+    win.location.href = blobUrl;
+  } else {
+    doc.output('dataurlnewwindow');
+  }
 }
 
 // ── Fetch helpers for page use ────────────────────────────────────────────────
@@ -1869,7 +2245,7 @@ export async function buildPDFBase64(
   let reservationClientId: string | null = null;
 
   // Derive client from reservation when not provided explicitly
-  if ((documentKey === 'client_registration' || documentKey === 'reservation_agreement') && reservationId) {
+  if ((documentKey === 'client_registration' || documentKey === 'terms_of_payment' || documentKey === 'reservation_agreement' || documentKey === 'buyer_info_form' || documentKey === 'soa' || documentKey === 'delinquency_1st_notice' || documentKey === 'delinquency_2nd_notice' || documentKey === 'delinquency_final_notice') && reservationId) {
     const { data: res } = await supabase
       .from('reservations')
       .select('client_id')
@@ -1887,11 +2263,14 @@ export async function buildPDFBase64(
   const win = { location: { href: '' } };
   window.open = () => win as unknown as Window;
   try {
-    if (documentKey === 'client_registration')   await generateClientRegistration(client);
-    if (documentKey === 'terms_of_payment')      await generateTermsOfPayment(reservationId);
-    if (documentKey === 'reservation_agreement') await generateReservationAgreement(reservationId);
-    if (documentKey === 'buyer_info_form')       await generateBuyerInformationForm(reservationId);
-    if (documentKey === 'soa')                   await generateSOA(reservationId);
+    if (documentKey === 'client_registration')      await generateClientRegistration(client);
+    if (documentKey === 'terms_of_payment')         await generateTermsOfPayment(reservationId);
+    if (documentKey === 'reservation_agreement')    await generateReservationAgreement(reservationId);
+    if (documentKey === 'buyer_info_form')          await generateBuyerInformationForm(reservationId);
+    if (documentKey === 'soa')                      await generateSOA(reservationId);
+    if (documentKey === 'delinquency_1st_notice')   await generateDelinquency1stNotice(reservationId);
+    if (documentKey === 'delinquency_2nd_notice')     await generateDelinquency2ndNotice(reservationId);
+    if (documentKey === 'delinquency_final_notice')   await generateDelinquencyFinalNotice(reservationId);
   } finally {
     window.open = origOpen;
   }
@@ -1903,10 +2282,19 @@ export async function buildPDFBase64(
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onloadend = () => {
-      let filename = PDF_FILENAMES[documentKey] ?? 'document.pdf';
-      if (documentKey === 'reservation_agreement' && reservationClientId && reservationId) {
-        filename = `RA-${reservationClientId}${reservationId}.pdf`;
-      }
+      const cid = reservationClientId ?? (clientOverride as any)?.client_id ?? 'unknown';
+      const rid = reservationId ?? '';
+      const filenameMap: Record<string, string> = {
+        client_registration:    `CRF-${cid}.pdf`,
+        terms_of_payment:       `TOP-${cid}_${rid}.pdf`,
+        reservation_agreement:  `RA-${cid}_${rid}.pdf`,
+        buyer_info_form:        `BIF-${cid}_${rid}.pdf`,
+        soa:                    `SOA-${cid}_${rid}.pdf`,
+        delinquency_1st_notice: `1st Notice-${cid}_${rid}.pdf`,
+        delinquency_2nd_notice: `2nd Notice-${cid}_${rid}.pdf`,
+        delinquency_final_notice: `Final Notice-${cid}_${rid}.pdf`,
+      };
+      let filename = filenameMap[documentKey] ?? PDF_FILENAMES[documentKey] ?? 'document.pdf';
       resolve({ base64: (reader.result as string).split(',')[1], filename });
     };
     reader.onerror = () => reject(new Error('Failed to read PDF blob'));
@@ -1923,38 +2311,270 @@ export async function generateDelinquency1stNotice(reservationId: string | null)
   const doc   = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
-  const L = 14, R = pageW - 14, W = R - L;
+  const L = 20, R = pageW - 20, W = R - L;
 
   // ── Data fetch ──────────────────────────────────────────────────────────────
   const [resResult, penaltyResult, settingsResult] = await Promise.all([
     supabase
       .from('reservations')
-      .select('reservation_id, client_id, client_name, project, tower, inventory_code, payment_scheme')
+      .select('reservation_id, client_id, client_name, project, inventory_code')
       .eq('reservation_id', reservationId)
       .single(),
     supabase
       .from('penalty_lines')
-      .select('*')
+      .select('penalty_amount, balance_receivables, generated_at')
       .eq('reservation_id', reservationId)
       .in('payment_status', ['Unpaid', 'Partial'])
       .order('original_due_date'),
     supabase
       .from('app_settings')
       .select('key, value')
-      .in('key', ['penalty_daily_rate', 'app_name']),
+      .in('key', ['app_legal_name', 'collection_contact_name', 'collection_contact_phone', 'collection_contact_email']),
   ]);
 
-  const res      = resResult.data as any;
+  const res       = resResult.data as any;
   const penalties = (penaltyResult.data ?? []) as any[];
   const settings  = Object.fromEntries(((settingsResult.data ?? []) as any[]).map((r: any) => [r.key, r.value]));
-  const appName   = settings['app_name'] ?? 'One Sales App';
+  const appLegal        = settings['app_legal_name']           ?? 'PH1 World Developers Inc.';
+  const contactName     = settings['collection_contact_name']  ?? '';
+  const contactPhone    = settings['collection_contact_phone'] ?? '';
+  const contactEmail    = settings['collection_contact_email'] ?? '';
 
-  // Mailing address from buyer info
+  // Mailing address + last name from client
   let mailingAddress = '';
+  let lastName = '';
   if (res?.client_id) {
     const { data: clientRow } = await supabase
-      .from('clients').select('id').eq('client_id', res.client_id).maybeSingle();
-    const bi = clientRow?.id ? await fetchBuyerInfo(clientRow.id).catch(() => null) : null;
+      .from('clients').select('id, last_name').eq('client_id', res.client_id).maybeSingle();
+    lastName = (clientRow as any)?.last_name ?? '';
+    const bi = (clientRow as any)?.id ? await fetchBuyerInfo((clientRow as any).id).catch(() => null) : null;
+    if (bi) {
+      mailingAddress = [bi.home_street, bi.home_barangay, bi.home_city_municipality, bi.home_region_province]
+        .filter(Boolean).join(', ');
+    }
+  }
+
+  const maxGenAt  = penalties.length > 0
+    ? penalties.reduce((m: string, p: any) => (p.generated_at > m ? p.generated_at : m), penalties[0].generated_at as string)
+    : null;
+  const today    = maxGenAt ? new Date(maxGenAt) : new Date();
+  const dateStr  = today.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
+
+  const totalPenalty   = penalties.reduce((s: number, p: any) => s + (p.penalty_amount ?? 0), 0);
+  const totalPrincipal = penalties.reduce((s: number, p: any) => s + (p.balance_receivables ?? 0), 0);
+  const grandTotal     = totalPrincipal + totalPenalty;
+  const fmtAmt = (n: number) => 'PhP ' + n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  // ── Rich text paragraph helper ───────────────────────────────────────────────
+  type RichSeg = { t: string; bold?: boolean; color?: [number,number,number] };
+  const richPara = (segs: RichSeg[], startY: number, fontSize = 10.5, lineH = 5.8): number => {
+    doc.setFontSize(fontSize);
+    const tokens: (RichSeg & { word: string })[] = [];
+    for (const seg of segs) {
+      const words = seg.t.split(' ');
+      words.forEach((word, i) => {
+        tokens.push({ ...seg, word: word + (i < words.length - 1 ? ' ' : '') });
+      });
+    }
+    let cx = L, y = startY, lineStart = true;
+    for (const tok of tokens) {
+      doc.setFont('helvetica', tok.bold ? 'bold' : 'normal');
+      if (tok.color) doc.setTextColor(...tok.color); else doc.setTextColor(30, 30, 30);
+      const wFull = doc.getTextWidth(tok.word);
+      const wTrim = doc.getTextWidth(tok.word.trimEnd());
+      if (cx + wTrim > R && !lineStart) {
+        if (tok.word.trim() === '') { y += lineH; cx = L; lineStart = true; continue; }
+        y += lineH; cx = L; lineStart = false;
+      }
+      if (!(lineStart && tok.word.trim() === '')) {
+        doc.text(tok.word, cx, y);
+        cx += wFull;
+        lineStart = false;
+      }
+    }
+    return y + lineH;
+  };
+
+  // ── Layout ───────────────────────────────────────────────────────────────────
+  let y = 22;
+
+  // FIRST NOTICE
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(13);
+  doc.setTextColor(30, 30, 30);
+  doc.text('FIRST NOTICE', L, y);
+  y += 10;
+
+  // Date
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10.5);
+  doc.setTextColor(30, 30, 30);
+  doc.text(dateStr, L, y);
+  y += 6;
+
+  // Client name (bold)
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  doc.text(res?.client_name ?? '—', L, y);
+  y += 5.5;
+
+  // Address
+  if (mailingAddress) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10.5);
+    doc.setTextColor(30, 30, 30);
+    const addrLines = doc.splitTextToSize(mailingAddress, W);
+    addrLines.forEach((line: string) => { doc.text(line, L, y); y += 5.5; });
+  }
+  y += 8;
+
+  // PROJECT :
+  const projectLabel = [res?.project, res?.inventory_code].filter(Boolean).join(', ');
+  doc.setFontSize(10.5);
+  doc.setTextColor(30, 30, 30);
+  doc.setFont('helvetica', 'bold');
+  const projLabelW = doc.getTextWidth('PROJECT : ');
+  doc.text('PROJECT : ', L, y);
+  doc.setFont('helvetica', 'normal');
+  doc.text(projectLabel, L + projLabelW, y);
+  y += 6.5;
+
+  // SUBJECT:
+  doc.setFont('helvetica', 'bold');
+  const subjLabelW = doc.getTextWidth('SUBJECT: ');
+  doc.text('SUBJECT: ', L, y);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Notice to Settle Overdue Installment Payments', L + subjLabelW, y);
+  y += 12;
+
+  // Salutation
+  const saluteName = lastName || (res?.client_name ?? 'Valued Client');
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10.5);
+  doc.setTextColor(30, 30, 30);
+  doc.text(`Dear Mr./Ms. ${saluteName}:`, L, y);
+  y += 10;
+
+  // Paragraph 1 — amount bold + orange
+  y = richPara([
+    { t: 'This is to inform you that you have an overdue monthly installment. In view of the foregoing, please settle the amount of ' },
+    { t: fmtAmt(grandTotal), bold: true, color: [204, 85, 0] },
+    { t: ', inclusive of penalties and interest, within ' },
+    { t: 'thirty (30) calendar days', bold: true },
+    { t: ' from the receipt of this letter.' },
+  ], y);
+  y += 5;
+
+  // Paragraph 2 — company name bold
+  y = richPara([
+    { t: 'Failure to pay your outstanding obligation within the period indicated above shall entitle ' },
+    { t: appLegal + ',', bold: true },
+    { t: ' to enforce its rights and remedies under the Reservation Agreement.' },
+  ], y);
+  y += 5;
+
+  // Paragraph 3
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10.5);
+  doc.setTextColor(30, 30, 30);
+  doc.text('Kindly disregard this letter if payment has been made.', L, y);
+  y += 10;
+
+  // Paragraph 4 — contact info
+  if (contactName) {
+    const p4segs: RichSeg[] = [{ t: 'Should you have any inquiries, please feel free to contact ' }];
+    p4segs.push({ t: contactName, bold: true });
+    if (contactPhone) { p4segs.push({ t: ' at ' }); p4segs.push({ t: contactPhone, bold: true }); }
+    if (contactEmail) p4segs.push({ t: ' or send an email to ' + contactEmail + '.' });
+    else p4segs.push({ t: '.' });
+    y = richPara(p4segs, y);
+    y += 5;
+  }
+
+  // Closing
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10.5);
+  doc.setTextColor(30, 30, 30);
+  doc.text('Very truly yours,', L, y);
+  y += 6;
+  doc.text('Billing and Collection Team', L, y);
+  y += 14;
+
+  // Italic disclaimer
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(9);
+  doc.setTextColor(80, 80, 85);
+  doc.text('This is a computer-generated letter. No signature required.', L, y);
+
+  // ── Footer ───────────────────────────────────────────────────────────────────
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6);
+  doc.setTextColor(160, 160, 165);
+  doc.text('Page 1 of 1', R, pageH - 6, { align: 'right' });
+
+  const noticeFilename = `1st Notice-${res?.client_id ?? 'unknown'}_${reservationId}.pdf`;
+  const noticeBlobUrl  = doc.output('bloburl') as string;
+  if (win && typeof (win as any).close === 'function') {
+    (win as Window).close();
+    const a = document.createElement('a');
+    a.href = noticeBlobUrl;
+    a.download = noticeFilename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } else if (win) {
+    win.location.href = noticeBlobUrl;
+  } else {
+    doc.output('dataurlnewwindow');
+  }
+}
+
+// ── Delinquency 2nd Notice ────────────────────────────────────────────────────
+
+export async function generateDelinquency2ndNotice(reservationId: string | null): Promise<void> {
+  if (!reservationId) return;
+  const win = window.open('', '_blank');
+
+  const doc   = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const L = 20, R = pageW - 20, W = R - L;
+
+  // ── Data fetch ──────────────────────────────────────────────────────────────
+  const [resResult, penaltyResult, settingsResult] = await Promise.all([
+    supabase
+      .from('reservations')
+      .select('reservation_id, client_id, client_name, project, inventory_code')
+      .eq('reservation_id', reservationId)
+      .single(),
+    supabase
+      .from('penalty_lines')
+      .select('penalty_amount, balance_receivables, generated_at')
+      .eq('reservation_id', reservationId)
+      .in('payment_status', ['Unpaid', 'Partial'])
+      .order('original_due_date'),
+    supabase
+      .from('app_settings')
+      .select('key, value')
+      .in('key', ['app_legal_name', 'collection_contact_name', 'collection_contact_phone', 'collection_contact_email']),
+  ]);
+
+  const res       = resResult.data as any;
+  const penalties = (penaltyResult.data ?? []) as any[];
+  const settings  = Object.fromEntries(((settingsResult.data ?? []) as any[]).map((r: any) => [r.key, r.value]));
+  const appLegal     = settings['app_legal_name']           ?? 'PH1 World Developers Inc.';
+  const contactName  = settings['collection_contact_name']  ?? '';
+  const contactPhone = settings['collection_contact_phone'] ?? '';
+  const contactEmail = settings['collection_contact_email'] ?? '';
+
+  // Mailing address + last name from client
+  let mailingAddress = '';
+  let lastName = '';
+  if (res?.client_id) {
+    const { data: clientRow } = await supabase
+      .from('clients').select('id, last_name').eq('client_id', res.client_id).maybeSingle();
+    lastName = (clientRow as any)?.last_name ?? '';
+    const bi = (clientRow as any)?.id ? await fetchBuyerInfo((clientRow as any).id).catch(() => null) : null;
     if (bi) {
       mailingAddress = [bi.home_street, bi.home_barangay, bi.home_city_municipality, bi.home_region_province]
         .filter(Boolean).join(', ');
@@ -1962,219 +2582,464 @@ export async function generateDelinquency1stNotice(reservationId: string | null)
   }
 
   const maxGenAt = penalties.length > 0
-    ? penalties.reduce((m, p) => (p.generated_at > m ? p.generated_at : m), penalties[0].generated_at as string)
+    ? penalties.reduce((m: string, p: any) => (p.generated_at > m ? p.generated_at : m), penalties[0].generated_at as string)
     : null;
-  const today    = maxGenAt ? new Date(maxGenAt) : new Date();
-  const todayStr = today.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
-  const deadline = new Date(today); deadline.setDate(deadline.getDate() + 15);
-  const deadlineStr = deadline.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
+  const today   = maxGenAt ? new Date(maxGenAt) : new Date();
+  const dateStr = today.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
 
   const totalPenalty   = penalties.reduce((s: number, p: any) => s + (p.penalty_amount ?? 0), 0);
   const totalPrincipal = penalties.reduce((s: number, p: any) => s + (p.balance_receivables ?? 0), 0);
   const grandTotal     = totalPrincipal + totalPenalty;
+  const fmtAmt = (n: number) => n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  const fmtN = (n: number) => 'PHP ' + n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const fmtD = (d: string | null) =>
-    d ? new Date(d + 'T00:00:00').toLocaleDateString('en-PH', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+  // ── Rich text paragraph helper ───────────────────────────────────────────────
+  type RichSeg = { t: string; bold?: boolean };
+  const richPara = (segs: RichSeg[], startY: number, fontSize = 10.5, lineH = 5.8): number => {
+    doc.setFontSize(fontSize);
+    const tokens: (RichSeg & { word: string })[] = [];
+    for (const seg of segs) {
+      const words = seg.t.split(' ');
+      words.forEach((word, i) => {
+        tokens.push({ ...seg, word: word + (i < words.length - 1 ? ' ' : '') });
+      });
+    }
+    let cx = L, y = startY, lineStart = true;
+    doc.setTextColor(30, 30, 30);
+    for (const tok of tokens) {
+      doc.setFont('helvetica', tok.bold ? 'bold' : 'normal');
+      const wFull = doc.getTextWidth(tok.word);
+      const wTrim = doc.getTextWidth(tok.word.trimEnd());
+      if (cx + wTrim > R && !lineStart) {
+        if (tok.word.trim() === '') { y += lineH; cx = L; lineStart = true; continue; }
+        y += lineH; cx = L; lineStart = false;
+      }
+      if (!(lineStart && tok.word.trim() === '')) {
+        doc.text(tok.word, cx, y);
+        cx += wFull;
+        lineStart = false;
+      }
+    }
+    return y + lineH;
+  };
 
-  // ── Header ──────────────────────────────────────────────────────────────────
-  const hdrImg = makeColorDataURL(238, 67, 78);
-  const logo   = await loadLogo();
-  const HDR    = 22;
+  // ── Layout ───────────────────────────────────────────────────────────────────
+  let y = 22;
 
-  doc.addImage(hdrImg, 'PNG', 0, 0, pageW, HDR);
-  if (logo.b64) doc.addImage(logo.b64, 'PNG', L, (HDR - logo.h) / 2, logo.w, logo.h);
+  // SECOND NOTICE
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(13);
-  doc.setTextColor(255, 255, 255);
-  doc.text('DELINQUENCY NOTICE', R, 9, { align: 'right' });
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  doc.setTextColor(255, 220, 210);
-  doc.text('1st Notice', R, 17, { align: 'right' });
   doc.setTextColor(30, 30, 30);
+  doc.text('SECOND NOTICE', L, y);
+  y += 10;
 
-  // ── Date + Reference ────────────────────────────────────────────────────────
-  let y = HDR + 8;
+  // Date
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  doc.setTextColor(80, 80, 85);
-  doc.text(`Date: ${todayStr}`, L, y);
-  doc.text(`Ref: ${reservationId}`, R, y, { align: 'right' });
-  y += 8;
+  doc.setFontSize(10.5);
+  doc.setTextColor(30, 30, 30);
+  doc.text(dateStr, L, y);
+  y += 6;
 
-  // ── Address block ───────────────────────────────────────────────────────────
+  // Client name (bold)
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.setTextColor(28, 28, 30);
+  doc.setFontSize(10.5);
   doc.text(res?.client_name ?? '—', L, y);
-  y += 5;
+  y += 5.5;
+
+  // Address
   if (mailingAddress) {
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(80, 80, 85);
-    const addrLines = doc.splitTextToSize(mailingAddress, W * 0.6);
-    addrLines.forEach((line: string) => { doc.text(line, L, y); y += 4; });
+    doc.setFontSize(10.5);
+    doc.setTextColor(30, 30, 30);
+    const addrLines = doc.splitTextToSize(mailingAddress, W);
+    addrLines.forEach((line: string) => { doc.text(line, L, y); y += 5.5; });
   }
-  y += 4;
-
-  // ── Property info ───────────────────────────────────────────────────────────
-  const propRows: [string, string][] = [
-    ['Client ID',      res?.client_id      ?? '—'],
-    ['Project',        res?.project        ?? '—'],
-    ['Tower / Block',  res?.tower          ?? '—'],
-    ['Unit',           res?.inventory_code ?? '—'],
-    ['Payment Scheme', res?.payment_scheme ?? '—'],
-  ];
-  doc.setFontSize(8);
-  for (const [label, value] of propRows) {
-    doc.setFont('helvetica', 'bold'); doc.setTextColor(90, 90, 95);
-    doc.text(label + ':', L, y);
-    doc.setFont('helvetica', 'normal'); doc.setTextColor(28, 28, 30);
-    doc.text(value, L + 34, y);
-    y += 4.5;
-  }
-  y += 4;
-
-  // ── Body text ───────────────────────────────────────────────────────────────
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.setTextColor(30, 30, 30);
-  const bodyText =
-    `Dear ${res?.client_name ?? 'Valued Client'},\n\n` +
-    `This is to formally inform you that your account with ${appName} has outstanding overdue obligations ` +
-    `as of ${todayStr}. Our records show that the following amortization installments remain unpaid or partially ` +
-    `paid, and penalties have been computed in accordance with your purchase agreement.\n\n` +
-    `We respectfully request that you settle the total amount due on or before ${deadlineStr} to avoid ` +
-    `further penalties and possible legal action. Should you have already made payment arrangements, ` +
-    `please disregard this notice and present your proof of payment to our office.`;
-  const bodyLines = doc.splitTextToSize(bodyText, W);
-  bodyLines.forEach((line: string) => { doc.text(line, L, y); y += 4.5; });
-  y += 4;
-
-  // ── Penalties table ─────────────────────────────────────────────────────────
-  // Header row
-  const darkImg = makeColorDataURL(55, 55, 60);
-  doc.addImage(darkImg, 'PNG', L, y, W, 7);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.5);
-  doc.setTextColor(255, 255, 255);
-  doc.text('PENALTIES', pageW / 2, y + 4.5, { align: 'center' });
-  y += 7;
-
-  // Column definitions — total width must equal W (182mm for A4 portrait with L=14, R=196)
-  // 22+14+12+22+22+18+16+16+20+20 = 182
-  const colDefs = [
-    { label: 'Original Due Date', w: 22 },
-    { label: 'Days Overdue',      w: 14 },
-    { label: 'Daily Rate*',       w: 12 },
-    { label: 'Principal Basis',   w: 22 },
-    { label: 'Penalty Amount',    w: 22 },
-    { label: 'Collection',        w: 18 },
-    { label: 'Status',            w: 16 },
-    { label: 'Remarks',           w: 16 },
-    { label: 'AR No.',            w: 20 },
-    { label: 'AR Date',           w: 20 },
-  ];
-  const cols = colDefs.reduce<{ label: string; x: number; w: number }[]>((acc, col) => {
-    const x = acc.length === 0 ? L : acc[acc.length - 1].x + acc[acc.length - 1].w;
-    return [...acc, { ...col, x }];
-  }, []);
-
-  // Sub-header with auto-wrapping
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(6);
-  const splitHdrs = cols.map(col => doc.splitTextToSize(col.label, col.w - 1) as string[]);
-  const maxHdrLines = Math.max(...splitHdrs.map(h => h.length));
-  const HDR_LINE_H  = 2.8;
-  const HDR_PAD     = 1.8;
-  const SUB_HDR_H   = maxHdrLines * HDR_LINE_H + HDR_PAD * 2;
-  const subHdrImg   = makeColorDataURL(90, 90, 95);
-  doc.addImage(subHdrImg, 'PNG', L, y, W, SUB_HDR_H);
-  doc.setTextColor(255, 255, 255);
-  for (let ci = 0; ci < cols.length; ci++) {
-    const col   = cols[ci];
-    const lines = splitHdrs[ci];
-    const blockH = lines.length * HDR_LINE_H;
-    const startY = y + HDR_PAD + (SUB_HDR_H - HDR_PAD * 2 - blockH) / 2 + HDR_LINE_H * 0.75;
-    lines.forEach((line, li) => doc.text(line, col.x + col.w / 2, startY + li * HDR_LINE_H, { align: 'center' }));
-  }
-  y += SUB_HDR_H;
-
-  // Data rows
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(6.5);
-  const ROW_H = 6;
-  penalties.forEach((p: any, i: number) => {
-    if (i % 2 === 0) {
-      const stripe = makeColorDataURL(245, 245, 247);
-      doc.addImage(stripe, 'PNG', L, y, W, ROW_H);
-    }
-    doc.setTextColor(28, 28, 30);
-    doc.text(fmtD(p.original_due_date),                      cols[0].x + cols[0].w / 2, y + 4, { align: 'center' });
-    doc.text(String(p.days_overdue ?? 0),                    cols[1].x + cols[1].w / 2, y + 4, { align: 'center' });
-    doc.text((((p.daily_rate ?? 0) * 100).toFixed(2)) + '%', cols[2].x + cols[2].w / 2, y + 4, { align: 'center' });
-    doc.text(fmtN(p.balance_receivables ?? 0),               cols[3].x + cols[3].w - 1,  y + 4, { align: 'right' });
-    doc.text(fmtN(p.penalty_amount  ?? 0),                   cols[4].x + cols[4].w - 1,  y + 4, { align: 'right' });
-    doc.text(p.collection ? fmtN(p.collection) : '—',        cols[5].x + cols[5].w - 1,  y + 4, { align: 'right' });
-    doc.text(p.payment_status ?? '—',                        cols[6].x + cols[6].w / 2, y + 4, { align: 'center' });
-    doc.text(p.remarks ?? '—',                               cols[7].x + cols[7].w / 2, y + 4, { align: 'center' });
-    doc.text(p.ar_no ?? '—',                                 cols[8].x + cols[8].w / 2, y + 4, { align: 'center' });
-    doc.text(fmtD(p.ar_date),                                cols[9].x + cols[9].w / 2, y + 4, { align: 'center' });
-    y += ROW_H;
-  });
-
-  if (penalties.length === 0) {
-    doc.setTextColor(120, 120, 125);
-    doc.setFontSize(8);
-    doc.text('No outstanding penalty lines found for this reservation.', pageW / 2, y + 5, { align: 'center' });
-    y += 10;
-  }
-
-  // Totals row
-  const totalBarImg = makeColorDataURL(230, 60, 60);
-  doc.addImage(totalBarImg, 'PNG', L, y, W, 7);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8);
-  doc.setTextColor(255, 255, 255);
-  doc.text('TOTAL PENALTIES', L + 4, y + 4.5);
-  doc.text(fmtN(totalPenalty), R - 2, y + 4.5, { align: 'right' });
-  y += 7;
-
-  // ── Footnote ────────────────────────────────────────────────────────────────
-  y += 6;
-  doc.setFont('helvetica', 'italic');
-  doc.setFontSize(6.5);
-  doc.setTextColor(100, 100, 105);
-  doc.text(
-    `* Daily rate of ${(((penalties[0]?.daily_rate ?? 0.001) * 100)).toFixed(2)}% applies to the principal basis per overdue installment. ` +
-    `Penalty amount = Principal Basis × Days Overdue × Daily Rate.`,
-    L, y
-  );
   y += 8;
 
-  // ── Signature block ─────────────────────────────────────────────────────────
-  if (y + 30 > pageH - 10) { doc.addPage(); y = HDR + 10; }
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
+  // PROJECT :
+  const projectLabel = [res?.project, res?.inventory_code].filter(Boolean).join(', ');
+  doc.setFontSize(10.5);
   doc.setTextColor(30, 30, 30);
-  doc.text('Very truly yours,', L, y); y += 12;
-  doc.setLineWidth(0.3); doc.setDrawColor(100, 100, 105);
-  doc.line(L, y, L + 60, y); y += 4;
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
-  doc.text('Account Management', L, y); y += 4;
+  const projLabelW = doc.getTextWidth('PROJECT : ');
+  doc.text('PROJECT : ', L, y);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  doc.setTextColor(80, 80, 85);
-  doc.text(appName, L, y);
+  doc.text(projectLabel, L + projLabelW, y);
+  y += 6.5;
 
-  // ── Page footer ─────────────────────────────────────────────────────────────
+  // Subject:
+  doc.setFont('helvetica', 'bold');
+  const subjLabelW = doc.getTextWidth('Subject: ');
+  doc.text('Subject: ', L, y);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Final Demand to Pay Overdue Installment Payments', L + subjLabelW, y);
+  y += 12;
+
+  // Salutation
+  const saluteName = lastName || (res?.client_name ?? 'Valued Client');
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10.5);
+  doc.setTextColor(30, 30, 30);
+  doc.text(`Dear Mr./Ms. ${saluteName},`, L, y);
+  y += 10;
+
+  // Paragraph 1 — company name bold
+  y = richPara([
+    { t: 'Our records show that you have failed to settle your outstanding obligation within the period provided by ' },
+    { t: appLegal + '.', bold: true },
+  ], y);
+  y += 5;
+
+  // Paragraph 2 — amount bold
+  y = richPara([
+    { t: `As of ${dateStr}, your total outstanding obligation is at ` },
+    { t: fmtAmt(grandTotal), bold: true },
+    { t: ', which includes penalty charges per month imposed on overdue payments.' },
+  ], y);
+  y += 5;
+
+  // Paragraph 3 — demand sentence bold
+  y = richPara([
+    { t: 'In view of the foregoing, ' },
+    { t: 'final demand is hereby given to settle your outstanding obligations within thirty (30) calendar days from receipt of this letter.', bold: true },
+  ], y);
+  y += 5;
+
+  // Paragraph 4
+  y = richPara([
+    { t: 'Failure to do so shall result in the immediate termination of the Reservation Agreement, as well as enforcement of other remedies under the Contract to Sell.' },
+  ], y);
+  y += 5;
+
+  // Paragraph 5 — normal
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10.5);
+  doc.setTextColor(30, 30, 30);
+  doc.text('Kindly disregard this letter if payment has been made.', L, y);
+  y += 10;
+
+  // Paragraph 6 — contact info
+  if (contactName) {
+    const p6segs: { t: string; bold?: boolean }[] = [{ t: 'Should you have any inquiries, please feel free to contact ' }];
+    p6segs.push({ t: contactName, bold: true });
+    if (contactPhone) { p6segs.push({ t: ' at ' }); p6segs.push({ t: contactPhone, bold: true }); }
+    if (contactEmail) p6segs.push({ t: ' or send an email to ' + contactEmail + '.' });
+    else p6segs.push({ t: '.' });
+    y = richPara(p6segs, y);
+    y += 5;
+  }
+
+  // Please be guided accordingly
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10.5);
+  doc.setTextColor(30, 30, 30);
+  doc.text('Please be guided accordingly.', L, y);
+  y += 14;
+
+  // Closing
+  doc.text('Very truly yours,', L, y);
+  y += 6;
+  doc.text('Billing and Collection Team', L, y);
+  y += 14;
+
+  // Italic disclaimer
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(9);
+  doc.setTextColor(80, 80, 85);
+  doc.text('This is a computer-generated letter. No signature required.', L, y);
+
+  // ── Footer ───────────────────────────────────────────────────────────────────
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6);
   doc.setTextColor(160, 160, 165);
-  doc.text(`Page 1`, R, pageH - 6, { align: 'right' });
+  doc.text('Page 1 of 1', R, pageH - 6, { align: 'right' });
 
-  if (win) win.location.href = doc.output('bloburl') as unknown as string;
-  else doc.output('dataurlnewwindow');
+  const notice2Filename = `2nd Notice-${res?.client_id ?? 'unknown'}_${reservationId}.pdf`;
+  const notice2BlobUrl  = doc.output('bloburl') as string;
+  if (win && typeof (win as any).close === 'function') {
+    (win as Window).close();
+    const a = document.createElement('a');
+    a.href = notice2BlobUrl;
+    a.download = notice2Filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } else if (win) {
+    win.location.href = notice2BlobUrl;
+  } else {
+    doc.output('dataurlnewwindow');
+  }
+}
+
+// ── Delinquency Final Notice (Notice of Cancellation) ─────────────────────────
+
+export async function generateDelinquencyFinalNotice(reservationId: string | null): Promise<void> {
+  if (!reservationId) return;
+  const win = window.open('', '_blank');
+
+  const doc   = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const L = 20, R = pageW - 20, W = R - L;
+
+  // ── Data fetch ──────────────────────────────────────────────────────────────
+  const [resResult, penaltyResult, settingsResult] = await Promise.all([
+    supabase
+      .from('reservations')
+      .select('reservation_id, client_id, client_name, project, inventory_code')
+      .eq('reservation_id', reservationId)
+      .single(),
+    supabase
+      .from('penalty_lines')
+      .select('penalty_amount, balance_receivables, generated_at')
+      .eq('reservation_id', reservationId)
+      .in('payment_status', ['Unpaid', 'Partial'])
+      .order('original_due_date'),
+    supabase
+      .from('app_settings')
+      .select('key, value')
+      .in('key', ['app_legal_name', 'collection_contact_name', 'collection_contact_phone', 'collection_contact_email']),
+  ]);
+
+  const res       = resResult.data as any;
+  const penalties = (penaltyResult.data ?? []) as any[];
+  const settings  = Object.fromEntries(((settingsResult.data ?? []) as any[]).map((r: any) => [r.key, r.value]));
+  const contactName  = settings['collection_contact_name']  ?? '';
+  const contactPhone = settings['collection_contact_phone'] ?? '';
+  const contactEmail = settings['collection_contact_email'] ?? '';
+
+  // Mailing address + last name from client
+  let mailingAddress = '';
+  let lastName = '';
+  if (res?.client_id) {
+    const { data: clientRow } = await supabase
+      .from('clients').select('id, last_name').eq('client_id', res.client_id).maybeSingle();
+    lastName = (clientRow as any)?.last_name ?? '';
+    const bi = (clientRow as any)?.id ? await fetchBuyerInfo((clientRow as any).id).catch(() => null) : null;
+    if (bi) {
+      mailingAddress = [bi.home_street, bi.home_barangay, bi.home_city_municipality, bi.home_region_province]
+        .filter(Boolean).join(', ');
+    }
+  }
+
+  const maxGenAt = penalties.length > 0
+    ? penalties.reduce((m: string, p: any) => (p.generated_at > m ? p.generated_at : m), penalties[0].generated_at as string)
+    : null;
+  const today   = maxGenAt ? new Date(maxGenAt) : new Date();
+  const dateStr = today.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
+  const year    = today.getFullYear();
+
+  const totalPenalty   = penalties.reduce((s: number, p: any) => s + (p.penalty_amount ?? 0), 0);
+  const totalPrincipal = penalties.reduce((s: number, p: any) => s + (p.balance_receivables ?? 0), 0);
+  const grandTotal     = totalPrincipal + totalPenalty;
+  const fmtAmt = (n: number) => 'PhP ' + n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  // ── Rich text paragraph helper ───────────────────────────────────────────────
+  type RichSeg = { t: string; bold?: boolean };
+  const richPara = (segs: RichSeg[], startY: number, fontSize = 10.5, lineH = 5.8): number => {
+    doc.setFontSize(fontSize);
+    const tokens: (RichSeg & { word: string })[] = [];
+    for (const seg of segs) {
+      const words = seg.t.split(' ');
+      words.forEach((word, i) => {
+        tokens.push({ ...seg, word: word + (i < words.length - 1 ? ' ' : '') });
+      });
+    }
+    let cx = L, y = startY, lineStart = true;
+    doc.setTextColor(30, 30, 30);
+    for (const tok of tokens) {
+      doc.setFont('helvetica', tok.bold ? 'bold' : 'normal');
+      const wFull = doc.getTextWidth(tok.word);
+      const wTrim = doc.getTextWidth(tok.word.trimEnd());
+      if (cx + wTrim > R && !lineStart) {
+        if (tok.word.trim() === '') { y += lineH; cx = L; lineStart = true; continue; }
+        y += lineH; cx = L; lineStart = false;
+      }
+      if (!(lineStart && tok.word.trim() === '')) {
+        doc.text(tok.word, cx, y);
+        cx += wFull;
+        lineStart = false;
+      }
+    }
+    return y + lineH;
+  };
+
+  // ── Layout ───────────────────────────────────────────────────────────────────
+  let y = 22;
+
+  // NOTICE OF CANCELLATION
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(13);
+  doc.setTextColor(30, 30, 30);
+  doc.text('NOTICE OF CANCELLATION', L, y);
+  y += 10;
+
+  // Date
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10.5);
+  doc.setTextColor(30, 30, 30);
+  doc.text(dateStr, L, y);
+  y += 6;
+
+  // Client name (bold)
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  doc.text(res?.client_name ?? '—', L, y);
+  y += 5.5;
+
+  // Address
+  if (mailingAddress) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10.5);
+    doc.setTextColor(30, 30, 30);
+    const addrLines = doc.splitTextToSize(mailingAddress, W);
+    addrLines.forEach((line: string) => { doc.text(line, L, y); y += 5.5; });
+  }
+  y += 8;
+
+  // PROJECT :
+  const projectLabel = [res?.project, res?.inventory_code].filter(Boolean).join(', ');
+  doc.setFontSize(10.5);
+  doc.setTextColor(30, 30, 30);
+  doc.setFont('helvetica', 'bold');
+  const projLabelW = doc.getTextWidth('PROJECT : ');
+  doc.text('PROJECT : ', L, y);
+  doc.setFont('helvetica', 'normal');
+  doc.text(projectLabel, L + projLabelW, y);
+  y += 10;
+
+  // Salutation
+  const saluteName = lastName || (res?.client_name ?? 'Valued Client');
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10.5);
+  doc.setTextColor(30, 30, 30);
+  doc.text(`Mr./Ms. ${saluteName},`, L, y);
+  y += 10;
+
+  // Paragraph 1 — amount bold
+  y = richPara([
+    { t: 'Our records show that your account remains unpaid (' },
+    { t: fmtAmt(grandTotal), bold: true },
+    { t: ') despite demands for payment. A grace period has been given for you to update your account, but you still have failed to settle your arrears.' },
+  ], y);
+  y += 5;
+
+  // Paragraph 2 — termination sentence bold
+  y = richPara([
+    { t: 'In view of the foregoing, ' },
+    { t: 'we regret to inform you that the Contract to Sell is hereby terminated, cancelled, and rescinded', bold: true },
+    { t: '. The termination, cancellation, and rescission of the Contract to Sell dated shall take effect thirty (30) calendar days after receipt of this Notice.' },
+  ], y);
+  y += 5;
+
+  // Paragraph 3 — contact info
+  if (contactName) {
+    const p3segs: { t: string; bold?: boolean }[] = [
+      { t: 'Should you have any inquiries, please feel free to contact ' },
+      { t: contactName, bold: true },
+    ];
+    if (contactPhone) { p3segs.push({ t: ' at ' }); p3segs.push({ t: contactPhone, bold: true }); }
+    if (contactEmail) p3segs.push({ t: ' or send an email to ' + contactEmail + '.' });
+    else p3segs.push({ t: '.' });
+    y = richPara(p3segs, y);
+    y += 5;
+  }
+
+  // Closing
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10.5);
+  doc.setTextColor(30, 30, 30);
+  doc.text('Very truly yours,', L, y);
+  y += 6;
+  doc.text('Billing and Collection Team', L, y);
+  y += 16;
+
+  // ── Notary / Jurat section ───────────────────────────────────────────────────
+  doc.setDrawColor(30, 30, 30);
+  doc.setLineWidth(0.3);
+
+  // Republic of the Philippines block
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10.5);
+  doc.setTextColor(30, 30, 30);
+  const bracketX = R - 12;
+  doc.text('REPUBLIC OF THE PHILIPPINES', L, y);
+  doc.text(']', bracketX, y);
+  y += 5.5;
+  doc.text('] s.s.', bracketX, y);
+  y += 10;
+
+  // Subscribed and Sworn line
+  const sworn1 = 'SUBSCRIBED AND SWORN to before me this ';
+  const blank1 = '_____________';
+  const at1    = ' at ';
+  const blank2 = '____________';
+  const pipe   = ' | ';
+  const blank3 = '____________';
+  const comma  = ', affiant';
+
+  doc.setFont('helvetica', 'bold');
+  let sx = L;
+  doc.text(sworn1, sx, y); sx += doc.getTextWidth(sworn1);
+  doc.setFont('helvetica', 'normal');
+  doc.text(blank1, sx, y); sx += doc.getTextWidth(blank1);
+  doc.text(at1,    sx, y); sx += doc.getTextWidth(at1);
+  doc.text(blank2, sx, y); sx += doc.getTextWidth(blank2);
+  doc.text(pipe,   sx, y); sx += doc.getTextWidth(pipe);
+  doc.text(blank3, sx, y); sx += doc.getTextWidth(blank3);
+  doc.text(comma,  sx, y);
+  y += 5.5;
+
+  const sworn2a = 'exhibited to me his/her ';
+  const blank4  = '__________________________';
+  const sworn2b = ' issued on ';
+  const blank5  = '_____________';
+  const sworn2c = ' at ';
+  const blank6  = '_____________.';
+  sx = L;
+  doc.text(sworn2a, sx, y); sx += doc.getTextWidth(sworn2a);
+  doc.text(blank4,  sx, y); sx += doc.getTextWidth(blank4);
+  doc.text(sworn2b, sx, y); sx += doc.getTextWidth(sworn2b);
+  doc.text(blank5,  sx, y); sx += doc.getTextWidth(blank5);
+  doc.text(sworn2c, sx, y); sx += doc.getTextWidth(sworn2c);
+  doc.text(blank6,  sx, y);
+  y += 16;
+
+  // Notary Public
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  doc.text('NOTARY PUBLIC', L, y);
+  y += 10;
+
+  // Doc/Page/Book/Series
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10.5);
+  const notaryLines = [
+    `Doc. No. _________;`,
+    `Page No. _________;`,
+    `Book No. _________;`,
+    `Series of ${year}.`,
+  ];
+  notaryLines.forEach(line => { doc.text(line, L, y); y += 6; });
+
+  // ── Footer ───────────────────────────────────────────────────────────────────
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6);
+  doc.setTextColor(160, 160, 165);
+  doc.text('Page 1 of 1', R, pageH - 6, { align: 'right' });
+
+  const finalFilename = `Final Notice-${res?.client_id ?? 'unknown'}_${reservationId}.pdf`;
+  const finalBlobUrl  = doc.output('bloburl') as string;
+  if (win && typeof (win as any).close === 'function') {
+    (win as Window).close();
+    const a = document.createElement('a');
+    a.href = finalBlobUrl;
+    a.download = finalFilename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } else if (win) {
+    win.location.href = finalBlobUrl;
+  } else {
+    doc.output('dataurlnewwindow');
+  }
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Check, ChevronDown, Search, X } from 'lucide-react';
 
 type SingleProps = {
@@ -15,39 +15,59 @@ type MultiProps = {
   onChange: (v: string[]) => void;
 };
 
+export type SelectOption = string | { label: string; value: string };
+
 type SearchableSelectProps = (SingleProps | MultiProps) & {
-  options:      string[];
+  options:      SelectOption[];
   placeholder?: string;
   disabled?:    boolean;
   align?:       'left' | 'right';
   dropUp?:      boolean;
 };
 
+function optLabel(o: SelectOption) { return typeof o === 'string' ? o : o.label; }
+function optValue(o: SelectOption) { return typeof o === 'string' ? o : o.value; }
+
 export default function SearchableSelect(props: SearchableSelectProps) {
   const { options, placeholder = 'All', disabled = false, align = 'left', dropUp = false } = props;
-  const [open,  setOpen]  = useState(false);
-  const [query, setQuery] = useState('');
+  const [open,      setOpen]      = useState(false);
+  const [query,     setQuery]     = useState('');
+  const [flippedUp, setFlippedUp] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   const filtered = options.filter(
-    o => !query.trim() || o.toLowerCase().includes(query.trim().toLowerCase())
+    o => !query.trim() || optLabel(o).toLowerCase().includes(query.trim().toLowerCase())
   );
 
-  function close() { setOpen(false); setQuery(''); }
+  function close() { setOpen(false); setQuery(''); setFlippedUp(false); }
 
-  // ── Multi-select helpers ──────────────────────────────────────
-  function isSelected(opt: string): boolean {
-    if (props.multiSelect) return props.value.includes(opt);
-    return props.value === opt;
+  function handleOpen() {
+    if (disabled) return;
+    if (open) { close(); return; }
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      const panelHeight = 260; // search bar + max options + padding
+      setFlippedUp(rect.bottom + panelHeight > window.innerHeight);
+    }
+    setOpen(true);
   }
 
-  function toggleOption(opt: string) {
+  // ── Multi-select helpers ──────────────────────────────────────
+  function isSelected(opt: SelectOption): boolean {
+    const v = optValue(opt);
+    if (props.multiSelect) return props.value.includes(v);
+    return props.value === v;
+  }
+
+  function toggleOption(opt: SelectOption) {
+    const v = optValue(opt);
     if (props.multiSelect) {
-      const next = props.value.includes(opt)
-        ? props.value.filter(v => v !== opt)
-        : [...props.value, opt];
+      const next = props.value.includes(v)
+        ? props.value.filter(x => x !== v)
+        : [...props.value, v];
       props.onChange(next);
     } else {
-      props.onChange(opt);
+      props.onChange(v);
       close();
     }
   }
@@ -66,19 +86,20 @@ export default function SearchableSelect(props: SearchableSelectProps) {
     triggerLabel = props.value.length === 0
       ? placeholder
       : props.value.length === 1
-        ? props.value[0]
+        ? (optLabel(options.find(o => optValue(o) === props.value[0]) ?? props.value[0]))
         : `${props.value.length} selected`;
   } else {
     hasValue = !!props.value;
-    triggerLabel = props.value || placeholder;
+    triggerLabel = (props.value ? optLabel(options.find(o => optValue(o) === props.value) ?? props.value) : '') || placeholder;
   }
 
   return (
     <div className="relative">
       {/* Trigger */}
       <button
+        ref={triggerRef}
         type="button"
-        onClick={() => { if (disabled) return; if (open) close(); else setOpen(true); }}
+        onClick={handleOpen}
         className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl"
         style={{
           background: disabled ? '#E5E5EA' : '#F2F2F7',
@@ -119,9 +140,10 @@ export default function SearchableSelect(props: SearchableSelectProps) {
         <div
           className="absolute z-50 rounded-xl overflow-hidden bg-white"
           style={{
-            ...(dropUp ? { bottom: 'calc(100% + 4px)' } : { top: 'calc(100% + 4px)' }),
+            ...((dropUp || flippedUp) ? { bottom: 'calc(100% + 4px)' } : { top: 'calc(100% + 4px)' }),
             ...(align === 'right' ? { right: 0 } : { left: 0 }),
             minWidth: '100%',
+            maxWidth: 'min(400px, calc(100vw - 32px))',
             width: 'max-content',
             border: '1px solid rgba(0,0,0,0.08)',
             boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
@@ -150,11 +172,11 @@ export default function SearchableSelect(props: SearchableSelectProps) {
             {filtered.length === 0 ? (
               <p className="text-xs text-[#8E8E93] text-center py-3 px-3">No matches</p>
             ) : (
-              filtered.map(opt => {
+              filtered.map((opt, i) => {
                 const selected = isSelected(opt);
                 return (
                   <button
-                    key={opt}
+                    key={optValue(opt) || i}
                     type="button"
                     onClick={() => toggleOption(opt)}
                     className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-sm text-left"
@@ -164,7 +186,7 @@ export default function SearchableSelect(props: SearchableSelectProps) {
                       fontWeight: selected ? 600 : 400,
                     }}
                   >
-                    <span className="truncate flex-1">{opt}</span>
+                    <span className="truncate flex-1">{optLabel(opt)}</span>
                     {props.multiSelect ? (
                       <div className={`w-4 h-4 rounded flex items-center justify-center shrink-0 border ${selected ? 'bg-[#C03D25] border-[#C03D25]' : 'border-[#C7C7CC]'}`}>
                         {selected && <Check size={10} className="text-white" />}

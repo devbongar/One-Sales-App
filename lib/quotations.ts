@@ -52,6 +52,7 @@ export interface SavedQuotationRecord {
   floor: string;
   unit_no: string;
   unit_type: string;
+  unit_area: number;
   unit_category: string;
   payment_scheme: string;
   scheme_name: string;

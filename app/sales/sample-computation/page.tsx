@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
@@ -7,7 +7,7 @@ import GlassCard from '@/components/ui/GlassCard';
 import { fetchProjects, fetchTowers, fetchFloorsByCategory, fetchUnitTypes, fetchInventoryUnits, InventoryUnit } from '@/lib/inventory';
 import { fetchAllPayterms, PaytermRecord } from '@/lib/paytems';
 import { fetchAllClients, ClientRecord, saveClient } from '@/lib/clients';
-import { loadLogo } from '@/lib/pdf-generators';
+import { generateQuotationPDF, ComparisonCard } from '@/lib/pdf-generators';
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
 import { fetchReservationFee, fetchVatThreshold, computeVat, fetchHicTarget } from '@/lib/admin';
 import { getSession } from '@/lib/auth';
@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { COUNTRY_CODES } from '@/lib/client-form-options';
 
-// ─── Payment Schemes ──────────────────────────────────────────────────────────
+// â”€â”€â”€ Payment Schemes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const PAYMENT_SCHEMES = [
   { value: 'spot_cash',     label: 'Spot Cash',     icon: <Banknote size={18} /> },
   { value: 'deferred_cash', label: 'Deferred Cash', icon: <Clock size={18} /> },
@@ -43,7 +43,7 @@ function calcMonthlyAmort(principal: number, annualRate: number, years: number):
   return Math.round(principal * (r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1));
 }
 
-// ─── Unit Categories ──────────────────────────────────────────────────────────
+// â”€â”€â”€ Unit Categories â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const UNIT_CATEGORIES = [
   { value: 'Residential',        label: 'Residential',  icon: <Home size={16} /> },
   { value: 'Car Parking',        label: 'Car Parking',  icon: <Car  size={16} /> },
@@ -51,7 +51,7 @@ const UNIT_CATEGORIES = [
 ] as const;
 type UnitCategory = typeof UNIT_CATEGORIES[number]['value'] | '';
 
-// ─── Comparison types ─────────────────────────────────────────────────────────
+// â”€â”€â”€ Comparison types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 interface ComparisonItem {
   id: string;
   project: string; tower: string; floor: string; unitNo: string;
@@ -75,37 +75,37 @@ type CompRow = { label: string; value: (c: ComparisonItem) => string | null; bol
 
 const COMP_SECTIONS: { title: string; rows: CompRow[] }[] = [
   { title: 'Price Computation', rows: [
-    { label: 'List Price',    value: c => `₱${c.listPrice.toLocaleString()}` },
-    { label: 'Promo Disc.',    value: c => c.promoAmount > 0    ? `(₱${c.promoAmount.toLocaleString()})` : '—', green: true },
-    { label: 'Employee Disc.', value: c => c.employeeAmount > 0 ? `(₱${c.employeeAmount.toLocaleString()})` : '—', green: true },
-    { label: 'Payterm Disc.',  value: c => c.paytermAmount > 0  ? `(₱${c.paytermAmount.toLocaleString()})` : '—', green: true },
-    { label: 'Special Disc.', value: c => c.hicDiscount > 0   ? `(₱${c.hicDiscount.toLocaleString()})` : '—', green: true },
-    { label: 'Net List Price', value: c => `₱${c.netListPrice.toLocaleString()}`, bold: true },
+    { label: 'List Price',    value: c => `â‚±${c.listPrice.toLocaleString()}` },
+    { label: 'Promo Disc.',    value: c => c.promoAmount > 0    ? `(â‚±${c.promoAmount.toLocaleString()})` : 'â€”', green: true },
+    { label: 'Employee Disc.', value: c => c.employeeAmount > 0 ? `(â‚±${c.employeeAmount.toLocaleString()})` : 'â€”', green: true },
+    { label: 'Payterm Disc.',  value: c => c.paytermAmount > 0  ? `(â‚±${c.paytermAmount.toLocaleString()})` : 'â€”', green: true },
+    { label: 'Special Disc.', value: c => c.hicDiscount > 0   ? `(â‚±${c.hicDiscount.toLocaleString()})` : 'â€”', green: true },
+    { label: 'Net List Price', value: c => `â‚±${c.netListPrice.toLocaleString()}`, bold: true },
   ]},
   { title: 'Taxes & Charges', rows: [
-    { label: 'VAT',            value: c => `₱${c.vat.toLocaleString()}` },
-    { label: 'Other (7%)',     value: c => `₱${c.otherCharges.toLocaleString()}` },
-    { label: 'Home Improvement Contract', value: c => c.hicDiscount > 0 ? `₱${c.hicDiscount.toLocaleString()}` : null, green: true },
-    { label: 'Total Contract', value: c => `₱${c.totalContractPrice.toLocaleString()}`, bold: true, coral: true },
+    { label: 'VAT',            value: c => `â‚±${c.vat.toLocaleString()}` },
+    { label: 'Other (7%)',     value: c => `â‚±${c.otherCharges.toLocaleString()}` },
+    { label: 'Home Improvement Contract', value: c => c.hicDiscount > 0 ? `â‚±${c.hicDiscount.toLocaleString()}` : null, green: true },
+    { label: 'Total Contract', value: c => `â‚±${c.totalContractPrice.toLocaleString()}`, bold: true, coral: true },
   ]},
   { title: 'Fees', rows: [
-    { label: 'Reservation', value: c => `₱${c.reservationFee.toLocaleString()}` },
-    { label: 'Retention',   value: c => ['spot_cash','deferred_cash'].includes(c.paymentScheme) ? `₱${(50_000).toLocaleString()}` : '—' },
+    { label: 'Reservation', value: c => `â‚±${c.reservationFee.toLocaleString()}` },
+    { label: 'Retention',   value: c => ['spot_cash','deferred_cash'].includes(c.paymentScheme) ? `â‚±${(50_000).toLocaleString()}` : 'â€”' },
   ]},
   { title: 'Payment Summary', rows: [
-    { label: 'DP Amount',    value: c => ['spot_dp','stretched_dp'].includes(c.paymentScheme) ? `₱${c.dpAmount.toLocaleString()}` : '—' },
-    { label: 'Net Amount',   value: c => ['spot_dp','stretched_dp'].includes(c.paymentScheme) ? `₱${c.netSpotDP.toLocaleString()}` : `₱${c.netAmount.toLocaleString()}`, bold: true },
-    { label: 'Monthly DP',   value: c => c.paymentScheme === 'stretched_dp' ? `₱${c.monthlyStretchedDP.toLocaleString()}/mo (${c.termMonths} mo)` : '—', coral: true, bold: true },
-    { label: 'Monthly Def.', value: c => c.paymentScheme === 'deferred_cash' ? `₱${c.monthlyDeferred.toLocaleString()}/mo (${c.termMonths} mo)` : '—', coral: true, bold: true },
-    { label: 'Balance',      value: c => ['spot_dp','stretched_dp'].includes(c.paymentScheme) ? `₱${c.balanceForFinancing.toLocaleString()}` : '—' },
+    { label: 'DP Amount',    value: c => ['spot_dp','stretched_dp'].includes(c.paymentScheme) ? `â‚±${c.dpAmount.toLocaleString()}` : 'â€”' },
+    { label: 'Net Amount',   value: c => ['spot_dp','stretched_dp'].includes(c.paymentScheme) ? `â‚±${c.netSpotDP.toLocaleString()}` : `â‚±${c.netAmount.toLocaleString()}`, bold: true },
+    { label: 'Monthly DP',   value: c => c.paymentScheme === 'stretched_dp' ? `â‚±${c.monthlyStretchedDP.toLocaleString()}/mo (${c.termMonths} mo)` : 'â€”', coral: true, bold: true },
+    { label: 'Monthly Def.', value: c => c.paymentScheme === 'deferred_cash' ? `â‚±${c.monthlyDeferred.toLocaleString()}/mo (${c.termMonths} mo)` : 'â€”', coral: true, bold: true },
+    { label: 'Balance',      value: c => ['spot_dp','stretched_dp'].includes(c.paymentScheme) ? `â‚±${c.balanceForFinancing.toLocaleString()}` : 'â€”' },
   ]},
   { title: 'Financing', rows: [
-    { label: 'Bank/mo', value: c => ['spot_dp','stretched_dp'].includes(c.paymentScheme) ? `₱${c.bankMonthly.toLocaleString()}` : '—' },
-    { label: 'HDMF/mo', value: c => ['spot_dp','stretched_dp'].includes(c.paymentScheme) ? `₱${c.hdmfMonthly.toLocaleString()}` : '—' },
+    { label: 'Bank/mo', value: c => ['spot_dp','stretched_dp'].includes(c.paymentScheme) ? `â‚±${c.bankMonthly.toLocaleString()}` : 'â€”' },
+    { label: 'HDMF/mo', value: c => ['spot_dp','stretched_dp'].includes(c.paymentScheme) ? `â‚±${c.hdmfMonthly.toLocaleString()}` : 'â€”' },
   ]},
 ];
 
-// ─── Step indicator ───────────────────────────────────────────────────────────
+// â”€â”€â”€ Step indicator â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const STEPS = [
   { label: 'Client Info', icon: <User       size={14} /> },
   { label: 'Inventory',   icon: <Building2  size={14} /> },
@@ -237,7 +237,7 @@ function InputRow({ label, value, onChange, placeholder, required, error, icon, 
   );
 }
 
-// ─── Per-step header config ───────────────────────────────────────────────────
+// â”€â”€â”€ Per-step header config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const STEP_HEADERS = [
   { title: 'Client Information',      subtitle: 'Enter the client\'s personal details before proceeding' },
   { title: 'Select Your Preferences', subtitle: 'Choose a Project, Tower, and Unit Category to load the inventory data' },
@@ -261,7 +261,7 @@ function WrapOrStackList({ items, textClass, fontClass = 'font-semibold', mt = '
     const shouldStack = children.some(c => c.offsetTop !== firstTop);
     if (shouldStack !== stacked) setStacked(shouldStack);
   });
-  if (items.length === 0) return <p className={`invisible text-[11px] ${mt}`}>—</p>;
+  if (items.length === 0) return <p className={`invisible text-[11px] ${mt}`}>â€”</p>;
   return (
     <div className={mt}>
       {stacked ? (
@@ -274,14 +274,14 @@ function WrapOrStackList({ items, textClass, fontClass = 'font-semibold', mt = '
         <div className="flex flex-wrap">
           {items.map((d, i) => (
             <span key={d} className={`text-[11px] ${fontClass} ${textClass} leading-tight whitespace-nowrap`}>
-              {i > 0 ? ' · ' : ''}{d}
+              {i > 0 ? ' Â· ' : ''}{d}
             </span>
           ))}
         </div>
       )}
       <div ref={measureRef} className="flex flex-wrap h-0 overflow-hidden pointer-events-none" aria-hidden>
         {items.map((d, i) => (
-          <span key={d} className="text-[11px] whitespace-nowrap leading-tight">{i > 0 ? ' · ' : ''}{d}</span>
+          <span key={d} className="text-[11px] whitespace-nowrap leading-tight">{i > 0 ? ' Â· ' : ''}{d}</span>
         ))}
       </div>
     </div>
@@ -291,7 +291,7 @@ const DiscountList = ({ discounts }: { discounts: string[] }) => (
   <WrapOrStackList items={discounts} textClass="text-[#166534]" />
 );
 
-// ─── Main page ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Main page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export default function SampleComputationPage() {
   const router = useRouter();
   const [step, setStep] = useState(0);
@@ -404,266 +404,18 @@ export default function SampleComputationPage() {
   const [compScrollPct, setCompScrollPct] = useState(0);
 
   const generateComparisonPDF = async (options?: { cards?: ComparisonItem[]; returnBase64?: boolean }): Promise<string | undefined> => {
-    const cardsToRender = options?.cards ?? comparisons;
-    const { jsPDF } = await import('jspdf');
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    const pageW  = 210;
-    const pageH  = 297;
-    const mg     = 15;
-    const HDR          = 32;    // coral header height
-    const STRIP        = 13;    // seller info strip height
-    const CLIENT_STRIP = 13;    // client info strip height
-    const BODY_T       = HDR + STRIP + CLIENT_STRIP + 7;  // body start y (= 65)
-    const DISC_Y  = pageH - 28;  // disclaimer block top
-    const coral: [number,number,number] = [192, 61, 37];
-    const dark:  [number,number,number] = [28, 28, 30];
-    const lt:    [number,number,number] = [142, 142, 147];
-    const grn:   [number,number,number] = [22, 101, 52];
-
-    const now     = new Date();
-    const dateStr = now.toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
-    const timeStr = now.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
-
-    // Read seller — prefer selected sellerRecord, fall back to session
-    let sellerName = '';
-    let sellerContact = '';
-    let sellerMobile = '';
-    if (sellerRecord) {
-      sellerName = sellerRecord.seller_name;
-      try {
-        const { data } = await supabase
-          .from('Salesperson')
-          .select('"Mobile Number", "Email Address"')
-          .eq('Seller Name', sellerRecord.seller_name)
-          .maybeSingle();
-        sellerMobile  = (data as any)?.['Mobile Number']  ?? '';
-        sellerContact = (data as any)?.['Email Address']  ?? '';
-      } catch {}
-    } else {
-      try {
-        const raw = typeof window !== 'undefined' ? localStorage.getItem('osa_session') : null;
-        if (raw) {
-          const s = JSON.parse(raw);
-          sellerName    = s.full_name ?? '';
-          sellerContact = s.email     ?? '';
-        }
-      } catch {}
-      if (sellerContact) {
-        try {
-          const { data } = await supabase
-            .from('Salesperson')
-            .select('"Mobile Number"')
-            .eq('Email Address', sellerContact)
-            .maybeSingle();
-          sellerMobile = (data as any)?.['Mobile Number'] ?? '';
-        } catch {}
-      }
-    }
-
-    // Load logo — resized PNG to keep PDF size small
-    const { b64: logoB64, w: logoW, h: logoH } = await loadLogo();
-
-    const drawHeader = () => {
-      // Coral header band
-      doc.setFillColor(...coral);
-      doc.rect(0, 0, pageW, HDR, 'F');
-      if (logoB64) doc.addImage(logoB64, 'PNG', mg, (HDR - logoH) / 2, logoW, logoH);
-      doc.setTextColor(255, 255, 255);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(16);
-      doc.text('SAMPLE COMPUTATION', pageW - mg, 15, { align: 'right' });
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.text(`${dateStr}  ·  ${timeStr}`, pageW - mg, 24, { align: 'right' });
-
-      // Client row (no background, single row — 3 columns)
-      const clientFullName = [clientFirstName, clientMiddleName, clientLastName].filter(Boolean).join(' ') +
-        (clientSuffix ? `, ${clientSuffix}` : '');
-      const clientMobileStr = clientMobile ? `${clientCountryCode} ${clientMobile}` : '';
-      const colMobile = mg + 100;
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(...lt);
-      doc.text('CLIENT', mg, HDR + 5);
-      if (clientMobileStr) doc.text('MOBILE NO.', colMobile, HDR + 5);
-      if (clientEmail)     doc.text('EMAIL ADDRESS', pageW - mg, HDR + 5, { align: 'right' });
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...dark);
-      doc.text(clientFullName || '—', mg, HDR + 10.5);
-      if (clientMobileStr) {
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...dark);
-        doc.text(clientMobileStr, colMobile, HDR + 10.5);
-      }
-      if (clientEmail) {
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...dark);
-        doc.text(clientEmail, pageW - mg, HDR + 10.5, { align: 'right' });
-      }
-
-      // Seller row — 3 columns: Name | Mobile | Email
-      const colSellerMobile = mg + 100;
-      const ss = HDR + STRIP;
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(...lt);
-      doc.text('SELLER',        mg,              ss + 5);
-      doc.text('MOBILE NO.',    colSellerMobile, ss + 5);
-      if (sellerContact) doc.text('EMAIL ADDRESS', pageW - mg, ss + 5, { align: 'right' });
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...dark);
-      doc.text(sellerName || '—', mg, ss + 10.5);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...dark);
-      doc.text(sellerMobile || '—', colSellerMobile, ss + 10.5);
-      if (sellerContact) {
-        doc.text(sellerContact, pageW - mg, ss + 10.5, { align: 'right' });
-      }
-
-      // Dividing line
-      const lineY = HDR + STRIP + CLIENT_STRIP + 1;
-      doc.setDrawColor(210, 210, 220); doc.setLineWidth(0.4);
-      doc.line(mg, lineY, pageW - mg, lineY);
-    };
-
-    const drawFooter = () => {
-      const boxW = pageW - mg * 2;
-      // DISCLAIMER label
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(...coral);
-      doc.text('DISCLAIMER', mg, DISC_Y);
-      // Body text (wrapped)
-      const discText =
-        'This is a computer-generated document. Prices, discounts, terms, and availability are ' +
-        'subject to change without prior notice. This computation is for reference purposes only ' +
-        'and does not constitute a binding offer or contract.';
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...lt);
-      const lines = doc.splitTextToSize(discText, boxW);
-      doc.text(lines, mg, DISC_Y + 4.5);
-      // Coral divider line
-      doc.setDrawColor(...coral); doc.setLineWidth(0.4);
-      doc.line(mg, DISC_Y + 16, pageW - mg, DISC_Y + 16);
-      // Generated date
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...lt);
-      doc.text(`Generated: ${dateStr}  at  ${timeStr}`, mg, DISC_Y + 21);
-    };
-
-    // ── Helpers ──────────────────────────────────────────────────────────────
-    let y = BODY_T;
-    const RH = 6; // row height mm
-
-    const secLabel = (t: string) => {
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(...lt);
-      doc.text(t.toUpperCase(), mg, y); y += 5.5;
-    };
-    const row = (label: string, value: string, bold = false, color: [number,number,number] = dark) => {
-      doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.setFontSize(9.5); doc.setTextColor(...color);
-      doc.text(label, mg, y);
-      doc.text(value, pageW - mg, y, { align: 'right' });
-      y += RH;
-    };
-    const hr = () => {
-      doc.setDrawColor(229, 229, 234); doc.setLineWidth(0.25);
-      doc.line(mg, y + 1, pageW - mg, y + 1); y += 6;
-    };
-    const subHr = () => {
-      doc.setDrawColor(229, 229, 234); doc.setLineWidth(0.25);
-      doc.line(mg, y - 2, pageW - mg, y - 2); y += 4;
-    };
-
-    // ── One page per comparison ───────────────────────────────────────────────
-    cardsToRender.forEach((c, idx) => {
-      if (idx > 0) { doc.addPage(); }
-      drawHeader();
-      drawFooter();
-      y = BODY_T;
-
-      // Unit details
-      secLabel(`Computation ${idx + 1}`);
-
-      // Row 1: Project | Tower | Floor | Unit No. (4 columns)
-      const r1c1 = mg, r1c2 = mg + 60, r1c3 = mg + 105, r1c4 = mg + 145;
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...lt);
-      doc.text('Project',  r1c1, y); doc.text('Tower',    r1c2, y);
-      doc.text('Floor',    r1c3, y); doc.text('Unit No.', r1c4, y);
-      y += 3.5;
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(...dark);
-      doc.text(c.project, r1c1, y); doc.text(c.tower,  r1c2, y);
-      doc.text(pad2(c.floor), r1c3, y); doc.text(pad2(c.unitNo), r1c4, y);
-      y += RH;
-
-      // Row 2: Unit Type | Area | Payment Scheme (3 columns)
-      const r2c1 = mg, r2c2 = mg + 60, r2c3 = mg + 115;
-      let termDetail = '';
-      if (c.paymentScheme === 'deferred_cash') termDetail = `${c.termMonths} months`;
-      else if (c.paymentScheme === 'spot_dp')      termDetail = `DP ${c.dpRate}%`;
-      else if (c.paymentScheme === 'stretched_dp') termDetail = `DP ${c.dpRate}%  ·  ${c.termMonths} months`;
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...lt);
-      doc.text('Unit Type',       r2c1, y);
-      doc.text('Area',            r2c2, y);
-      doc.text('Payment Scheme',  r2c3, y);
-      y += 3.5;
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(...dark);
-      doc.text(c.unitType || '—',       r2c1, y);
-      doc.text(`${c.unitArea} sqm`,     r2c2, y);
-      doc.setTextColor(...coral);
-      doc.text(c.schemeName,            r2c3, y);
-      if (termDetail) {
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...lt);
-        doc.text(termDetail, r2c3, y + 4);
-      }
-      y += RH + (termDetail ? 3 : 0);
-      hr();
-
-      // Price Computation
-      const p = (n: number) => 'PHP ' + n.toLocaleString();
-      secLabel('Price Computation');
-      row('List Price', p(c.listPrice));
-      if (c.promoAmount > 0)    row(`Less: Promo Discount (${Math.round(c.promoPct)}%)`, p(c.promoAmount), false, grn);
-      if (c.employeeAmount > 0) row('Less: Employee Discount (10%)', p(c.employeeAmount), false, grn);
-      if (c.paytermAmount > 0)  row(`Less: Payterm Discount (${Number(c.paytermPctDisplay).toFixed(1)}%)`, p(c.paytermAmount), false, grn);
-      if (c.hicDiscount > 0)   row(`Less: Special Discount (${Math.round(c.hicDiscount / (c.listPrice - c.promoAmount - c.employeeAmount - c.paytermAmount) * 100)}%)`, p(c.hicDiscount), false, [94, 92, 230]);
-      subHr();
-      row('Net List Price', p(c.netListPrice), true);
-      hr();
-
-      // Taxes & Charges
-      secLabel('Taxes & Charges');
-      row(c.vat === 0 ? 'VAT (Exempt)' : 'VAT (12%)', p(c.vat));
-      row('Other Charges (7%)', p(c.otherCharges));
-      if (c.hicDiscount > 0) row(`Home Improvement Contract (${Math.round(c.hicDiscount / (c.listPrice - c.promoAmount - c.employeeAmount - c.paytermAmount) * 100)}%)`, p(c.hicDiscount), false, [94, 92, 230]);
-      subHr();
-      row('Total Contract Price', p(c.totalContractPrice), true, coral);
-      hr();
-
-      // Fees
-      secLabel('Fees');
-      row('Reservation Fee', p(c.reservationFee));
-      if (!['spot_dp', 'stretched_dp'].includes(c.paymentScheme))
-        row('Retention Fee', p(RETENTION_FEE));
-      hr();
-
-      // Payment Summary
-      secLabel('Payment Summary');
-      if (c.paymentScheme === 'spot_cash' || c.paymentScheme === 'deferred_cash') {
-        row(`Net ${c.schemeName}`, p(c.netAmount));
-        if (c.paymentScheme === 'deferred_cash')
-          row(`Monthly Deferred (${c.termMonths} mo)`, p(c.monthlyDeferred) + '/mo', true, coral);
-      } else if (c.paymentScheme === 'spot_dp') {
-        row(`DP (${c.dpRate}%)`, p(c.dpAmount));
-        row(`Net ${c.schemeName}`, p(c.netSpotDP));
-        row('Balance for Financing', p(c.balanceForFinancing));
-        hr();
-        secLabel('Indicative Financing');
-        row('Bank (6.5% p.a., 20 yrs)', p(c.bankMonthly) + '/mo');
-        row('HDMF (6.25% p.a., 25 yrs)', p(c.hdmfMonthly) + '/mo');
-      } else if (c.paymentScheme === 'stretched_dp') {
-        row(`DP (${c.dpRate}%)`, p(c.dpAmount));
-        row(`Net ${c.schemeName}`, p(c.netSpotDP));
-        row(`Monthly DP (${c.termMonths} mo)`, p(c.monthlyStretchedDP) + '/mo', true, coral);
-        row('Balance for Financing', p(c.balanceForFinancing));
-        hr();
-        secLabel('Indicative Financing');
-        row('Bank (6.5% p.a., 20 yrs)', p(c.bankMonthly) + '/mo');
-        row('HDMF (6.25% p.a., 25 yrs)', p(c.hdmfMonthly) + '/mo');
-      }
-    });
-
-    if (options?.returnBase64) {
-      return doc.output('datauristring').split(',')[1];
-    }
-    doc.save(`SampleComputation_${Date.now()}.pdf`);
+    const cardsToRender = (options?.cards ?? comparisons) as ComparisonCard[];
+    return generateQuotationPDF(
+      cardsToRender,
+      {
+        firstName: clientFirstName, middleName: clientMiddleName,
+        lastName: clientLastName, suffix: clientSuffix,
+        mobile: clientMobile, countryCode: clientCountryCode, email: clientEmail,
+      },
+      { returnBase64: options?.returnBase64, clientId: selectedClientRecord?.client_id ?? null },
+    );
   };
+
 
   useLayoutEffect(() => {
     const equalize = () => {
@@ -932,7 +684,7 @@ export default function SampleComputationPage() {
       const count = toSave.length;
       setSaveToast(count === 1 ? '1 quotation saved' : `${count} quotations saved`);
       setTimeout(() => setSaveToast(null), 3000);
-      // Fire email with saved cards PDF — fire-and-forget
+      // Fire email with saved cards PDF â€” fire-and-forget
       const firstCard = toSave[0];
       const quotationIds = toSave
         .map(c => `${c.inventoryCode ?? c.unitNo}_${c.schemeName}_${c.termMonths}_${c.dpRate}`)
@@ -955,7 +707,7 @@ export default function SampleComputationPage() {
         }
       }).catch(e => console.error('[pdf-gen] quotation email:', e));
     } catch {
-      setSaveToast('Save failed — please try again');
+      setSaveToast('Save failed â€” please try again');
       setTimeout(() => setSaveToast(null), 3000);
     } finally {
       setIsSaving(false);
@@ -1003,12 +755,12 @@ export default function SampleComputationPage() {
       {/* Step indicator */}
       <StepIndicator current={step} onNavigate={goToStep} hasComparisons={comparisons.length > 0} />
 
-      {/* ── Step 1: Client Info ── */}
+      {/* â”€â”€ Step 1: Client Info â”€â”€ */}
       {step === 0 && (
         <>
           <GlassCard className="px-4 py-1">
 
-            {/* Last Name — always shown first */}
+            {/* Last Name â€” always shown first */}
             <div className="relative border-b border-black/[0.06]">
               <div className={`flex items-center gap-3 py-3 px-1 ${errors.clientLastName ? 'bg-red-50/50 rounded-t-xl' : ''}`}>
                 <span className={`shrink-0 ${errors.clientLastName ? 'text-red-400' : 'text-[#C03D25]'}`}><User size={16} /></span>
@@ -1045,7 +797,7 @@ export default function SampleComputationPage() {
                       >
                         <div>
                           <p className="text-sm font-semibold text-[#1C1C1E]">{c.last_name}, {c.first_name}{c.suffix ? ` ${c.suffix}` : ''}</p>
-                          <p className="text-xs text-[#8E8E93]">{c.email ?? c.mobile_number ?? '—'}</p>
+                          <p className="text-xs text-[#8E8E93]">{c.email ?? c.mobile_number ?? 'â€”'}</p>
                         </div>
                         <span className="text-[10px] font-mono text-[#8E8E93] shrink-0 ml-2">{c.client_id ?? ''}</span>
                       </button>
@@ -1056,7 +808,7 @@ export default function SampleComputationPage() {
               {errors.clientLastName && <p className="text-red-400 text-[11px] px-1 pb-2">{errors.clientLastName}</p>}
             </div>
 
-            {/* Rest of fields — revealed once last name is entered */}
+            {/* Rest of fields â€” revealed once last name is entered */}
             {clientLastName.trim().length > 0 && (
               <>
                 {/* Existing client badge */}
@@ -1316,12 +1068,12 @@ export default function SampleComputationPage() {
             }}
             className="w-full py-4 rounded-2xl bg-[#C03D25] text-white text-sm font-bold shadow-[0_4px_16px_rgba(192,61,37,0.35)] active:opacity-80 transition-opacity disabled:opacity-60"
           >
-            {savingClient ? 'Saving…' : 'Continue'}
+            {savingClient ? 'Savingâ€¦' : 'Continue'}
           </button>
         </>
       )}
 
-      {/* ── Step 2: Inventory ── */}
+      {/* â”€â”€ Step 2: Inventory â”€â”€ */}
       {step === 1 && (
         <>
           <GlassCard className="px-4 py-1">
@@ -1404,7 +1156,7 @@ export default function SampleComputationPage() {
               </div>
             )}
 
-            {/* Unit Type dropdown — Residential only */}
+            {/* Unit Type dropdown â€” Residential only */}
             {unitCategory === 'Residential' && (
               <div className="mt-4 pt-4 border-t border-black/[0.06]">
                 <InlineSelect
@@ -1424,7 +1176,7 @@ export default function SampleComputationPage() {
             )}
           </GlassCard>
 
-          {/* ── Availability Chart ── */}
+          {/* â”€â”€ Availability Chart â”€â”€ */}
           {project && tower && unitCategory && (() => {
             let filtered = inventoryUnits;
             if (unitCategory === 'Residential') {
@@ -1596,7 +1348,7 @@ export default function SampleComputationPage() {
                 doc.setFont('helvetica','bold'); doc.setFontSize(14);
                 doc.text('AVAILABILITY CHART', pageW - mg, 10, { align: 'right' });
                 doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
-                doc.text(`${dateStr}  ·  ${timeStr}`, pageW - mg, 17, { align: 'right' });
+                doc.text(`${dateStr}  Â·  ${timeStr}`, pageW - mg, 17, { align: 'right' });
 
                 // Info strip
                 const infoLabels = ['PROJECT','TOWER','CATEGORY', ...(floor ? ['FLOOR'] : []), ...(unitType ? ['UNIT TYPE'] : [])];
@@ -1774,7 +1526,7 @@ export default function SampleComputationPage() {
                             <div className="border-t border-black/[0.08]" />
                             <div className="flex items-center justify-between">
                               <span className="text-[#8E8E93] text-xs font-semibold uppercase tracking-wide">Price</span>
-                              <span className="text-[#C03D25] text-sm font-bold">₱{Number(u.total_list_price).toLocaleString()}</span>
+                              <span className="text-[#C03D25] text-sm font-bold">â‚±{Number(u.total_list_price).toLocaleString()}</span>
                             </div>
                           </div>
                         );
@@ -1788,7 +1540,7 @@ export default function SampleComputationPage() {
         </>
       )}
 
-      {/* ── Step 3: Computation ── */}
+      {/* â”€â”€ Step 3: Computation â”€â”€ */}
       {step === 2 && selectedUnit && (() => {
         const catIcon    = UNIT_CATEGORIES.find(c => c.value === unitCategory)?.icon;
         const schemeName = PAYMENT_SCHEMES.find(s => s.value === paymentScheme)?.label ?? '';
@@ -1887,7 +1639,7 @@ export default function SampleComputationPage() {
 
         const vatUnconfigured = vatThreshold === null;
         const vatLoading = vatThreshold === undefined;
-        const vatLabel = vatLoading ? 'VAT (loading…)' : vatUnconfigured ? 'VAT (not configured)' : vat === 0 ? 'VAT (Exempt)' : 'VAT (12%)';
+        const vatLabel = vatLoading ? 'VAT (loadingâ€¦)' : vatUnconfigured ? 'VAT (not configured)' : vat === 0 ? 'VAT (Exempt)' : 'VAT (12%)';
 
         const pct = promoPct > 0 ? promoPct : null;
         return (
@@ -1897,7 +1649,7 @@ export default function SampleComputationPage() {
               <div className="flex items-start gap-3 px-4 py-3 rounded-2xl" style={{ background: 'rgba(255,59,48,0.08)', border: '1px solid rgba(255,59,48,0.2)' }}>
                 <AlertTriangle size={16} className="text-[#FF3B30] shrink-0 mt-0.5" />
                 <p className="text-xs text-[#FF3B30] leading-snug">
-                  <span className="font-bold">VAT not configured</span> for product type <span className="font-semibold">"{selectedUnit.product_type ?? 'Residential Unit'}"</span>. Please configure it in Admin &gt; VAT Settings. VAT has been set to ₱0 for this computation.
+                  <span className="font-bold">VAT not configured</span> for product type <span className="font-semibold">"{selectedUnit.product_type ?? 'Residential Unit'}"</span>. Please configure it in Admin &gt; VAT Settings. VAT has been set to â‚±0 for this computation.
                 </p>
               </div>
             )}
@@ -1936,7 +1688,7 @@ export default function SampleComputationPage() {
                     <LayoutGrid size={11} />
                     <span className="text-[10px] font-medium uppercase tracking-wide">Unit Type</span>
                   </div>
-                  <span className="text-sm font-semibold text-[#1C1C1E]">{selectedUnit.unit_type || '—'}</span>
+                  <span className="text-sm font-semibold text-[#1C1C1E]">{selectedUnit.unit_type || 'â€”'}</span>
                 </div>
                 <div className="flex-1 flex flex-col gap-1">
                   <div className="flex items-center gap-1 text-[#8E8E93]">
@@ -2013,7 +1765,7 @@ export default function SampleComputationPage() {
                 </div>
               )}
 
-              {/* HIC Checkbox — Sales Director + Residential only */}
+              {/* HIC Checkbox â€” Sales Director + Residential only */}
               {showHIC && (
                 <button
                   type="button"
@@ -2033,7 +1785,7 @@ export default function SampleComputationPage() {
                     <p className={`text-sm font-semibold ${useHIC ? 'text-[#5E5CE6]' : 'text-[#1C1C1E]'}`}>
                       Home Improvement Contract
                     </p>
-                    <p className="text-[10px] text-[#8E8E93]">Adjusts Net List Price to ₱{hicTarget != null ? hicTarget.toLocaleString() : '—'}</p>
+                    <p className="text-[10px] text-[#8E8E93]">Adjusts Net List Price to â‚±{hicTarget != null ? hicTarget.toLocaleString() : 'â€”'}</p>
                   </div>
                 </button>
               )}
@@ -2046,7 +1798,7 @@ export default function SampleComputationPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-[#1C1C1E]">{schemeName}</p>
-                    <p className="text-[#6C6C70] text-xs mt-0.5">{pad2(selectedUnit.floor)}{pad2(selectedUnit.unit_no)} · {selectedUnit.unit_area} sqm</p>
+                    <p className="text-[#6C6C70] text-xs mt-0.5">{pad2(selectedUnit.floor)}{pad2(selectedUnit.unit_no)} Â· {selectedUnit.unit_area} sqm</p>
                   </div>
                   <span className="bg-[#F2F2F7] text-[#6C6C70] text-xs font-medium px-2.5 py-1 rounded-full shrink-0">{unitCategory}</span>
                 </div>
@@ -2056,35 +1808,35 @@ export default function SampleComputationPage() {
                   <p className="text-[#8E8E93] text-[10px] font-semibold uppercase tracking-wider">Price Computation</p>
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-[#1C1C1E]">List Price</span>
-                    <span className="text-sm font-medium text-[#1C1C1E]">₱{listPrice.toLocaleString()}</span>
+                    <span className="text-sm font-medium text-[#1C1C1E]">â‚±{listPrice.toLocaleString()}</span>
                   </div>
                   {promoAmount > 0 && (
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-[#166534]">Less: Promo Discount ({promoPct}%)</span>
-                      <span className="text-sm font-medium text-[#166534]">(₱{promoAmount.toLocaleString()})</span>
+                      <span className="text-sm font-medium text-[#166534]">(â‚±{promoAmount.toLocaleString()})</span>
                     </div>
                   )}
                   {employeeAmount > 0 && (
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-[#166534]">Less: Employee Discount (10%)</span>
-                      <span className="text-sm font-medium text-[#166534]">(₱{employeeAmount.toLocaleString()})</span>
+                      <span className="text-sm font-medium text-[#166534]">(â‚±{employeeAmount.toLocaleString()})</span>
                     </div>
                   )}
                   {paytermAmount > 0 && (
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-[#166534]">Less: Payterm Discount ({Number(paytermPctDisplay).toFixed(1)}%)</span>
-                      <span className="text-sm font-medium text-[#166534]">(₱{paytermAmount.toLocaleString()})</span>
+                      <span className="text-sm font-medium text-[#166534]">(â‚±{paytermAmount.toLocaleString()})</span>
                     </div>
                   )}
                   {hicDiscount > 0 && (
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-[#5E5CE6]">Less: Special Discount ({Math.round(hicDiscount / (listPrice - promoAmount - employeeAmount - paytermAmount) * 100)}%)</span>
-                      <span className="text-sm font-medium text-[#5E5CE6]">(₱{hicDiscount.toLocaleString()})</span>
+                      <span className="text-sm font-medium text-[#5E5CE6]">(â‚±{hicDiscount.toLocaleString()})</span>
                     </div>
                   )}
                   <div className="flex items-center justify-between pt-2 border-t border-black/[0.06]">
                     <span className="text-sm font-bold text-[#1C1C1E]">Net List Price</span>
-                    <span className="text-sm font-bold text-[#1C1C1E]">₱{netListPrice.toLocaleString()}</span>
+                    <span className="text-sm font-bold text-[#1C1C1E]">â‚±{netListPrice.toLocaleString()}</span>
                   </div>
                 </div>
 
@@ -2093,21 +1845,21 @@ export default function SampleComputationPage() {
                   <p className="text-[#8E8E93] text-[10px] font-semibold uppercase tracking-wider">Taxes & Charges</p>
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-[#1C1C1E]">{vatLabel}</span>
-                    <span className="text-sm font-medium text-[#1C1C1E]">₱{vat.toLocaleString()}</span>
+                    <span className="text-sm font-medium text-[#1C1C1E]">â‚±{vat.toLocaleString()}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-[#1C1C1E]">Other Charges (7%)</span>
-                    <span className="text-sm font-medium text-[#1C1C1E]">₱{otherCharges.toLocaleString()}</span>
+                    <span className="text-sm font-medium text-[#1C1C1E]">â‚±{otherCharges.toLocaleString()}</span>
                   </div>
                   {hicDiscount > 0 && (
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-[#5E5CE6]">Home Improvement Contract ({Math.round(hicDiscount / (listPrice - promoAmount - employeeAmount - paytermAmount) * 100)}%)</span>
-                      <span className="text-sm font-medium text-[#5E5CE6]">₱{hicDiscount.toLocaleString()}</span>
+                      <span className="text-sm font-medium text-[#5E5CE6]">â‚±{hicDiscount.toLocaleString()}</span>
                     </div>
                   )}
                   <div className="flex items-center justify-between pt-2 border-t border-black/[0.06]">
                     <span className="text-sm font-bold text-[#C03D25]">Total Contract Price</span>
-                    <span className="text-sm font-bold text-[#C03D25]">₱{totalContractPrice.toLocaleString()}</span>
+                    <span className="text-sm font-bold text-[#C03D25]">â‚±{totalContractPrice.toLocaleString()}</span>
                   </div>
                 </div>
 
@@ -2116,12 +1868,12 @@ export default function SampleComputationPage() {
                   <p className="text-[#8E8E93] text-[10px] font-semibold uppercase tracking-wider">Fees</p>
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-[#1C1C1E]">Reservation Fee</span>
-                    <span className="text-sm font-medium text-[#1C1C1E]">₱{reservationFee.toLocaleString()}</span>
+                    <span className="text-sm font-medium text-[#1C1C1E]">â‚±{reservationFee.toLocaleString()}</span>
                   </div>
                   {paymentScheme !== 'spot_dp' && paymentScheme !== 'stretched_dp' && (
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-[#1C1C1E]">Retention Fee</span>
-                      <span className="text-sm font-medium text-[#1C1C1E]">₱{RETENTION_FEE.toLocaleString()}</span>
+                      <span className="text-sm font-medium text-[#1C1C1E]">â‚±{RETENTION_FEE.toLocaleString()}</span>
                     </div>
                   )}
                 </div>
@@ -2133,30 +1885,30 @@ export default function SampleComputationPage() {
                       <p className="text-[#8E8E93] text-[10px] font-semibold uppercase tracking-wider">Payment Summary</p>
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-[#1C1C1E]">DP ({dpRate}%)</span>
-                        <span className="text-sm font-medium text-[#1C1C1E]">₱{dpAmount.toLocaleString()}</span>
+                        <span className="text-sm font-medium text-[#1C1C1E]">â‚±{dpAmount.toLocaleString()}</span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-[#1C1C1E]">Net {schemeName}</span>
-                        <span className="text-sm font-semibold text-[#1C1C1E]">₱{netSpotDP.toLocaleString()}</span>
+                        <span className="text-sm font-semibold text-[#1C1C1E]">â‚±{netSpotDP.toLocaleString()}</span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-bold text-[#1C1C1E]">Monthly Downpayment ({stretchedTermMonths} mo)</span>
-                        <span className="text-sm font-bold text-[#C03D25]">₱{monthlyStretchedDP.toLocaleString()}</span>
+                        <span className="text-sm font-bold text-[#C03D25]">â‚±{monthlyStretchedDP.toLocaleString()}</span>
                       </div>
                       <div className="flex items-center justify-between pt-1 border-t border-black/[0.06]">
                         <span className="text-sm text-[#1C1C1E]">Balance for Financing</span>
-                        <span className="text-sm font-semibold text-[#1C1C1E]">₱{balanceForFinancing.toLocaleString()}</span>
+                        <span className="text-sm font-semibold text-[#1C1C1E]">â‚±{balanceForFinancing.toLocaleString()}</span>
                       </div>
                     </div>
                     <div className="px-4 pt-3 pb-4 space-y-2.5">
                       <p className="text-[#8E8E93] text-[10px] font-semibold uppercase tracking-wider">Indicative Financing Options</p>
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-[#1C1C1E]">Bank (6.5% p.a., 20 yrs)</span>
-                        <span className="text-sm font-semibold text-[#1C1C1E]">₱{bankMonthly.toLocaleString()}/mo</span>
+                        <span className="text-sm font-semibold text-[#1C1C1E]">â‚±{bankMonthly.toLocaleString()}/mo</span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-[#1C1C1E]">HDMF (6.25% p.a., 25 yrs)</span>
-                        <span className="text-sm font-semibold text-[#1C1C1E]">₱{hdmfMonthly.toLocaleString()}/mo</span>
+                        <span className="text-sm font-semibold text-[#1C1C1E]">â‚±{hdmfMonthly.toLocaleString()}/mo</span>
                       </div>
                       <p className="text-[#8E8E93] text-[10px] italic pt-1">*Indicative rates based on prevailing market rates. Actual rates may vary.</p>
                     </div>
@@ -2167,26 +1919,26 @@ export default function SampleComputationPage() {
                       <p className="text-[#8E8E93] text-[10px] font-semibold uppercase tracking-wider">Payment Summary</p>
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-[#1C1C1E]">DP ({dpRate}%)</span>
-                        <span className="text-sm font-medium text-[#1C1C1E]">₱{dpAmount.toLocaleString()}</span>
+                        <span className="text-sm font-medium text-[#1C1C1E]">â‚±{dpAmount.toLocaleString()}</span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-[#1C1C1E]">Net {schemeName}</span>
-                        <span className="text-sm font-semibold text-[#1C1C1E]">₱{netSpotDP.toLocaleString()}</span>
+                        <span className="text-sm font-semibold text-[#1C1C1E]">â‚±{netSpotDP.toLocaleString()}</span>
                       </div>
                       <div className="flex items-center justify-between pt-1 border-t border-black/[0.06]">
                         <span className="text-sm text-[#1C1C1E]">Balance for Financing</span>
-                        <span className="text-sm font-semibold text-[#1C1C1E]">₱{balanceForFinancing.toLocaleString()}</span>
+                        <span className="text-sm font-semibold text-[#1C1C1E]">â‚±{balanceForFinancing.toLocaleString()}</span>
                       </div>
                     </div>
                     <div className="px-4 pt-3 pb-4 space-y-2.5">
                       <p className="text-[#8E8E93] text-[10px] font-semibold uppercase tracking-wider">Indicative Financing Options</p>
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-[#1C1C1E]">Bank (6.5% p.a., 20 yrs)</span>
-                        <span className="text-sm font-semibold text-[#1C1C1E]">₱{bankMonthly.toLocaleString()}/mo</span>
+                        <span className="text-sm font-semibold text-[#1C1C1E]">â‚±{bankMonthly.toLocaleString()}/mo</span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-[#1C1C1E]">HDMF (6.25% p.a., 25 yrs)</span>
-                        <span className="text-sm font-semibold text-[#1C1C1E]">₱{hdmfMonthly.toLocaleString()}/mo</span>
+                        <span className="text-sm font-semibold text-[#1C1C1E]">â‚±{hdmfMonthly.toLocaleString()}/mo</span>
                       </div>
                       <p className="text-[#8E8E93] text-[10px] italic pt-1">*Indicative rates based on prevailing market rates. Actual rates may vary.</p>
                     </div>
@@ -2196,12 +1948,12 @@ export default function SampleComputationPage() {
                     <p className="text-[#8E8E93] text-[10px] font-semibold uppercase tracking-wider">Payment Summary</p>
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-[#1C1C1E]">Net {schemeName}</span>
-                      <span className="text-sm font-semibold text-[#1C1C1E]">₱{netAmount.toLocaleString()}</span>
+                      <span className="text-sm font-semibold text-[#1C1C1E]">â‚±{netAmount.toLocaleString()}</span>
                     </div>
                     {paymentScheme === 'deferred_cash' && (
                       <div className="flex items-center justify-between pt-1">
                         <span className="text-sm font-bold text-[#1C1C1E]">Monthly Deferred ({termMonths} mo)</span>
-                        <span className="text-sm font-bold text-[#C03D25]">₱{monthlyDeferred.toLocaleString()}</span>
+                        <span className="text-sm font-bold text-[#C03D25]">â‚±{monthlyDeferred.toLocaleString()}</span>
                       </div>
                     )}
                   </div>
@@ -2225,7 +1977,7 @@ export default function SampleComputationPage() {
         );
       })()}
 
-      {/* ── Step 4: Comparison ── */}
+      {/* â”€â”€ Step 4: Comparison â”€â”€ */}
       {step === 3 && (
         <>
           <style>{`
@@ -2242,7 +1994,7 @@ export default function SampleComputationPage() {
               <GitCompare size={32} className="text-[#C7C7CC] mx-auto" />
               <p className="text-[#6C6C70] text-sm">No comparisons yet.</p>
               <p className="text-[#8E8E93] text-xs">Go back and tap "+ Add to Comparison".</p>
-              <button onClick={() => goToStep(2)} className="text-[#C03D25] text-sm font-semibold">← Back to Computation</button>
+              <button onClick={() => goToStep(2)} className="text-[#C03D25] text-sm font-semibold">â† Back to Computation</button>
             </GlassCard>
           ) : (
             <div
@@ -2301,7 +2053,7 @@ export default function SampleComputationPage() {
                     </div>
                     <div className="overflow-y-auto overflow-x-hidden flex-1">
                       {COMP_SECTIONS.map(section => {
-                        const visibleRows = section.rows.filter(row => { const v = row.value(c); return v !== null && v !== '—'; });
+                        const visibleRows = section.rows.filter(row => { const v = row.value(c); return v !== null && v !== 'â€”'; });
                         if (visibleRows.length === 0) return null;
                         return (
                           <div key={section.title}>
@@ -2379,7 +2131,7 @@ export default function SampleComputationPage() {
             Done
           </button>
 
-          {/* ── Futuristic Floating Add Button ── */}
+          {/* â”€â”€ Futuristic Floating Add Button â”€â”€ */}
           <>
             {/* Keyframe styles */}
             <style>{`
@@ -2573,7 +2325,7 @@ export default function SampleComputationPage() {
                   }}
                 >
                   <BookmarkPlus size={14} />
-                  {isSaving ? 'Saving…' : 'Save Quotation'}
+                  {isSaving ? 'Savingâ€¦' : 'Save Quotation'}
                 </button>
               </div>
             )}
@@ -2662,7 +2414,7 @@ export default function SampleComputationPage() {
                   type="text"
                   value={clientCountrySearch}
                   onChange={e => setClientCountrySearch(e.target.value)}
-                  placeholder="Search country or dial code…"
+                  placeholder="Search country or dial codeâ€¦"
                   className="flex-1 bg-transparent text-sm text-[#1C1C1E] outline-none placeholder:text-[#C7C7CC]"
                 />
                 {clientCountrySearch && (

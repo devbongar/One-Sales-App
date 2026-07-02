@@ -11,37 +11,47 @@ import {
   generateTermsOfPayment,
   generateReservationAgreement,
   generateBuyerInformationForm,
-  generateSampleComputation,
   generateSOA,
   generateDelinquency1stNotice,
+  generateDelinquency2ndNotice,
+  generateDelinquencyFinalNotice,
+  generateQuotationPDF,
   fetchAllClients,
   fetchReservationList,
   buildPDFBase64,
   type ClientRecord,
   type ReservationSummary,
+  type ComparisonCard,
+  type QuotationClientInfo,
 } from '@/lib/pdf-generators';
+import { fetchMyQuotations, type SavedQuotationRecord } from '@/lib/quotations';
 import {
   ImagePlus, Trash2, Pencil, Plus, X, Check,
   ChevronDown, ChevronUp, Upload, Camera, Palette,
   Building2, AlertTriangle, Loader2, Tag, Layers,
   CarFront, Hash, MapPin, FileText, Mail, ToggleLeft, ToggleRight, Eye,
   Send, CheckCircle2, Paperclip, Calendar, ChevronRight,
-  Activity, Play, RefreshCw, Clock,
+  Activity, Play, RefreshCw, Clock, Phone,
 } from 'lucide-react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { resetPenaltyCollections, reapplyPenaltyCollections } from '@/lib/collections'; // used in correction tool
 import SavingOverlay from '@/components/ui/SavingOverlay';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 
 // ── Email test helpers ────────────────────────────────────────
-type DocKey = 'none' | 'client_registration' | 'reservation_package' | 'buyer_info_form' | 'soa';
+type DocKey = 'none' | 'client_registration' | 'terms_of_payment' | 'reservation_agreement' | 'buyer_info_form' | 'soa' | 'delinquency_1st_notice' | 'delinquency_2nd_notice' | 'delinquency_final_notice';
 interface DocDef { label: string; selector: 'none' | 'client' | 'reservation'; filename: string }
 const TEST_DOCS: Record<DocKey, DocDef> = {
-  none:                  { label: 'No attachment',                                    selector: 'none',        filename: '' },
-  client_registration:   { label: 'Client Registration Form',                         selector: 'client',      filename: 'client-registration.pdf' },
-  reservation_package:   { label: 'Reservation Agreement & Terms of Payment',         selector: 'reservation', filename: 'reservation-agreement.pdf' },
-  buyer_info_form:       { label: 'Buyer Information Form',                           selector: 'reservation', filename: 'buyer-info-form.pdf' },
-  soa:                   { label: 'Statement of Account',                             selector: 'reservation', filename: 'statement-of-account.pdf' },
+  none:                    { label: 'No attachment',              selector: 'none',        filename: '' },
+  client_registration:     { label: 'Client Registration Form',  selector: 'client',      filename: 'client-registration.pdf' },
+  terms_of_payment:        { label: 'Terms of Payment',          selector: 'reservation', filename: 'terms-of-payment.pdf' },
+  reservation_agreement:   { label: 'Reservation Agreement',     selector: 'reservation', filename: 'reservation-agreement.pdf' },
+  buyer_info_form:         { label: 'Buyer Information Form',    selector: 'reservation', filename: 'buyer-info-form.pdf' },
+  soa:                     { label: 'Statement of Account',      selector: 'reservation', filename: 'statement-of-account.pdf' },
+  delinquency_1st_notice:  { label: 'Delinquency 1st Notice',   selector: 'reservation', filename: '1st-notice.pdf' },
+  delinquency_2nd_notice:  { label: 'Delinquency 2nd Notice',   selector: 'reservation', filename: '2nd-notice.pdf' },
+  delinquency_final_notice:{ label: 'Notice of Cancellation',   selector: 'reservation', filename: 'final-notice.pdf' },
 };
 // ── Email template config ─────────────────────────────────────
 type TriggerKey = 'on_client_created' | 'on_client_updated' | 'on_reservation' | 'on_booked' | 'on_finance_verified' | 'on_docs_submitted' | 'on_quotation_saved';
@@ -184,6 +194,7 @@ function computeRunDay(dueDay: number, graceDays: number): number {
 export default function SettingsPage() {
   // App settings
   const [appName, setAppName]         = useState('One Sales App');
+  const [appLegalName, setAppLegalName] = useState('PH1 World Developers Inc.');
   const [logoUrl, setLogoUrl]         = useState('');
   const [logoPreview, setLogoPreview] = useState('');
   const [savingApp, setSavingApp]     = useState(false);
@@ -199,6 +210,13 @@ export default function SettingsPage() {
   const [penaltyRate,       setPenaltyRate]       = useState('0.001');
   const [savingPenalty,     setSavingPenalty]     = useState(false);
   const [penaltySaved,      setPenaltySaved]      = useState(false);
+
+  // Collection contact settings
+  const [contactName,       setContactName]       = useState('');
+  const [contactPhone,      setContactPhone]      = useState('');
+  const [contactEmail,      setContactEmail]      = useState('');
+  const [savingContact,     setSavingContact]     = useState(false);
+  const [contactSaved,      setContactSaved]      = useState(false);
 
   // Penalty correction tool
   const [corrJob,      setCorrJob]      = useState<CorrJob | null>(null);
@@ -239,6 +257,8 @@ export default function SettingsPage() {
   const [automationHistory, setAutomationHistory] = useState<AutomationRun[]>([]);
   const [historyOpen,      setHistoryOpen]      = useState(false);
   const [delOpen,          setDelOpen]          = useState(false);
+  const [attachOpen,       setAttachOpen]       = useState(false);
+  const [senderOpen,       setSenderOpen]       = useState(false);
   const [lastRunAt,        setLastRunAt]        = useState<string | null>(null);
 
   // SOA Automation policy
@@ -276,7 +296,9 @@ export default function SettingsPage() {
   const [selAgreementId, setSelAgreementId]             = useState('');
   const [selBuyerInfoId, setSelBuyerInfoId]             = useState('');
   const [selSOAId, setSelSOAId]                         = useState('');
-  const [selDelinquency1stId, setSelDelinquency1stId] = useState('');
+  const [selDelinquencyId, setSelDelinquencyId] = useState('');
+  const [quotations, setQuotations]                       = useState<SavedQuotationRecord[]>([]);
+  const [selQuotationId, setSelQuotationId]               = useState('');
 
   // Email test section
   const [testTo,      setTestTo]      = useState('');
@@ -313,11 +335,16 @@ export default function SettingsPage() {
   useEffect(() => {
     fetchAllClients().then(setPdfClients).catch(() => {});
     fetchReservationList().then(setPdfReservations).catch(() => {});
+    fetchMyQuotations().then(setQuotations).catch(() => {});
     fetch('/api/settings').then(r => r.json()).then(s => {
       if (s.app_name)        setAppName(s.app_name);
+      if (s.app_legal_name)  setAppLegalName(s.app_legal_name);
       if (s.logo_url)        { setLogoUrl(s.logo_url); setLogoPreview(s.logo_url); }
       if (s.email_sender)         setEmailSender(s.email_sender);
-      if (s.penalty_daily_rate)  setPenaltyRate(s.penalty_daily_rate);
+      if (s.penalty_daily_rate)         setPenaltyRate(s.penalty_daily_rate);
+      if (s.collection_contact_name)    setContactName(s.collection_contact_name);
+      if (s.collection_contact_phone)   setContactPhone(s.collection_contact_phone);
+      if (s.collection_contact_email)   setContactEmail(s.collection_contact_email);
       if (s.email_templates) {
         try {
           const saved = JSON.parse(s.email_templates) as EmailTemplates;
@@ -471,7 +498,7 @@ export default function SettingsPage() {
     setSavingApp(true);
     await fetch('/api/settings', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ app_name: appName, logo_url: logoUrl }),
+      body: JSON.stringify({ app_name: appName, app_legal_name: appLegalName, logo_url: logoUrl }),
     });
     setSavingApp(false); setAppSaved(true);
     setTimeout(() => setAppSaved(false), 2500);
@@ -485,6 +512,16 @@ export default function SettingsPage() {
     });
     setSavingEmail(false); setEmailSaved(true);
     setTimeout(() => setEmailSaved(false), 2500);
+  };
+
+  const saveContactSettings = async () => {
+    setSavingContact(true);
+    await fetch('/api/settings', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ collection_contact_name: contactName, collection_contact_phone: contactPhone, collection_contact_email: contactEmail }),
+    });
+    setSavingContact(false); setContactSaved(true);
+    setTimeout(() => setContactSaved(false), 2500);
   };
 
   const savePenaltySettings = async () => {
@@ -864,6 +901,47 @@ export default function SettingsPage() {
         </button>
       </GlassCard>
 
+      {/* ── Collection Contact ─────────────────────────────── */}
+      <GlassCard className="p-5 space-y-5">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-[#C03D25]/10 flex items-center justify-center">
+            <Phone size={16} className="text-[#C03D25]" />
+          </div>
+          <p className="text-base font-bold text-[#1C1C1E]">Collection Contact</p>
+        </div>
+        <p className="text-[11px] text-[#8E8E93]">Shown in the 1st notice delinquency letter sent to clients.</p>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold text-[#6C6C70] uppercase tracking-wider">Contact Person</p>
+            <input
+              type="text" value={contactName} onChange={e => setContactName(e.target.value)}
+              placeholder="e.g. Mary Rose Madolid"
+              className="w-full px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/70 text-sm text-[#1C1C1E] outline-none focus:border-black/20"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold text-[#6C6C70] uppercase tracking-wider">Phone Number</p>
+            <input
+              type="text" value={contactPhone} onChange={e => setContactPhone(e.target.value)}
+              placeholder="e.g. 09176227678"
+              className="w-full px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/70 text-sm text-[#1C1C1E] outline-none focus:border-black/20"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold text-[#6C6C70] uppercase tracking-wider">Email Address</p>
+            <input
+              type="email" value={contactEmail} onChange={e => setContactEmail(e.target.value)}
+              placeholder="e.g. billingandcollection@ph1world.com"
+              className="w-full px-3 py-2.5 rounded-xl border border-black/[0.10] bg-white/70 text-sm text-[#1C1C1E] outline-none focus:border-black/20"
+            />
+          </div>
+        </div>
+        <button type="button" onClick={saveContactSettings} disabled={savingContact}
+          className="w-full py-2.5 rounded-2xl bg-[#1C1C1E] text-sm font-semibold text-white flex items-center justify-center gap-2 active:opacity-80 disabled:opacity-50">
+          {contactSaved ? <><Check size={15} /> Saved!</> : savingContact ? <><Loader2 size={14} className="animate-spin" /> Saving…</> : 'Save Contact Info'}
+        </button>
+      </GlassCard>
+
       {/* ── App Branding ───────────────────────────────────── */}
       <GlassCard className="p-5 space-y-5">
         {/* Section header */}
@@ -902,6 +980,15 @@ export default function SettingsPage() {
           <input type="text" value={appName} onChange={e => setAppName(e.target.value)}
             className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/50 focus:bg-white transition-colors"
           />
+        </div>
+
+        {/* Legal Company Name */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold text-[#8E8E93]">Company Legal Name</label>
+          <input type="text" value={appLegalName} onChange={e => setAppLegalName(e.target.value)}
+            className="w-full px-3 py-2.5 rounded-xl border border-black/[0.1] bg-[#F2F2F7] text-sm text-[#1C1C1E] outline-none focus:border-[#C03D25]/50 focus:bg-white transition-colors"
+          />
+          <p className="text-[10px] text-[#8E8E93]">Used in delinquency letters and legal documents.</p>
         </div>
 
         <button type="button" onClick={saveAppSettings} disabled={savingApp}
@@ -1240,152 +1327,167 @@ export default function SettingsPage() {
 
       {/* ── Email Attachments ─────────────────────────────── */}
       <GlassCard className="p-5 space-y-4">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-[#C03D25]/10 flex items-center justify-center">
+        <button type="button" onClick={() => setAttachOpen(o => !o)}
+          className="w-full flex items-center gap-2.5 text-left">
+          <div className="w-8 h-8 rounded-xl bg-[#C03D25]/10 flex items-center justify-center shrink-0">
             <FileText size={16} className="text-[#C03D25]" />
           </div>
           <div className="flex-1">
             <p className="text-base font-bold text-[#1C1C1E]">Email Attachments</p>
             <p className="text-[11px] text-[#8E8E93]">Preview PDF documents before the email feature goes live</p>
           </div>
-        </div>
+          {attachOpen ? <ChevronUp size={16} className="text-[#8E8E93] shrink-0" /> : <ChevronDown size={16} className="text-[#8E8E93] shrink-0" />}
+        </button>
 
-        <div className="space-y-3">
+        {attachOpen && <div className="space-y-4">
 
-          {/* Client Registration Form */}
-          <div className="rounded-2xl border border-black/[0.07] p-3 bg-white space-y-2">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-semibold text-[#1C1C1E]">Client Registration Form</p>
-              <button type="button" onClick={() => generateClientRegistration(pdfClients.find(c => c.id === selClientId) ?? null)}
-                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70">
-                <Eye size={12} /> Preview
+          {/* ── Standard Documents ── */}
+          <p className="text-[11px] font-semibold text-[#8E8E93] uppercase tracking-wide px-1">Standard Documents</p>
+          <div className="space-y-2">
+
+            {/* Client Registration Form */}
+            <div className="rounded-2xl border border-black/[0.07] p-3 bg-white space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-[#1C1C1E]">Client Registration Form</p>
+                <button type="button" disabled={!selClientId}
+                  onClick={() => generateClientRegistration(pdfClients.find(c => c.id === selClientId) ?? null)}
+                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70 disabled:opacity-40">
+                  <Eye size={12} /> Preview
+                </button>
+              </div>
+              <SearchableSelect placeholder="Select a client" value={selClientId} onChange={setSelClientId}
+                options={pdfClients.map(c => ({
+                  label: `${c.last_name}, ${c.first_name}${c.middle_name ? ` ${c.middle_name}` : ''}${c.client_id ? ` (${c.client_id})` : ''}`,
+                  value: c.id,
+                }))} />
+            </div>
+
+            {/* Terms of Payment */}
+            <div className="rounded-2xl border border-black/[0.07] p-3 bg-white space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-[#1C1C1E]">Terms of Payment</p>
+                <button type="button" disabled={!selTopId} onClick={() => generateTermsOfPayment(selTopId || null)}
+                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70 disabled:opacity-40">
+                  <Eye size={12} /> Preview
+                </button>
+              </div>
+              <SearchableSelect placeholder="Select a reservation" value={selTopId} onChange={setSelTopId}
+                options={pdfReservations.map(r => ({ label: `${r.reservation_id} — ${r.client_name} (${r.inventory_code})`, value: r.reservation_id }))} />
+            </div>
+
+            {/* Reservation Agreement */}
+            <div className="rounded-2xl border border-black/[0.07] p-3 bg-white space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-[#1C1C1E]">Reservation Agreement</p>
+                <button type="button" disabled={!selAgreementId} onClick={() => generateReservationAgreement(selAgreementId || null)}
+                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70 disabled:opacity-40">
+                  <Eye size={12} /> Preview
+                </button>
+              </div>
+              <SearchableSelect placeholder="Select a reservation" value={selAgreementId} onChange={setSelAgreementId}
+                options={pdfReservations.map(r => ({ label: `${r.reservation_id} — ${r.client_name} (${r.inventory_code})`, value: r.reservation_id }))} />
+            </div>
+
+            {/* Buyer Information Form */}
+            <div className="rounded-2xl border border-black/[0.07] p-3 bg-white space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-[#1C1C1E]">Buyer Information Form</p>
+                <button type="button" disabled={!selBuyerInfoId} onClick={() => generateBuyerInformationForm(selBuyerInfoId || null)}
+                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70 disabled:opacity-40">
+                  <Eye size={12} /> Preview
+                </button>
+              </div>
+              <SearchableSelect placeholder="Select a reservation" value={selBuyerInfoId} onChange={setSelBuyerInfoId}
+                options={pdfReservations.map(r => ({ label: `${r.reservation_id} — ${r.client_name} (${r.inventory_code})`, value: r.reservation_id }))} />
+            </div>
+
+          </div>
+
+          {/* ── Collections ── */}
+          <p className="text-[11px] font-semibold text-[#8E8E93] uppercase tracking-wide px-1">Collections</p>
+          <div className="space-y-2">
+
+            {/* Sample Computation */}
+            <div className="rounded-2xl border border-black/[0.07] p-3 bg-white space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-[#1C1C1E]">Sample Computation</p>
+                <button type="button" disabled={!selQuotationId}
+                  onClick={() => {
+                    const q = quotations.find(x => x.id === selQuotationId);
+                    if (!q) return;
+                    const card: ComparisonCard = {
+                      project: q.project, tower: q.tower, floor: q.floor, unitNo: q.unit_no,
+                      inventoryCode: q.inventory_code, unitType: q.unit_type, unitArea: q.unit_area,
+                      unitCategory: q.unit_category, paymentScheme: q.payment_scheme,
+                      schemeName: q.scheme_name, dpRate: q.dp_rate, paymentTerm: q.payment_term,
+                      termMonths: q.term_months, listPrice: q.list_price, promoAmount: q.promo_amount,
+                      promoPct: q.promo_pct, employeeAmount: q.employee_amount, paytermAmount: q.payterm_amount,
+                      hicDiscount: q.hic_discount, netListPrice: q.net_list_price, vat: q.vat,
+                      otherCharges: q.other_charges, totalContractPrice: q.total_contract_price,
+                      netAmount: q.net_amount, monthlyDeferred: q.monthly_deferred, dpAmount: q.dp_amount,
+                      netSpotDP: q.net_spot_dp, balanceForFinancing: q.balance_for_financing,
+                      monthlyStretchedDP: q.monthly_stretched_dp, bankMonthly: q.bank_monthly,
+                      hdmfMonthly: q.hdmf_monthly, reservationFee: q.reservation_fee,
+                    };
+                    const clientInfo: QuotationClientInfo = {
+                      firstName: q.client_first_name, middleName: q.client_middle_name,
+                      lastName: q.client_last_name, suffix: q.client_suffix,
+                      mobile: q.client_mobile, countryCode: '+63', email: q.client_email,
+                    };
+                    generateQuotationPDF([card], clientInfo, { clientId: q.client_id });
+                  }}
+                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70 disabled:opacity-40">
+                  <Eye size={12} /> Preview
+                </button>
+              </div>
+              <SearchableSelect placeholder="Select a quotation" value={selQuotationId} onChange={setSelQuotationId}
+                options={quotations.map(q => ({
+                  label: `${q.name} — ${[q.client_first_name, q.client_last_name].filter(Boolean).join(' ') || 'No client'}`,
+                  value: q.id,
+                }))} />
+            </div>
+
+            {/* SOA */}
+            <div className="rounded-2xl border border-black/[0.07] p-3 bg-white space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-[#1C1C1E]">Statement of Account (SOA)</p>
+                <button type="button" disabled={!selSOAId} onClick={() => generateSOA(selSOAId || null)}
+                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70 disabled:opacity-40">
+                  <Eye size={12} /> Preview
+                </button>
+              </div>
+              <SearchableSelect placeholder="Select a reservation" value={selSOAId} onChange={setSelSOAId}
+                options={pdfReservations.map(r => ({ label: `${r.reservation_id} — ${r.client_name} (${r.inventory_code})`, value: r.reservation_id }))} />
+            </div>
+
+          </div>
+
+          {/* ── Delinquency Notices ── */}
+          <p className="text-[11px] font-semibold text-[#8E8E93] uppercase tracking-wide px-1">Delinquency Notices</p>
+          <div className="rounded-2xl border border-black/[0.07] p-3 bg-white space-y-3">
+            <SearchableSelect placeholder="Select a reservation" value={selDelinquencyId} onChange={setSelDelinquencyId}
+              options={pdfReservations.map(r => ({ label: `${r.reservation_id} — ${r.client_name} (${r.inventory_code})`, value: r.reservation_id }))} />
+            <p className="text-[10px] text-[#8E8E93]">Date on notices is derived from the last generated penalty lines. Use the Penalty Lines Correction tool to update.</p>
+            <div className="flex flex-wrap gap-2 pt-1">
+              <button type="button" disabled={!selDelinquencyId}
+                onClick={() => generateDelinquency1stNotice(selDelinquencyId)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70 disabled:opacity-40">
+                <Eye size={12} /> 1st Notice
+              </button>
+              <button type="button" disabled={!selDelinquencyId}
+                onClick={() => generateDelinquency2ndNotice(selDelinquencyId)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70 disabled:opacity-40">
+                <Eye size={12} /> 2nd Notice
+              </button>
+              <button type="button" disabled={!selDelinquencyId}
+                onClick={() => generateDelinquencyFinalNotice(selDelinquencyId)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70 disabled:opacity-40">
+                <Eye size={12} /> Final Notice
               </button>
             </div>
-            <select value={selClientId} onChange={e => setSelClientId(e.target.value)}
-              className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none">
-              <option value="">— Select a client —</option>
-              {pdfClients.map(c => (
-                <option key={c.id} value={c.id}>
-                  {c.last_name}, {c.first_name}{c.middle_name ? ` ${c.middle_name}` : ''}{c.client_id ? ` (${c.client_id})` : ''}
-                </option>
-              ))}
-            </select>
           </div>
 
-          {/* Terms of Payment */}
-          <div className="rounded-2xl border border-black/[0.07] p-3 bg-white space-y-2">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-semibold text-[#1C1C1E]">Terms of Payment</p>
-              <button type="button" onClick={() => generateTermsOfPayment(selTopId || null)}
-                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70">
-                <Eye size={12} /> Preview
-              </button>
-            </div>
-            <select value={selTopId} onChange={e => setSelTopId(e.target.value)}
-              className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none">
-              <option value="">— Select a reservation —</option>
-              {pdfReservations.map(r => (
-                <option key={r.reservation_id} value={r.reservation_id}>
-                  {r.reservation_id} — {r.client_name} ({r.inventory_code})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Reservation Agreement */}
-          <div className="rounded-2xl border border-black/[0.07] p-3 bg-white space-y-2">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-semibold text-[#1C1C1E]">Reservation Agreement</p>
-              <button type="button" onClick={() => generateReservationAgreement(selAgreementId || null)}
-                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70">
-                <Eye size={12} /> Preview
-              </button>
-            </div>
-            <select value={selAgreementId} onChange={e => setSelAgreementId(e.target.value)}
-              className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none">
-              <option value="">— Select a reservation —</option>
-              {pdfReservations.map(r => (
-                <option key={r.reservation_id} value={r.reservation_id}>
-                  {r.reservation_id} — {r.client_name} ({r.inventory_code})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Buyer Information Form */}
-          <div className="rounded-2xl border border-black/[0.07] p-3 bg-white space-y-2">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-semibold text-[#1C1C1E]">Buyer Information Form</p>
-              <button type="button" onClick={() => generateBuyerInformationForm(selBuyerInfoId || null)}
-                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70">
-                <Eye size={12} /> Preview
-              </button>
-            </div>
-            <select value={selBuyerInfoId} onChange={e => setSelBuyerInfoId(e.target.value)}
-              className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none">
-              <option value="">— Select a reservation —</option>
-              {pdfReservations.map(r => (
-                <option key={r.reservation_id} value={r.reservation_id}>
-                  {r.reservation_id} — {r.client_name} ({r.inventory_code})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Sample Computation */}
-          <div className="rounded-2xl border border-black/[0.07] p-3 bg-white flex items-center justify-between gap-3">
-            <p className="text-sm font-semibold text-[#1C1C1E]">Sample Computation</p>
-            <button type="button" onClick={() => generateSampleComputation()}
-              className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70">
-              <Eye size={12} /> Preview
-            </button>
-          </div>
-
-          {/* SOA */}
-          <div className="rounded-2xl border border-black/[0.07] p-3 bg-white space-y-2">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-semibold text-[#1C1C1E]">Statement of Account (SOA)</p>
-              <button type="button" onClick={() => generateSOA(selSOAId || null)}
-                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70">
-                <Eye size={12} /> Preview
-              </button>
-            </div>
-            <select value={selSOAId} onChange={e => setSelSOAId(e.target.value)}
-              className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none">
-              <option value="">— Select a reservation —</option>
-              {pdfReservations.map(r => (
-                <option key={r.reservation_id} value={r.reservation_id}>
-                  {r.reservation_id} — {r.client_name} ({r.inventory_code})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Delinquency 1st Notice */}
-          <div className="rounded-2xl border border-black/[0.07] p-3 bg-white space-y-2">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-semibold text-[#1C1C1E]">Delinquency 1st Notice</p>
-              <button
-                type="button"
-                disabled={!selDelinquency1stId}
-                onClick={() => generateDelinquency1stNotice(selDelinquency1stId)}
-                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70 disabled:opacity-40">
-                <Eye size={12} /> Preview
-              </button>
-            </div>
-            <select value={selDelinquency1stId} onChange={e => setSelDelinquency1stId(e.target.value)}
-              className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none">
-              <option value="">— Select a reservation —</option>
-              {pdfReservations.map(r => (
-                <option key={r.reservation_id} value={r.reservation_id}>
-                  {r.reservation_id} — {r.client_name} ({r.inventory_code})
-                </option>
-              ))}
-            </select>
-            <p className="text-[10px] text-[#8E8E93]">Date shown on the notice is derived from when the penalty lines were last generated. Use the Penalty Lines Correction tool to update.</p>
-          </div>
-
-        </div>
+        </div>}
       </GlassCard>
 
       {/* ── Penalty Lines Correction ──────────────────────── */}
@@ -2210,19 +2312,21 @@ export default function SettingsPage() {
         </div>}
       </GlassCard>
 
-      {/* ── Email Test ────────────────────────────────────── */}
+      {/* ── Email Sender ──────────────────────────────────── */}
       <GlassCard className="p-5 space-y-4">
-        <div className="flex items-center gap-2.5">
+        <button type="button" onClick={() => setSenderOpen(o => !o)}
+          className="w-full flex items-center gap-2.5 text-left">
           <div className="w-9 h-9 rounded-xl bg-[rgba(192,61,37,0.10)] flex items-center justify-center shrink-0">
             <Send size={16} className="text-[#C03D25]" />
           </div>
           <div className="flex-1">
-            <p className="text-base font-bold text-[#1C1C1E]">Email Test</p>
+            <p className="text-base font-bold text-[#1C1C1E]">Email Sender</p>
             <p className="text-[11px] text-[#8E8E93]">Send a test email via Microsoft Graph API with optional PDF attachment</p>
           </div>
-        </div>
+          {senderOpen ? <ChevronUp size={16} className="text-[#8E8E93] shrink-0" /> : <ChevronDown size={16} className="text-[#8E8E93] shrink-0" />}
+        </button>
 
-        <div className="space-y-3">
+        {senderOpen && <div className="space-y-3">
 
           {/* To */}
           <div className="space-y-1">
@@ -2251,33 +2355,35 @@ export default function SettingsPage() {
             <p className="text-xs font-semibold text-[#8E8E93] uppercase tracking-wider flex items-center gap-1">
               <Paperclip size={11} /> PDF Attachment
             </p>
-            <select value={testDocKey} onChange={e => { setTestDocKey(e.target.value as DocKey); setTestClientId(''); setTestResId(''); setTestResult(null); }}
-              className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none">
-              {(Object.entries(TEST_DOCS) as [DocKey, DocDef][]).map(([key, d]) => (
-                <option key={key} value={key}>{d.label}</option>
-              ))}
-            </select>
+            <SearchableSelect
+              placeholder="No attachment"
+              value={testDocKey === 'none' ? '' : testDocKey}
+              onChange={v => { setTestDocKey((v || 'none') as DocKey); setTestClientId(''); setTestResId(''); setTestResult(null); }}
+              options={(Object.entries(TEST_DOCS) as [DocKey, DocDef][])
+                .filter(([key]) => key !== 'none')
+                .map(([key, d]) => ({ label: d.label, value: key }))}
+            />
             {testDocDef.selector === 'client' && (
-              <select value={testClientId} onChange={e => setTestClientId(e.target.value)}
-                className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none">
-                <option value="">— Select a client —</option>
-                {pdfClients.map(c => (
-                  <option key={c.client_id ?? ''} value={c.client_id ?? ''}>
-                    {c.client_id} — {c.last_name}, {c.first_name}
-                  </option>
-                ))}
-              </select>
+              <SearchableSelect
+                placeholder="Select a client"
+                value={testClientId}
+                onChange={setTestClientId}
+                options={pdfClients.map(c => ({
+                  label: `${c.client_id} — ${c.last_name}, ${c.first_name}`,
+                  value: c.client_id ?? '',
+                }))}
+              />
             )}
             {testDocDef.selector === 'reservation' && (
-              <select value={testResId} onChange={e => setTestResId(e.target.value)}
-                className="w-full text-xs rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] px-3 py-2 text-[#1C1C1E] focus:outline-none">
-                <option value="">— Select a reservation —</option>
-                {pdfReservations.map(r => (
-                  <option key={r.reservation_id} value={r.reservation_id}>
-                    {r.reservation_id} — {r.client_name} ({r.inventory_code})
-                  </option>
-                ))}
-              </select>
+              <SearchableSelect
+                placeholder="Select a reservation"
+                value={testResId}
+                onChange={setTestResId}
+                options={pdfReservations.map(r => ({
+                  label: `${r.reservation_id} — ${r.client_name} (${r.inventory_code})`,
+                  value: r.reservation_id,
+                }))}
+              />
             )}
           </div>
 
@@ -2307,7 +2413,7 @@ export default function SettingsPage() {
             }
           </button>
 
-        </div>
+        </div>}
       </GlassCard>
 
       {/* ── Delete Confirmation Modal ──────────────────────── */}
