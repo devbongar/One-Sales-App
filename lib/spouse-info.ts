@@ -17,14 +17,14 @@ export interface SpouseInfoPayload {
   email: string;
   tin: string;
   no_tin: boolean;
-  // Home Address
-  home_ownership: string;
-  home_country: string;
-  home_region_province: string;
-  home_city_municipality: string;
-  home_barangay: string;
-  home_street: string;
-  home_unit: string;
+  // Home Address (no longer collected in the form)
+  home_ownership?: string;
+  home_country?: string;
+  home_region_province?: string;
+  home_city_municipality?: string;
+  home_barangay?: string;
+  home_street?: string;
+  home_unit?: string;
   // Employment
   employer: string;
   nature_of_business: string;
@@ -37,16 +37,16 @@ export interface SpouseInfoPayload {
   work_mobile: string;
   work_landline: string;
   work_email: string;
-  // Work Address
-  work_country: string;
-  work_region_province: string;
-  work_city_municipality: string;
-  work_barangay: string;
-  work_street: string;
-  work_building_unit: string;
-  // Mailing
-  mailing_type: string;
-  mailing_other: string;
+  // Work Address (no longer collected in the form)
+  work_country?: string;
+  work_region_province?: string;
+  work_city_municipality?: string;
+  work_barangay?: string;
+  work_street?: string;
+  work_building_unit?: string;
+  // Mailing (no longer collected in the form)
+  mailing_type?: string;
+  mailing_other?: string;
 }
 
 export interface SpouseInfoRecord {
