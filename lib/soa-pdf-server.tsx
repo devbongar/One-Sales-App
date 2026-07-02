@@ -1,9 +1,11 @@
 import React from 'react';
-import { Document, Page, Text, View, Image, StyleSheet, pdf } from '@react-pdf/renderer';
+import {
+  Document, Page, Text, View, Image, StyleSheet, renderToBuffer,
+} from '@react-pdf/renderer';
 import fs from 'fs';
 import path from 'path';
 
-// ── Types ──────────────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface SOAReservation {
   reservation_id: string;
@@ -14,11 +16,13 @@ export interface SOAReservation {
   inventory_code: string | null;
   scheme_name: string | null;
   term_months: number | null;
+  payment_scheme: string | null;
   net_list_price: number;
   vat: number;
   other_charges: number;
   total_contract_price: number;
   hic_discount: number;
+  employee_discount_amount: number;
 }
 
 export interface SOALine {
@@ -34,10 +38,30 @@ export interface SOALine {
   payment_status: string;
   acknowledgement_receipt_no: string | null;
   posting_date: string | null;
-  check_date: string | null;
+  transaction_date: string | null;
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
+export interface SOAPenaltyLine {
+  id: number;
+  original_due_date: string;
+  days_overdue: number | null;
+  daily_rate: number | null;
+  balance_receivables: number | null;
+  penalty_amount: number | null;
+  collection: number | null;
+  payment_status: string;
+  remarks: string | null;
+  ar_no: string | null;
+  ar_date: string | null;
+}
+
+export interface SOAArEntry {
+  pmt_date: string | null;
+  ar_no: string | null;
+  ar_date: string | null;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 const fmtN = (n: number | null | undefined) =>
   n != null ? n.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '—';
@@ -45,177 +69,188 @@ const fmtN = (n: number | null | undefined) =>
 const fmtD = (d: string | null | undefined) =>
   d ? new Date(d + 'T00:00:00').toLocaleDateString('en-PH', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 
-const coral   = '#EE434E';
-const darkBg  = '#37373C';
-const totBg   = '#464649';
-const lt      = '#6E6E73';
-const white   = '#FFFFFF';
-const ink     = '#1C1C1E';
+// ── Colours ───────────────────────────────────────────────────────────────────
 
-// Non-HIC table columns
-const COLS_BASE = [
-  { label: 'Description',  flex: 2.4 },
-  { label: 'Due Date',     flex: 1.0 },
-  { label: 'Principal',    flex: 1.1 },
-  { label: 'VAT',          flex: 1.0 },
-  { label: 'Other Chgs',   flex: 1.0 },
-  { label: 'Total',        flex: 1.2 },
-  { label: 'Collection',   flex: 1.2 },
-  { label: 'Pmt Date',     flex: 1.0 },
-  { label: 'Status',       flex: 0.9 },
-  { label: 'AR No.',        flex: 1.4 },
-  { label: 'AR Date',      flex: 1.0 },
+const CORAL = '#EE434E';
+const DARK  = '#37373C';
+const MED   = '#5A5A5F';
+const TOT   = '#46464B';
+const ALT   = '#F8F8FA';
+const WHITE = '#FFFFFF';
+const INK   = '#1C1C1E';
+const LT    = '#6E6E73';
+
+// ── Column defs (flex = mm widths, proportional) ───────────────────────────────
+// Portrait A4 content width ≈ 186 (= 210 - 2×12mm margins)
+
+const STATIC_BASE = 8;  // cols before AR stacked (non-HIC)
+const STATIC_HIC  = 9;  // cols before AR stacked (HIC)
+
+const SCHED_STATIC_BASE = [
+  { label: 'Description', flex: 24 },
+  { label: 'Due Date',    flex: 20 },
+  { label: 'Principal',   flex: 15 },
+  { label: 'VAT',         flex: 11 },
+  { label: 'Oth.Chg',    flex: 13 },
+  { label: 'Total',       flex: 18 },
+  { label: 'Collection',  flex: 18 },
+  { label: 'Status',      flex: 12 },
 ];
 
-// HIC table columns
-const COLS_HIC = [
-  { label: 'Description',  flex: 2.0 },
-  { label: 'Due Date',     flex: 0.9 },
-  { label: 'Principal',    flex: 1.0 },
-  { label: 'VAT',          flex: 0.9 },
-  { label: 'Other Chgs',   flex: 0.9 },
-  { label: 'HIC',          flex: 0.9 },
-  { label: 'Total',        flex: 1.1 },
-  { label: 'Collection',   flex: 1.1 },
-  { label: 'Pmt Date',     flex: 0.9 },
-  { label: 'Status',       flex: 0.8 },
-  { label: 'AR No.',        flex: 1.25},
-  { label: 'AR Date',      flex: 1.0 },
+const SCHED_STATIC_HIC = [
+  { label: 'Description', flex: 24 },
+  { label: 'Due Date',    flex: 19 },
+  { label: 'Principal',   flex: 13 },
+  { label: 'VAT',         flex: 10 },
+  { label: 'Oth.Chg',    flex: 11 },
+  { label: 'HIC',         flex: 11 },
+  { label: 'Total',       flex: 16 },
+  { label: 'Collection',  flex: 16 },
+  { label: 'Status',      flex: 11 },
 ];
+
+const AR_COLS = [
+  { label: 'Pmt Date', flex: 17 },
+  { label: 'AR No.',   flex: 18 },
+  { label: 'AR Date',  flex: 20 },
+];
+const AR_FLEX = AR_COLS.reduce((s, c) => s + c.flex, 0); // 55
 
 const PEN_COLS = [
-  { label: 'Original Due Date', flex: 1.5 },
-  { label: 'Days Overdue',      flex: 1.1 },
-  { label: 'Daily Rate*',       flex: 0.9 },
-  { label: 'Principal Basis',   flex: 1.5 },
-  { label: 'Penalty Amount',    flex: 1.5 },
-  { label: 'Status',            flex: 0.9 },
+  { label: 'Original Due Date', flex: 22 },
+  { label: 'Days Overdue',      flex: 14 },
+  { label: 'Daily Rate*',       flex: 12 },
+  { label: 'Principal Basis',   flex: 22 },
+  { label: 'Penalty Amount',    flex: 22 },
+  { label: 'Collection',        flex: 20 },
+  { label: 'Status',            flex: 17 },
+  { label: 'Remarks',           flex: 17 },
+  { label: 'AR No.',            flex: 20 },
+  { label: 'AR Date',           flex: 20 },
 ];
 
-// ── Styles ─────────────────────────────────────────────────────────────────────
+// ── Styles ────────────────────────────────────────────────────────────────────
+
+const HDR_H    = 90;  // 32mm in pt (matches jsPDF SOA reference)
+const FOOTER_H = 18;
 
 const S = StyleSheet.create({
-  page:        { fontFamily: 'Helvetica', backgroundColor: white },
-  hdr:         { backgroundColor: coral, height: 26, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, position: 'absolute', top: 0, left: 0, right: 0 },
-  logo:        { height: 16 },
-  hdrRight:    { marginLeft: 'auto', alignItems: 'flex-end' },
-  hdrTitle:    { fontFamily: 'Helvetica-Bold', fontSize: 13, color: white },
-  hdrSub:      { fontSize: 7.5, color: '#FFDCD2' },
-  footer:      { position: 'absolute', bottom: 6, left: 12, right: 12, flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 0.3, borderTopColor: '#DCDCDC', paddingTop: 2 },
-  footTxt:     { fontSize: 6, color: '#A0A0A5' },
-  body:        { paddingTop: 33, paddingHorizontal: 12, paddingBottom: 20 },
-  twoCol:      { flexDirection: 'row', marginBottom: 4 },
-  col:         { flex: 1 },
-  cName:       { fontFamily: 'Helvetica-Bold', fontSize: 12, color: ink, marginBottom: 2 },
-  addr:        { fontSize: 7.5, color: '#505055', marginBottom: 2 },
-  iLbl:        { fontSize: 7,   color: lt, marginBottom: 0.5 },
-  iVal:        { fontFamily: 'Helvetica-Bold', fontSize: 8, color: ink, marginBottom: 3.5 },
-  billHdr:     { fontFamily: 'Helvetica-Bold', fontSize: 9, color: '#8C1E1E', marginBottom: 4 },
-  billRow:     { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 },
-  billLbl:     { fontSize: 7.5, color: lt },
-  billVal:     { fontSize: 8, color: '#323235' },
-  billValB:    { fontFamily: 'Helvetica-Bold', fontSize: 9, color: ink },
-  secHdr:      { backgroundColor: darkBg, paddingHorizontal: 12, paddingVertical: 5, marginTop: 6, marginHorizontal: -12 },
-  secHdrTxt:   { fontFamily: 'Helvetica-Bold', fontSize: 8.5, color: white },
-  cdRow:       { flexDirection: 'row', flexWrap: 'wrap', marginTop: 5, marginBottom: 2 },
-  cdItem:      { marginRight: 18, marginBottom: 4 },
-  cdLbl:       { fontSize: 7,   color: lt, marginBottom: 1 },
-  cdVal:       { fontSize: 8.5, color: ink },
-  cdValB:      { fontFamily: 'Helvetica-Bold', fontSize: 9, color: ink },
-  tblHdr:      { flexDirection: 'row', paddingVertical: 3, borderBottomWidth: 0.5, borderBottomColor: '#C8C8CD' },
-  tblHdrTxt:   { fontFamily: 'Helvetica-Bold', fontSize: 6, color: ink },
-  tblRow:      { flexDirection: 'row', paddingVertical: 3 },
-  tblRowAlt:   { backgroundColor: '#F8F8FA' },
-  tblTxt:      { fontSize: 6.5, color: '#282828' },
-  tblPaid:     { fontSize: 6.5, color: '#226B22' },
-  tblUnpaid:   { fontSize: 6.5, color: '#B41E1E' },
-  tblPartial:  { fontSize: 6.5, color: '#785000' },
-  totRow:      { backgroundColor: totBg, flexDirection: 'row', paddingVertical: 4 },
-  totTxt:      { fontFamily: 'Helvetica-Bold', fontSize: 7, color: white },
-  italic:      { fontFamily: 'Helvetica-Oblique', fontSize: 7.5, color: '#A0A0A5', paddingVertical: 4 },
-  note:        { fontFamily: 'Helvetica-Oblique', fontSize: 6, color: '#828285', marginTop: 3 },
+  // Padding on Page so every physical page gets header/footer clearance
+  page:     { fontFamily: 'Helvetica', backgroundColor: WHITE, paddingTop: HDR_H + 8, paddingBottom: FOOTER_H + 6, paddingHorizontal: 12 },
+  // position:'absolute' on direct Page children is relative to the page edge (not content box)
+  header:   { position: 'absolute', top: 0, left: 0, right: 0, height: HDR_H, backgroundColor: CORAL, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20 },
+  hdrRight: { marginLeft: 'auto', alignItems: 'flex-end' },
+  hdrTitle: { fontFamily: 'Helvetica-Bold', fontSize: 20, color: WHITE },
+  hdrSub:   { fontSize: 10, color: '#FFDCD2', marginTop: 2 },
+  footer:   { position: 'absolute', bottom: 0, left: 0, right: 0, height: FOOTER_H, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 12, borderTopWidth: 0.3, borderTopColor: '#DCDCDC' },
+  footTxt:  { fontSize: 6, color: '#A0A0A5' },
+
+  // Two-col top
+  twoCol:   { flexDirection: 'row', marginBottom: 6 },
+  col:      { flex: 1 },
+  cName:    { fontFamily: 'Helvetica-Bold', fontSize: 13, color: INK, marginBottom: 3 },
+  addr:     { fontSize: 7.5, color: '#505055', marginBottom: 3 },
+  iRow:     { marginBottom: 4 },
+  iLbl:     { fontSize: 7, color: LT },
+  iVal:     { fontFamily: 'Helvetica-Bold', fontSize: 8, color: INK },
+
+  billHdr:  { fontFamily: 'Helvetica-Bold', fontSize: 9, color: '#8C1E1E', marginBottom: 5 },
+  billRow:  { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 },
+  billLbl:  { fontSize: 8, color: LT },
+  billVal:  { fontSize: 8, color: '#323235' },
+  billValB: { fontFamily: 'Helvetica-Bold', fontSize: 8, color: INK },
+
+  // Section header (dark bg)
+  secHdr:    { backgroundColor: DARK, paddingHorizontal: 3, paddingVertical: 5, marginTop: 6 },
+  secHdrTxt: { fontFamily: 'Helvetica-Bold', fontSize: 8.5, color: WHITE },
+
+  // Contract details
+  cdRow:  { flexDirection: 'row', marginTop: 5, marginBottom: 4 },
+  cdCol:  { flex: 1 },
+  cdItem: { marginBottom: 5 },
+  cdLbl:  { fontSize: 7, color: LT, marginBottom: 1 },
+  cdVal:  { fontSize: 8, color: INK },
+  cdValB: { fontFamily: 'Helvetica-Bold', fontSize: 8, color: INK },
+
+  // Table shared
+  tblHdr:    { flexDirection: 'row', backgroundColor: MED, paddingVertical: 4, paddingHorizontal: 2 },
+  tblHdrTxt: { fontFamily: 'Helvetica-Bold', fontSize: 6, color: WHITE },
+  tblRow:    { flexDirection: 'row', paddingHorizontal: 2 },
+  tblAlt:    { backgroundColor: ALT },
+  cellTxt:   { fontSize: 6, color: '#282828', paddingVertical: 3 },
+  cellPaid:  { fontSize: 6, color: '#226B22', paddingVertical: 3 },
+  cellUnpaid:{ fontSize: 6, color: '#B41E1E', paddingVertical: 3 },
+  cellPartial:{ fontSize: 6, color: '#785000', paddingVertical: 3 },
+  totRow:    { flexDirection: 'row', backgroundColor: TOT, paddingVertical: 4, paddingHorizontal: 2 },
+  totTxt:    { fontFamily: 'Helvetica-Bold', fontSize: 6, color: WHITE },
+
+  italic:    { fontFamily: 'Helvetica-Oblique', fontSize: 7, color: '#A0A0A5', paddingVertical: 5, textAlign: 'center' },
+  note:      { fontFamily: 'Helvetica-Oblique', fontSize: 6, color: '#828285', marginTop: 4 },
 });
 
-// ── SOA Document component ─────────────────────────────────────────────────────
+// ── Document component ────────────────────────────────────────────────────────
 
-interface Props {
+interface DocProps {
   res: SOAReservation;
   lines: SOALine[];
+  penalties: SOAPenaltyLine[];
+  arMap: Record<string, SOAArEntry[]>;
+  dailyRate: number;
   mailingAddress: string;
   logoSrc: string;
   generatedAt: string;
 }
 
-const SOADocument: React.FC<Props> = ({ res, lines, mailingAddress, logoSrc, generatedAt }) => {
-  const isHIC = (res.hic_discount ?? 0) > 0;
-  const cols = isHIC ? COLS_HIC : COLS_BASE;
-  const statusColIdx = isHIC ? 9 : 8;
+const SOADoc: React.FC<DocProps> = ({
+  res, lines, penalties, arMap, dailyRate, mailingAddress, logoSrc, generatedAt,
+}) => {
+  const isHIC  = (res.hic_discount ?? 0) > 0;
+  const isEmp  = (res.employee_discount_amount ?? 0) > 0;
+  const isNoTerm = res.payment_scheme === 'spot_cash' || res.payment_scheme === 'spot_dp';
 
-  const isPenaltyLine = (l: SOALine) => l.type_of_payment.toLowerCase().includes('penalty');
-
-  // Active non-penalty lines only (excludes Superseded + Cancelled)
+  const isPenalty = (l: SOALine) => l.type_of_payment.toLowerCase().includes('penalty');
   const schedLines = lines.filter(l =>
-    !isPenaltyLine(l) &&
+    !isPenalty(l) &&
     l.payment_status !== 'Superseded' &&
-    l.payment_status !== 'Cancelled'
+    l.payment_status !== 'Cancelled',
   );
 
-  const today    = new Date();
-  const todayStr = today.toISOString().split('T')[0];
+  const today     = new Date();
+  const todayStr  = today.toISOString().slice(0, 10);
+  const nextM     = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+  const nextMY    = nextM.getFullYear();
+  const nextMM    = nextM.getMonth() + 1;
 
-  // Next calendar month
-  const nextMonthDate = new Date(today.getFullYear(), today.getMonth() + 1, 1);
-  const nextMonthYear = nextMonthDate.getFullYear();
-  const nextMonthNum  = nextMonthDate.getMonth() + 1;
-
-  // Total billed = past due + next calendar month only
-  const billedLines = schedLines.filter(l => {
+  const billedLines  = schedLines.filter(l => {
     if (l.due_date <= todayStr) return true;
     const [y, m] = l.due_date.split('-').map(Number);
-    return y === nextMonthYear && m === nextMonthNum;
+    return y === nextMY && m === nextMM;
   });
-  const totalBilled = billedLines.reduce((s, l) => s + l.total_amount_due, 0);
-  const schedTotal  = schedLines.reduce((s, l) => s + l.total_amount_due, 0);
-  const totalPaid   = schedLines.reduce((s, l) => s + (l.amount_paid ?? 0), 0);
-  const amountDue   = Math.max(0, totalBilled - totalPaid);
-  const creditBal   = Math.max(0, totalPaid - totalBilled);
-
-  const DAILY_RATE  = 0.001;
-  const penCalc = schedLines
-    .filter(l => l.due_date < todayStr && l.payment_status !== 'Paid')
-    .map(l => {
-      const days = Math.floor((today.getTime() - new Date(l.due_date + 'T00:00:00').getTime()) / 86400000);
-      const basis = l.principal ?? l.total_amount_due;
-      return { ...l, daysOverdue: days, basis, penAmt: basis * days * DAILY_RATE };
-    });
-  const totalPenalty = penCalc.reduce((s, p) => s + p.penAmt, 0);
+  const totalBilled  = billedLines.reduce((s, l) => s + l.total_amount_due, 0);
+  const schedTotal   = schedLines.reduce((s, l) => s + l.total_amount_due, 0);
+  const totalPaid    = schedLines.reduce((s, l) => s + (l.amount_paid ?? 0), 0);
+  const amountDue    = Math.max(0, totalBilled - totalPaid);
+  const creditBal    = Math.max(0, totalPaid - totalBilled);
+  const totalPenalty = penalties.filter(p => ['Unpaid', 'Partial'].includes(p.payment_status))
+    .reduce((s, p) => s + (p.penalty_amount ?? 0), 0);
   const totalAmtDue  = amountDue + totalPenalty;
   const nextUnpaid   = schedLines.find(l => l.payment_status !== 'Paid');
+  const totalPenAll  = penalties.reduce((s, p) => s + (p.penalty_amount ?? 0), 0);
 
-  const getLineCols = (l: SOALine): string[] =>
-    isHIC
-      ? [l.type_of_payment, fmtD(l.due_date), fmtN(l.principal), fmtN(l.vat), fmtN(l.other_charges), fmtN(l.hic), fmtN(l.total_amount_due), fmtN(l.amount_paid), fmtD(l.posting_date), l.payment_status, l.acknowledgement_receipt_no ?? '—', fmtD(l.check_date)]
-      : [l.type_of_payment, fmtD(l.due_date), fmtN(l.principal), fmtN(l.vat), fmtN(l.other_charges), fmtN(l.total_amount_due), fmtN(l.amount_paid), fmtD(l.posting_date), l.payment_status, l.acknowledgement_receipt_no ?? '—', fmtD(l.check_date)];
+  const staticCols = isHIC ? SCHED_STATIC_HIC : SCHED_STATIC_BASE;
 
   const statusStyle = (v: string) =>
-    v === 'Paid' ? S.tblPaid : v === 'Unpaid' ? S.tblUnpaid : v === 'Partial' ? S.tblPartial : S.tblTxt;
-
-  // Totals values: start after Description + Due Date columns
-  const totVals = isHIC
-    ? [fmtN(schedLines.reduce((s,l)=>s+(l.principal??0),0)), fmtN(schedLines.reduce((s,l)=>s+(l.vat??0),0)), fmtN(schedLines.reduce((s,l)=>s+(l.other_charges??0),0)), fmtN(schedLines.reduce((s,l)=>s+(l.hic??0),0)), fmtN(schedTotal), fmtN(totalPaid)]
-    : [fmtN(schedLines.reduce((s,l)=>s+(l.principal??0),0)), fmtN(schedLines.reduce((s,l)=>s+(l.vat??0),0)), fmtN(schedLines.reduce((s,l)=>s+(l.other_charges??0),0)), fmtN(schedTotal), fmtN(totalPaid)];
-
-  const totDataStart = 2; // skip Description + Due Date
-  const totDataEnd   = totDataStart + totVals.length;
-  const trailFlex    = cols.slice(totDataEnd).reduce((s, c) => s + c.flex, 0);
+    v === 'Paid' ? S.cellPaid : v === 'Unpaid' ? S.cellUnpaid : v === 'Partial' ? S.cellPartial : S.cellTxt;
 
   return (
     <Document>
-      <Page size="A4" orientation="landscape" style={S.page}>
+      <Page size="A4" style={S.page}>
 
         {/* ── Fixed header ── */}
-        <View fixed style={S.hdr}>
-          {logoSrc ? <Image src={logoSrc} style={S.logo} /> : null}
+        <View fixed style={S.header}>
+          {logoSrc ? (
+            <Image src={logoSrc} style={{ height: 44 }} />
+          ) : null}
           <View style={S.hdrRight}>
             <Text style={S.hdrTitle}>STATEMENT OF ACCOUNT</Text>
             <Text style={S.hdrSub}>{res.reservation_id}</Text>
@@ -225,47 +260,48 @@ const SOADocument: React.FC<Props> = ({ res, lines, mailingAddress, logoSrc, gen
         {/* ── Fixed footer ── */}
         <View fixed style={S.footer}>
           <Text style={S.footTxt}>Generated: {generatedAt}</Text>
-          <Text style={S.footTxt} render={({ pageNumber, totalPages }) => `Page ${pageNumber} of ${totalPages}`} />
+          <Text
+            style={S.footTxt}
+            render={({ pageNumber, totalPages }) => `Page ${pageNumber} of ${totalPages}`}
+          />
         </View>
 
-        {/* ── Body ── */}
-        <View style={S.body}>
+        {/* ── Body (no wrapper — Page padding handles header/footer clearance on every page) ── */}
+        <>
 
           {/* Two-column: client info + billing */}
           <View style={S.twoCol}>
 
-            {/* Left — client info */}
+            {/* Left — client */}
             <View style={S.col}>
               <Text style={S.cName}>{res.client_name}</Text>
               {mailingAddress ? <Text style={S.addr}>{mailingAddress}</Text> : null}
-              <View style={{ marginTop: 4 }}>
-                {([
-                  ['Client Code',    res.client_id      ?? '—'],
-                  ['Reservation ID', res.reservation_id],
-                  ['Project',        res.project],
-                  ['Tower',          res.tower          ?? '—'],
-                  ['Inventory Code', res.inventory_code ?? '—'],
-                ] as [string, string][]).map(([lbl, val]) => (
-                  <View key={lbl}>
-                    <Text style={S.iLbl}>{lbl}</Text>
-                    <Text style={S.iVal}>{val}</Text>
-                  </View>
-                ))}
-              </View>
+              {([
+                ['Client Code',    res.client_id      ?? '—'],
+                ['Reservation ID', res.reservation_id],
+                ['Project',        res.project],
+                ['Tower',          res.tower          ?? '—'],
+                ['Inventory Code', res.inventory_code ?? '—'],
+              ] as [string, string][]).map(([lbl, val]) => (
+                <View key={lbl} style={S.iRow}>
+                  <Text style={S.iLbl}>{lbl}</Text>
+                  <Text style={S.iVal}>{val}</Text>
+                </View>
+              ))}
             </View>
 
             {/* Right — billing details */}
             <View style={S.col}>
               <Text style={S.billHdr}>BILLING DETAILS</Text>
               {([
-                ['Statement Date',      fmtD(todayStr),                false],
-                ['Total Billed Amount', `PHP ${fmtN(totalBilled)}`,    false],
-                ['Total Payments Made', `PHP ${fmtN(totalPaid)}`,      false],
-                ['Amount Due',          `PHP ${fmtN(amountDue)}`,      true ],
-                ['Penalties',           `PHP ${fmtN(totalPenalty)}`,   false],
-                ['Total Amount Due',    `PHP ${fmtN(totalAmtDue)}`,    true ],
-                ['Due Date',            fmtD(nextUnpaid?.due_date),    true ],
-                ['Credit Balance',      `PHP ${fmtN(creditBal)}`,      true ],
+                ['Statement Date',      fmtD(todayStr),              false],
+                ['Total Billed Amount', `PHP ${fmtN(totalBilled)}`,  false],
+                ['Total Payments Made', `PHP ${fmtN(totalPaid)}`,    false],
+                ['Amount Due',          `PHP ${fmtN(amountDue)}`,    true ],
+                ['Penalties',           `PHP ${fmtN(totalPenalty)}`, false],
+                ['Total Amount Due',    `PHP ${fmtN(totalAmtDue)}`,  true ],
+                ['Due Date',            fmtD(nextUnpaid?.due_date),  true ],
+                ['Credit Balance',      `PHP ${fmtN(creditBal)}`,    true ],
               ] as [string, string, boolean][]).map(([lbl, val, bold]) => (
                 <View key={lbl} style={S.billRow}>
                   <Text style={S.billLbl}>{lbl}</Text>
@@ -280,97 +316,164 @@ const SOADocument: React.FC<Props> = ({ res, lines, mailingAddress, logoSrc, gen
             <Text style={S.secHdrTxt}>CONTRACT DETAILS</Text>
           </View>
           <View style={S.cdRow}>
-            {([
-              ['Net List Price (incl. VAT)', `PHP ${fmtN((res.net_list_price ?? 0) + (res.vat ?? 0))}`, false],
-              ['Other Charges',              `PHP ${fmtN(res.other_charges)}`,                           false],
-              ...(isHIC ? [['Home Improvement Contract', `PHP ${fmtN(res.hic_discount)}`, false]] : []),
-              ['Total Contract Price',       `PHP ${fmtN(res.total_contract_price)}`,                    true ],
-              ['Remaining Balance',          `PHP ${fmtN(Math.max(0, (res.total_contract_price ?? 0) - totalPaid))}`, false],
-              ['Payterm Scheme',             res.scheme_name ?? '—',                                     false],
-              ['Term',                       res.term_months != null ? `${res.term_months} months` : '—', false],
-            ] as [string, string, boolean][]).map(([lbl, val, bold]) => (
-              <View key={lbl} style={S.cdItem}>
-                <Text style={S.cdLbl}>{lbl}</Text>
-                <Text style={bold ? S.cdValB : S.cdVal}>{val}</Text>
-              </View>
-            ))}
+            <View style={S.cdCol}>
+              {([
+                ['Net List Price (incl. VAT)', `PHP ${fmtN((res.net_list_price ?? 0) + (res.vat ?? 0))}`, false],
+                ['Other Charges',              `PHP ${fmtN(res.other_charges)}`,                           false],
+                ...(isHIC  ? [['Home Improvement Contract', `PHP ${fmtN(res.hic_discount)}`, false]] : []),
+                ...(isEmp  ? [['Employee Discount',         `PHP ${fmtN(res.employee_discount_amount)}`, false]] : []),
+                ['Total Contract Price',       `PHP ${fmtN(res.total_contract_price)}`,                    true ],
+              ] as [string, string, boolean][]).map(([lbl, val, bold]) => (
+                <View key={lbl} style={S.cdItem}>
+                  <Text style={S.cdLbl}>{lbl}</Text>
+                  <Text style={bold ? S.cdValB : S.cdVal}>{val}</Text>
+                </View>
+              ))}
+            </View>
+            <View style={S.cdCol}>
+              {([
+                ['Remaining Balance', `PHP ${fmtN(Math.max(0, (res.total_contract_price ?? 0) - totalPaid))}`, false],
+                ['Payterm Scheme',    res.scheme_name ?? '—',                                                    false],
+                ...(!isNoTerm ? [['Term', res.term_months != null ? `${res.term_months} months` : '—', false]] : []),
+              ] as [string, string, boolean][]).map(([lbl, val, bold]) => (
+                <View key={lbl} style={S.cdItem}>
+                  <Text style={S.cdLbl}>{lbl}</Text>
+                  <Text style={bold ? S.cdValB : S.cdVal}>{val}</Text>
+                </View>
+              ))}
+            </View>
           </View>
 
           {/* ── SCHEDULE OF PAYMENT ── */}
-          <View style={S.secHdr}>
+          <View style={S.secHdr} break={false}>
             <Text style={S.secHdrTxt}>SCHEDULE OF PAYMENT</Text>
           </View>
 
           {/* Table header */}
           <View style={S.tblHdr}>
-            {cols.map(c => (
+            {staticCols.map(c => (
               <Text key={c.label} style={[S.tblHdrTxt, { flex: c.flex }]}>{c.label}</Text>
             ))}
+            <View style={{ flex: AR_FLEX, flexDirection: 'row' }}>
+              {AR_COLS.map(c => (
+                <Text key={c.label} style={[S.tblHdrTxt, { flex: c.flex }]}>{c.label}</Text>
+              ))}
+            </View>
           </View>
 
           {/* Table rows */}
           {schedLines.map((ln, idx) => {
-            const vals = getLineCols(ln);
+            const arEntries: SOAArEntry[] = arMap[ln.id]?.length > 0
+              ? arMap[ln.id]
+              : [{ pmt_date: ln.transaction_date ?? ln.posting_date ?? null, ar_no: ln.acknowledgement_receipt_no ?? null, ar_date: ln.posting_date ?? null }];
+
+            const staticVals = isHIC
+              ? [ln.type_of_payment, fmtD(ln.due_date), fmtN(ln.principal), fmtN(ln.vat), fmtN(ln.other_charges), fmtN(ln.hic), fmtN(ln.total_amount_due), fmtN(ln.amount_paid), ln.payment_status]
+              : [ln.type_of_payment, fmtD(ln.due_date), fmtN(ln.principal), fmtN(ln.vat), fmtN(ln.other_charges), fmtN(ln.total_amount_due), fmtN(ln.amount_paid), ln.payment_status];
+
+            const statusIdx = staticCols.length - 1;
+
             return (
-              <View key={ln.id} style={[S.tblRow, idx % 2 === 0 ? S.tblRowAlt : {}]}>
-                {cols.map((col, i) => (
-                  <Text key={col.label} style={[i === statusColIdx ? statusStyle(vals[i]) : S.tblTxt, { flex: col.flex }]}>
-                    {vals[i]}
+              <View key={ln.id} style={[S.tblRow, idx % 2 === 0 ? S.tblAlt : {}]} wrap={false}>
+                {staticCols.map((c, i) => (
+                  <Text key={c.label} style={[i === statusIdx ? statusStyle(staticVals[i]) : S.cellTxt, { flex: c.flex }]}>
+                    {staticVals[i]}
                   </Text>
                 ))}
+                {/* Stacked AR entries */}
+                <View style={{ flex: AR_FLEX, flexDirection: 'column' }}>
+                  {arEntries.map((entry, ei) => (
+                    <View key={ei} style={{ flexDirection: 'row' }}>
+                      {([fmtD(entry.pmt_date), entry.ar_no ?? '—', fmtD(entry.ar_date)] as string[]).map((val, ai) => (
+                        <Text key={ai} style={[S.cellTxt, { flex: AR_COLS[ai].flex }]}>{val}</Text>
+                      ))}
+                    </View>
+                  ))}
+                </View>
               </View>
             );
           })}
 
           {/* Totals row */}
           <View style={S.totRow}>
-            <Text style={[S.totTxt, { flex: cols[0].flex + cols[1].flex }]}>TOTAL</Text>
-            {totVals.map((val, i) => (
-              <Text key={i} style={[S.totTxt, { flex: cols[totDataStart + i].flex }]}>{val}</Text>
+            <Text style={[S.totTxt, { flex: staticCols[0].flex + staticCols[1].flex }]}>TOTAL</Text>
+            {(isHIC
+              ? [
+                  schedLines.reduce((s, l) => s + (l.principal ?? 0), 0),
+                  schedLines.reduce((s, l) => s + (l.vat ?? 0), 0),
+                  schedLines.reduce((s, l) => s + (l.other_charges ?? 0), 0),
+                  schedLines.reduce((s, l) => s + (l.hic ?? 0), 0),
+                  schedTotal,
+                  totalPaid,
+                ]
+              : [
+                  schedLines.reduce((s, l) => s + (l.principal ?? 0), 0),
+                  schedLines.reduce((s, l) => s + (l.vat ?? 0), 0),
+                  schedLines.reduce((s, l) => s + (l.other_charges ?? 0), 0),
+                  schedTotal,
+                  totalPaid,
+                ]
+            ).map((val, i) => (
+              <Text key={i} style={[S.totTxt, { flex: staticCols[i + 2].flex }]}>{fmtN(val)}</Text>
             ))}
-            {trailFlex > 0 && <Text style={[S.totTxt, { flex: trailFlex }]}> </Text>}
           </View>
 
           {/* ── PENALTIES ── */}
           <View style={S.secHdr}>
             <Text style={S.secHdrTxt}>PENALTIES</Text>
           </View>
+
+          {/* Penalty table header */}
           <View style={S.tblHdr}>
             {PEN_COLS.map(c => (
               <Text key={c.label} style={[S.tblHdrTxt, { flex: c.flex }]}>{c.label}</Text>
             ))}
           </View>
-          {penCalc.length === 0
-            ? <Text style={S.italic}>No penalties</Text>
-            : penCalc.map((pl, idx) => (
-              <View key={pl.id} style={[S.tblRow, idx % 2 === 0 ? S.tblRowAlt : {}]}>
-                {[
-                  { flex: 1.5, val: fmtD(pl.due_date) },
-                  { flex: 1.1, val: String(pl.daysOverdue) },
-                  { flex: 0.9, val: '0.1%/day' },
-                  { flex: 1.5, val: fmtN(pl.basis) },
-                  { flex: 1.5, val: fmtN(pl.penAmt) },
-                  { flex: 0.9, val: pl.payment_status },
-                ].map((cell, i) => (
-                  <Text key={i} style={[S.tblTxt, { flex: cell.flex }]}>{cell.val}</Text>
-                ))}
+
+          {/* Penalty rows */}
+          {penalties.length === 0 ? (
+            <Text style={S.italic}>No penalty lines found for this reservation.</Text>
+          ) : (
+            penalties.map((p, idx) => (
+              <View key={p.id} style={[S.tblRow, idx % 2 === 0 ? S.tblAlt : {}]} wrap={false}>
+                <Text style={[S.cellTxt, { flex: PEN_COLS[0].flex, textAlign: 'center' }]}>{fmtD(p.original_due_date)}</Text>
+                <Text style={[S.cellTxt, { flex: PEN_COLS[1].flex, textAlign: 'center' }]}>{String(p.days_overdue ?? 0)}</Text>
+                <Text style={[S.cellTxt, { flex: PEN_COLS[2].flex, textAlign: 'center' }]}>{(((p.daily_rate ?? dailyRate) * 100).toFixed(2))}%</Text>
+                <Text style={[S.cellTxt, { flex: PEN_COLS[3].flex, textAlign: 'right' }]}>{fmtN(p.balance_receivables ?? 0)}</Text>
+                <Text style={[S.cellTxt, { flex: PEN_COLS[4].flex, textAlign: 'right' }]}>{fmtN(p.penalty_amount ?? 0)}</Text>
+                <Text style={[S.cellTxt, { flex: PEN_COLS[5].flex, textAlign: 'right' }]}>{p.collection ? fmtN(p.collection) : '—'}</Text>
+                <Text style={[S.cellTxt, { flex: PEN_COLS[6].flex, textAlign: 'center' }]}>{p.payment_status ?? '—'}</Text>
+                <Text style={[S.cellTxt, { flex: PEN_COLS[7].flex, textAlign: 'center' }]}>{p.remarks ?? '—'}</Text>
+                <Text style={[S.cellTxt, { flex: PEN_COLS[8].flex, textAlign: 'center' }]}>{p.ar_no ?? '—'}</Text>
+                <Text style={[S.cellTxt, { flex: PEN_COLS[9].flex, textAlign: 'center' }]}>{fmtD(p.ar_date)}</Text>
               </View>
             ))
-          }
-          <Text style={S.note}>*effectively 3% per month</Text>
+          )}
 
-        </View>
+          {/* Penalty totals */}
+          <View style={S.totRow}>
+            <Text style={[S.totTxt, { flex: PEN_COLS.slice(0, 4).reduce((s, c) => s + c.flex, 0) }]}>TOTAL PENALTIES</Text>
+            <Text style={[S.totTxt, { flex: PEN_COLS[4].flex, textAlign: 'right' }]}>{fmtN(totalPenAll)}</Text>
+            <Text style={[S.totTxt, { flex: PEN_COLS.slice(5).reduce((s, c) => s + c.flex, 0) }]}> </Text>
+          </View>
+
+          <Text style={S.note}>*Effective {(dailyRate * 30 * 100).toFixed(2)}% per month</Text>
+
+        </>
       </Page>
     </Document>
   );
 };
 
-// ── Public API ─────────────────────────────────────────────────────────────────
+// ── Public API ────────────────────────────────────────────────────────────────
 
 export async function renderSOAToBase64(
   res: SOAReservation,
   lines: SOALine[],
   mailingAddress: string,
+  penalties: SOAPenaltyLine[],
+  arMap: Record<string, SOAArEntry[]>,
+  dailyRate: number,
 ): Promise<string> {
   let logoSrc = '';
   try {
@@ -384,16 +487,18 @@ export async function renderSOAToBase64(
   });
 
   const element = (
-    <SOADocument res={res} lines={lines} mailingAddress={mailingAddress} logoSrc={logoSrc} generatedAt={generatedAt} />
+    <SOADoc
+      res={res}
+      lines={lines}
+      penalties={penalties}
+      arMap={arMap}
+      dailyRate={dailyRate}
+      mailingAddress={mailingAddress}
+      logoSrc={logoSrc}
+      generatedAt={generatedAt}
+    />
   );
 
-  // Collect PDF bytes from the Node.js readable stream
-  const stream = await (pdf(element) as any).toStream() as NodeJS.ReadableStream;
-  const chunks: Buffer[] = [];
-  await new Promise<void>((resolve, reject) => {
-    stream.on('data', (chunk: any) => chunks.push(Buffer.from(chunk)));
-    stream.on('end', resolve);
-    stream.on('error', reject);
-  });
-  return Buffer.concat(chunks).toString('base64');
+  const buffer = await renderToBuffer(element);
+  return buffer.toString('base64');
 }

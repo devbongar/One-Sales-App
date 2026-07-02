@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { renderSOAToBase64, type SOAReservation, type SOALine } from '@/lib/soa-pdf-server';
+import { renderSOAToBase64, type SOAReservation, type SOALine, type SOAPenaltyLine, type SOAArEntry } from '@/lib/soa-pdf-server';
 
 const adminClient = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -288,7 +288,7 @@ async function fetchCohortReservations(targetDate: string): Promise<any[]> {
 
   const { data: reservations } = await adminClient
     .from('reservations')
-    .select('reservation_id, client_id, client_name, project, tower, inventory_code, scheme_name, term_months, net_list_price, vat, other_charges, total_contract_price, hic_discount, broker_id, broker_network_associate_id, seller_id, sales_manager_id, sales_director_id, sales_division_head_id, sales_head_id')
+    .select('reservation_id, client_id, client_name, project, tower, inventory_code, scheme_name, payment_scheme, term_months, net_list_price, vat, other_charges, total_contract_price, hic_discount, employee_discount_amount, broker_id, broker_network_associate_id, seller_id, sales_manager_id, sales_director_id, sales_division_head_id, sales_head_id')
     .in('reservation_id', reservationIds)
     .eq('status', 'Booked');
 
@@ -372,8 +372,61 @@ async function processReservation(
       .eq('reservation_id', res.reservation_id)
       .order('due_date');
 
+    // Step 6b: Fetch penalty lines for PDF
+    const { data: penaltyLines } = await adminClient
+      .from('penalty_lines')
+      .select('id, original_due_date, days_overdue, daily_rate, balance_receivables, penalty_amount, collection, payment_status, remarks, ar_no, ar_date')
+      .eq('reservation_id', res.reservation_id)
+      .order('original_due_date');
+
+    // Step 6c: Build AR map from collection_applications → collections
+    const arMap: Record<string, SOAArEntry[]> = {};
+    const schedLineIds = (allLines ?? [])
+      .filter((l: any) => !l.type_of_payment?.toLowerCase().includes('penalty') && l.payment_status !== 'Superseded' && l.payment_status !== 'Cancelled')
+      .map((l: any) => l.id as string);
+    if (schedLineIds.length > 0) {
+      const { data: apps } = await adminClient
+        .from('collection_applications')
+        .select('receivable_line_id, collection_id')
+        .in('receivable_line_id', schedLineIds);
+      if (apps && (apps as any[]).length > 0) {
+        const colIds = [...new Set((apps as any[]).map((a: any) => a.collection_id as string))];
+        const { data: cols } = await adminClient
+          .from('collections')
+          .select('id, acknowledgement_receipt_no, posting_date, transaction_date')
+          .in('id', colIds);
+        const colById: Record<string, any> = {};
+        for (const c of (cols ?? []) as any[]) colById[c.id] = c;
+        for (const app of apps as any[]) {
+          const col = colById[(app as any).collection_id];
+          if (!col) continue;
+          const lineId = (app as any).receivable_line_id as string;
+          if (!arMap[lineId]) arMap[lineId] = [];
+          arMap[lineId].push({
+            pmt_date: col.transaction_date ?? col.posting_date ?? null,
+            ar_no: col.acknowledgement_receipt_no ?? null,
+            ar_date: col.posting_date ?? null,
+          });
+        }
+        for (const id of Object.keys(arMap)) {
+          arMap[id].sort((a, b) => (a.ar_date ?? '').localeCompare(b.ar_date ?? ''));
+        }
+      }
+    }
+
+    // Step 6d: Fetch daily rate from app_settings
+    const { data: rateRow } = await adminClient.from('app_settings').select('value').eq('key', 'penalty_daily_rate').maybeSingle();
+    const dailyRate = parseFloat((rateRow as any)?.value ?? '0.001') || 0.001;
+
     // Step 7: Generate SOA PDF
-    const pdfBase64 = await renderSOAToBase64(res as SOAReservation, (allLines ?? []) as SOALine[], mailingAddress);
+    const pdfBase64 = await renderSOAToBase64(
+      res as SOAReservation,
+      (allLines ?? []) as SOALine[],
+      mailingAddress,
+      (penaltyLines ?? []) as SOAPenaltyLine[],
+      arMap,
+      dailyRate,
+    );
 
     // Step 8: Build email from policy template
     const vars: Record<string, string> = {
@@ -564,7 +617,7 @@ export async function POST(req: NextRequest) {
     } else {
       const { data } = await adminClient.from('soa_notices')
         .select('id, reservation_id, client_id, client_name, target_date')
-        .eq('email_status', 'failed');
+        .in('email_status', ['failed', 'queued']);
       toResend = data ?? [];
     }
 
@@ -590,7 +643,7 @@ export async function POST(req: NextRequest) {
     for (const notice of toResend as any[]) {
       const { data: resData } = await adminClient
         .from('reservations')
-        .select('reservation_id, client_id, client_name, project, tower, inventory_code, scheme_name, term_months, net_list_price, vat, other_charges, total_contract_price, hic_discount, broker_id, broker_network_associate_id, seller_id, sales_manager_id, sales_director_id, sales_division_head_id, sales_head_id')
+        .select('reservation_id, client_id, client_name, project, tower, inventory_code, scheme_name, payment_scheme, term_months, net_list_price, vat, other_charges, total_contract_price, hic_discount, employee_discount_amount, broker_id, broker_network_associate_id, seller_id, sales_manager_id, sales_director_id, sales_division_head_id, sales_head_id')
         .eq('reservation_id', notice.reservation_id).maybeSingle();
       if (!resData) { failed++; errors.push(`${notice.reservation_id}: reservation not found`); continue; }
 

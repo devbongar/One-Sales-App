@@ -253,6 +253,7 @@ export default function SettingsPage() {
   const [runningDryRun,    setRunningDryRun]    = useState(false);
   const [dryRunResult,     setDryRunResult]     = useState<DelDryRunItem[] | null>(null);
   const [failedNotices,    setFailedNotices]    = useState<any[]>([]);
+  const [queuedNotices,   setQueuedNotices]    = useState<any[]>([]);
   const [resendingFailed,  setResendingFailed]  = useState(false);
   const [automationHistory, setAutomationHistory] = useState<AutomationRun[]>([]);
   const [historyOpen,      setHistoryOpen]      = useState(false);
@@ -283,6 +284,7 @@ export default function SettingsPage() {
   const [runningSOADryRun,  setRunningSOADryRun]  = useState(false);
   const [soaDryRunResult,   setSoaDryRunResult]   = useState<{ reservation_id: string; client_name: string; inventory_code: string; target_date: string; has_client_email: boolean }[] | null>(null);
   const [soaFailedNotices,  setSoaFailedNotices]  = useState<any[]>([]);
+  const [soaQueuedNotices, setSoaQueuedNotices]  = useState<any[]>([]);
   const [resendingSOA,      setResendingSOA]      = useState(false);
   const [soaHistory,        setSoaHistory]        = useState<AutomationRun[]>([]);
   const [soaHistoryOpen,    setSoaHistoryOpen]    = useState(false);
@@ -390,6 +392,9 @@ export default function SettingsPage() {
     supabase.from('delinquency_notices').select('id, reservation_id, notice_type, email_error, updated_at').eq('email_status', 'failed').then(({ data }) => {
       setFailedNotices(data ?? []);
     });
+    supabase.from('delinquency_notices').select('id, reservation_id, notice_type, updated_at').eq('email_status', 'queued').then(({ data }) => {
+      setQueuedNotices(data ?? []);
+    });
     // Load SOA policy, history, and failed notices
     supabase.from('soa_policy').select('*').eq('id', 1).single().then(({ data }) => {
       if (!data) return;
@@ -405,6 +410,9 @@ export default function SettingsPage() {
     });
     supabase.from('soa_notices').select('id, reservation_id, client_name, target_date, email_error, updated_at').eq('email_status', 'failed').then(({ data }) => {
       setSoaFailedNotices(data ?? []);
+    });
+    supabase.from('soa_notices').select('id, reservation_id, client_name, target_date, updated_at').eq('email_status', 'queued').then(({ data }) => {
+      setSoaQueuedNotices(data ?? []);
     });
     // Resume any in-progress correction job
     try {
@@ -541,6 +549,12 @@ export default function SettingsPage() {
     setTimeout(() => setDelPolicySaved(false), 2500);
   };
 
+  const toggleDelAutomation = async () => {
+    const newVal = !delPolicy.automation_enabled;
+    setDelPolicy(p => ({ ...p, automation_enabled: newVal }));
+    await supabase.from('penalty_policy').update({ automation_enabled: newVal }).eq('id', 1);
+  };
+
   const saveDelEmailCfg = async () => {
     setSavingEmailCfg(true);
     await supabase.from('penalty_policy').update({ notice_email_config: delEmailCfg }).eq('id', 1);
@@ -556,6 +570,9 @@ export default function SettingsPage() {
     supabase.from('delinquency_notices').select('id, reservation_id, notice_type, email_error, updated_at').eq('email_status', 'failed').then(({ data }) => {
       setFailedNotices(data ?? []);
     });
+    supabase.from('delinquency_notices').select('id, reservation_id, notice_type, updated_at').eq('email_status', 'queued').then(({ data }) => {
+      setQueuedNotices(data ?? []);
+    });
   };
 
   const refreshSoaHistory = () => {
@@ -566,6 +583,9 @@ export default function SettingsPage() {
     supabase.from('soa_notices').select('id, reservation_id, client_name, target_date, email_error, updated_at').eq('email_status', 'failed').then(({ data }) => {
       setSoaFailedNotices(data ?? []);
     });
+    supabase.from('soa_notices').select('id, reservation_id, client_name, target_date, updated_at').eq('email_status', 'queued').then(({ data }) => {
+      setSoaQueuedNotices(data ?? []);
+    });
   };
 
   const saveSoaPolicy = async () => {
@@ -573,6 +593,12 @@ export default function SettingsPage() {
     await supabase.from('soa_policy').update({ automation_enabled: soaEnabled, run_hour: soaRunHour, grace_days: soaGraceDays }).eq('id', 1);
     setSavingSoaPolicy(false); setSoaPolicySaved(true);
     setTimeout(() => setSoaPolicySaved(false), 2500);
+  };
+
+  const toggleSoaAutomation = async () => {
+    const newVal = !soaEnabled;
+    setSoaEnabled(newVal);
+    await supabase.from('soa_policy').update({ automation_enabled: newVal }).eq('id', 1);
   };
 
   const saveSoaEmailCfg = async () => {
@@ -633,6 +659,7 @@ export default function SettingsPage() {
         body: JSON.stringify({ action: 'resend', ...(noticeIds ? { notice_ids: noticeIds } : {}) }),
       });
       refreshSoaHistory();
+      setSoaQueuedNotices([]);
     } catch {}
     setResendingSOA(false);
   };
@@ -695,6 +722,7 @@ export default function SettingsPage() {
         body: JSON.stringify({ action: 'resend', ...(noticeIds ? { notice_ids: noticeIds } : {}) }),
       });
       refreshDelHistory();
+      setQueuedNotices([]);
     } catch {}
     setResendingFailed(false);
   };
@@ -1623,7 +1651,7 @@ export default function SettingsPage() {
             <p className="text-[11px] text-[#8E8E93]">Auto-detect delinquent accounts and send staged notices to clients</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <span onClick={e => { e.stopPropagation(); setDelPolicy(p => ({ ...p, automation_enabled: !p.automation_enabled })); }}>
+            <span onClick={e => { e.stopPropagation(); toggleDelAutomation(); }}>
               {delPolicy.automation_enabled
                 ? <ToggleRight size={28} className="text-[#C03D25]" />
                 : <ToggleLeft  size={28} className="text-[#8E8E93]" />}
@@ -1902,6 +1930,35 @@ export default function SettingsPage() {
                 {runningDryRun ? 'Previewing…' : 'Dry Run'}
               </button>
             </div>
+            {/* Queued notices list */}
+            {queuedNotices.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wider">
+                  Queued Notices ({queuedNotices.length})
+                </p>
+                <div className="rounded-xl border border-[#E5E5EA] overflow-hidden divide-y divide-[#E5E5EA]">
+                  {queuedNotices.map((n: any) => (
+                    <div key={n.id} className="px-3 py-2 bg-[#FFFBF0] flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[11px] font-semibold text-[#1C1C1E]">{n.reservation_id}</p>
+                        <p className="text-[10px] text-[#8E8E93]">{n.notice_type?.replace(/_/g, ' ')}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => resendFailed()}
+              disabled={resendingFailed}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70 disabled:opacity-40"
+            >
+              {resendingFailed ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+              {resendingFailed ? 'Sending…' : 'Send Queued Notices'}
+            </button>
 
             {/* Dry run preview */}
             {dryRunResult !== null && (
@@ -2038,7 +2095,7 @@ export default function SettingsPage() {
             <p className="text-[11px] text-[#8E8E93]">Auto-generate and email SOA PDFs before the 15th and 30th due dates</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <span onClick={e => { e.stopPropagation(); setSoaEnabled(v => !v); }}>
+            <span onClick={e => { e.stopPropagation(); toggleSoaAutomation(); }}>
               {soaEnabled
                 ? <ToggleRight size={28} className="text-[#C03D25]" />
                 : <ToggleLeft  size={28} className="text-[#8E8E93]" />}
@@ -2244,6 +2301,34 @@ export default function SettingsPage() {
                 }
               </div>
             )}
+            {/* Queued SOA notices */}
+            {soaQueuedNotices.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-semibold text-[#8E8E93] uppercase tracking-wider">
+                  Queued ({soaQueuedNotices.length})
+                </p>
+                <div className="rounded-xl border border-[#E5E5EA] overflow-hidden divide-y divide-[#E5E5EA]">
+                  {soaQueuedNotices.map((n: any) => (
+                    <div key={n.id} className="px-3 py-2 bg-[#FFFBF0] flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[11px] font-semibold text-[#1C1C1E]">{n.reservation_id}</p>
+                        <p className="text-[10px] text-[#8E8E93]">{n.client_name} · due {n.target_date}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => resendSoaFailed()}
+              disabled={resendingSOA}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border border-[#E5E5EA] bg-[#F2F2F7] text-xs font-semibold text-[#1C1C1E] active:opacity-70 disabled:opacity-40"
+            >
+              {resendingSOA ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+              {resendingSOA ? 'Sending…' : 'Send Queued Notices'}
+            </button>
           </div>
 
           {/* ── Failed Notices ────────────────────────────────── */}
