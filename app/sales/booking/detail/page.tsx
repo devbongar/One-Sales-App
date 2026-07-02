@@ -1022,30 +1022,31 @@ export default function BookingDetailPage() {
                     </GlassCard>
                   )}
 
-                  {/* Commission schedule missing warning */}
-                  {commissionMissing && (
-                    <GlassCard className="px-4 py-4 flex items-start gap-3 bg-amber-50 border border-amber-200">
-                      <AlertTriangle size={18} className="text-amber-500 shrink-0 mt-0.5" />
-                      <div className="flex-1">
-                        <p className="text-sm font-bold text-amber-800">Commission Schedule Not Generated</p>
-                        <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">
-                          No commission tranching schedule is configured for this project and seller type. Contact admin to set it up, then tap Generate.
-                        </p>
-                        <button
-                          type="button"
-                          disabled={generatingCommission}
-                          onClick={handleGenerateCommission}
-                          className="mt-2.5 px-3 py-1.5 rounded-xl bg-amber-500 text-white text-xs font-bold active:opacity-80 disabled:opacity-50 flex items-center gap-1.5"
-                        >
-                          {generatingCommission
-                            ? <><Loader2 size={11} className="animate-spin" /> Generating...</>
-                            : 'Generate Now'
-                          }
-                        </button>
-                      </div>
-                    </GlassCard>
-                  )}
                 </>
+            )}
+
+            {/* Commission schedule missing warning — shown to All Access regardless of dirApproved */}
+            {commissionMissing && isAllAccess && (
+              <GlassCard className="px-4 py-4 flex items-start gap-3 bg-amber-50 border border-amber-200">
+                <AlertTriangle size={18} className="text-amber-500 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-bold text-amber-800">Commission Schedule Not Generated</p>
+                  <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">
+                    Commission schedule was not generated for this reservation. Tap Generate to create it now.
+                  </p>
+                  <button
+                    type="button"
+                    disabled={generatingCommission}
+                    onClick={handleGenerateCommission}
+                    className="mt-2.5 px-3 py-1.5 rounded-xl bg-amber-500 text-white text-xs font-bold active:opacity-80 disabled:opacity-50 flex items-center gap-1.5"
+                  >
+                    {generatingCommission
+                      ? <><Loader2 size={11} className="animate-spin" /> Generating...</>
+                      : 'Generate Now'
+                    }
+                  </button>
+                </div>
+              </GlassCard>
             )}
 
             {/* ── Activity Log (collapsible) ── */}
