@@ -443,6 +443,8 @@ export default function NewClientPage() {
     if (!form.email.trim())                 e.email                 = 'Email address is required';
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
                                             e.email                 = 'Enter a valid email address';
+    else if (await checkEmailExists(form.email))
+                                            e.email                 = 'This email is already registered';
     if (!form.reasonForBuying)              e.reasonForBuying       = 'Reason for buying is required';
     if (!form.sourceOfSale)                 e.sourceOfSale          = 'Source of sale is required';
     if (!form.monthlyHouseholdIncome)       e.monthlyHouseholdIncome = 'Monthly income is required';
