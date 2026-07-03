@@ -17,6 +17,16 @@ export async function fetchProjects() {
   }
 }
 
+export async function fetchProjectsWithIds(): Promise<{ name: string; project_id: string }[]> {
+  const { data, error } = await supabase
+    .from('projects')
+    .select('name, project_id')
+    .not('project_id', 'is', null)
+    .order('name');
+  if (error) throw error;
+  return (data ?? []) as { name: string; project_id: string }[];
+}
+
 export async function fetchTowers(projectName: string) {
   try {
     const { data, error } = await supabase.rpc('get_distinct_towers', {

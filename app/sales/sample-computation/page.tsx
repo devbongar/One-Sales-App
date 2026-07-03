@@ -4,7 +4,7 @@ import { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
-import { fetchProjects, fetchTowers, fetchFloorsByCategory, fetchUnitTypes, fetchInventoryUnits, InventoryUnit } from '@/lib/inventory';
+import { fetchProjects, fetchProjectsWithIds, fetchTowers, fetchFloorsByCategory, fetchUnitTypes, fetchInventoryUnits, InventoryUnit } from '@/lib/inventory';
 import { fetchAllPayterms, PaytermRecord } from '@/lib/paytems';
 import { fetchAllClients, ClientRecord, saveClient } from '@/lib/clients';
 import { generateQuotationPDF, ComparisonCard } from '@/lib/pdf-generators';
@@ -439,7 +439,8 @@ export default function SampleComputationPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Inventory data from DB
-  const [projects,       setProjects]       = useState<string[]>([]);
+  const [projects,        setProjects]        = useState<string[]>([]);
+  const [projectsWithIds, setProjectsWithIds] = useState<{ name: string; project_id: string }[]>([]);
   const [towers,         setTowers]         = useState<string[]>([]);
   const [floors,         setFloors]         = useState<string[]>([]);
   const [unitTypes,      setUnitTypes]      = useState<string[]>([]);
@@ -483,10 +484,13 @@ export default function SampleComputationPage() {
 
   const visibleProjects = useMemo(() => {
     if (!userSalesperson) return projects;
-    if (!userSalesperson.focus_project) return [];
-    const allowed = userSalesperson.focus_project.split(' | ').map(p => p.trim()).filter(Boolean);
-    return projects.filter(p => allowed.includes(p));
-  }, [userSalesperson, projects]);
+    const focusIds = userSalesperson.focus_project_ids
+      ? new Set(userSalesperson.focus_project_ids.split(' | ').map(s => s.trim()).filter(Boolean))
+      : null;
+    if (!focusIds || focusIds.size === 0) return [];
+    const nameToId = new Map(projectsWithIds.map(p => [p.name, p.project_id]));
+    return projects.filter(name => { const id = nameToId.get(name); return id ? focusIds.has(id) : false; });
+  }, [userSalesperson, projects, projectsWithIds]);
 
   // Fetch reservation fee, VAT threshold & HIC target when selected unit changes; auto-set HIC
   useEffect(() => {
@@ -561,8 +565,9 @@ export default function SampleComputationPage() {
     const load = async () => {
       try {
         setLoading(true);
-        const list = await fetchProjects();
+        const [list, withIds] = await Promise.all([fetchProjects(), fetchProjectsWithIds()]);
         setProjects(list);
+        setProjectsWithIds(withIds);
         const prefill = sessionStorage.getItem('sc_prefill_project');
         if (prefill) {
           sessionStorage.removeItem('sc_prefill_project');

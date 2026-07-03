@@ -363,6 +363,16 @@ function DetailSheet({ record, hasAccount, onClose, onSaved }: {
           return;
         }
       }
+      // Sync broker_focus_projects junction table
+      if (record.personnel_id) {
+        await supabase.from('broker_focus_projects').delete().eq('personnel_id', record.personnel_id);
+        const names = (form.focus_project ?? '').split(' | ').map((s: string) => s.trim()).filter(Boolean);
+        if (names.length > 0) {
+          const { data: projRows } = await supabase.from('projects').select('project_id, name').in('name', names);
+          const rows = (projRows ?? []).map((p: any) => ({ personnel_id: record.personnel_id, project_id: p.project_id }));
+          if (rows.length > 0) await supabase.from('broker_focus_projects').insert(rows);
+        }
+      }
       const { error: updErr } = await supabase
         .from('broker_personnel')
         .update({
@@ -729,6 +739,13 @@ function AddSheet({ allRecords, onClose, onAdded }: {
         .select('id')
         .single();
       if (insErr) throw insErr;
+      // Sync broker_focus_projects junction table for new record
+      const bfpNames = (form.focus_project ?? '').split(' | ').map((s: string) => s.trim()).filter(Boolean);
+      if (bfpNames.length > 0) {
+        const { data: bfpProjRows } = await supabase.from('projects').select('project_id, name').in('name', bfpNames);
+        const bfpRows = (bfpProjRows ?? []).map((p: any) => ({ personnel_id: personnelId, project_id: p.project_id }));
+        if (bfpRows.length > 0) await supabase.from('broker_focus_projects').insert(bfpRows);
+      }
       onAdded({ ...form, personnel_id: personnelId, id: (inserted as any).id });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to save. Please try again.');

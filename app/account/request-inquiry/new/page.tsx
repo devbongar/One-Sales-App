@@ -436,11 +436,15 @@ export default function NewRequestPage() {
     try {
       const session = await getSession();
       const isBrf = isBrfType(typeOfRequest);
+      const { data: riProjRow } = await supabase
+        .from('projects').select('project_id').eq('name', buyer.project ?? '').maybeSingle();
+      const riProjectId = (riProjRow as any)?.project_id ?? null;
       const { data: inserted, error } = await supabase.from('requests_and_inquiries').insert({
         reservation_id:    buyer.reservation_id,
         client_id:         buyer.client_id,
         client_name:       buyer.client_name,
         project_name:      buyer.project,
+        project_id:        riProjectId,
         inventory_code:    buyer.inventory_code,
         type_of_request:   typeOfRequest,
         sub_type:          hasSubTypes ? subType || null : null,

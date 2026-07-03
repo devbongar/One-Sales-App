@@ -900,6 +900,19 @@ export default function SettingsPage() {
         </GlassCard>
       </Link>
 
+      <Link href="/settings/broker-overrides">
+        <GlassCard className="px-4 py-3.5 flex items-center gap-3 active:opacity-75">
+          <div className="w-9 h-9 rounded-xl bg-[#C03D25]/10 flex items-center justify-center shrink-0">
+            <Calendar size={16} className="text-[#C03D25]" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-[#1C1C1E]">Broker Commission Overrides</p>
+            <p className="text-xs text-[#8E8E93] mt-0.5">Per-broker flat rate override per project and product type</p>
+          </div>
+          <ChevronRight size={16} className="text-[#C7C7CC] shrink-0" />
+        </GlassCard>
+      </Link>
+
       {/* ── Penalty Settings ──────────────────────────────── */}
       <GlassCard className="p-5 space-y-4">
         <div className="flex items-center gap-2.5">

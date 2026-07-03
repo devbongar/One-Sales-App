@@ -92,60 +92,59 @@ export async function generateCommissionSchedule(reservationId: string): Promise
   const targets: Target[] = [];
 
   if (rec.seller_type === 'In-house') {
-    // Look up chain by seller_id (stable, name-independent)
-    const { data: sellerRow } = await supabase
-      .from('Salesperson')
-      .select('"Sales Manager", "Sales Manager ID", "Sales Director", "Sales Director ID", "Sales Division Head", "Sales Division Head ID", "Sales Head", "Sales Head ID"')
-      .eq('"Seller Id"', rec.seller_id)
-      .maybeSingle();
+    const { data: rows, error: hierarchyError } = await supabase.rpc('get_salesperson_hierarchy', { p_seller_id: rec.seller_id });
+    if (hierarchyError) throw hierarchyError;
+    const h = (rows ?? [])[0] as any ?? null;
 
-    const smName  = (sellerRow as any)?.['Sales Manager']         as string | null ?? null;
-    const smId    = (sellerRow as any)?.['Sales Manager ID']      as string | null ?? null;
-    const sdName  = (sellerRow as any)?.['Sales Director']        as string | null ?? null;
-    const sdId    = (sellerRow as any)?.['Sales Director ID']     as string | null ?? null;
-    const sdhName = (sellerRow as any)?.['Sales Division Head']   as string | null ?? null;
-    const sdhId   = (sellerRow as any)?.['Sales Division Head ID'] as string | null ?? null;
-    const shName  = (sellerRow as any)?.['Sales Head']            as string | null ?? null;
-    const shId    = (sellerRow as any)?.['Sales Head ID']         as string | null ?? null;
+    const smName  = h?.sales_manager          as string | null ?? null;
+    const smId    = h?.sales_manager_id       as string | null ?? null;
+    const sdName  = h?.sales_director         as string | null ?? null;
+    const sdId    = h?.sales_director_id      as string | null ?? null;
+    const sdhName = h?.sales_division_head    as string | null ?? null;
+    const sdhId   = h?.sales_division_head_id as string | null ?? null;
+    const shName  = h?.sales_head             as string | null ?? null;
+    const shId    = h?.sales_head_id          as string | null ?? null;
 
     if (rec.position_rank === 'PS') {
       targets.push({ name: rec.seller_name!, sellerId: rec.seller_id, positionRank: 'PS' });
-      if (smName)  targets.push({ name: smName,  sellerId: smId,  positionRank: 'SM'  });
-      if (sdName)  targets.push({ name: sdName,  sellerId: sdId,  positionRank: 'SD'  });
-      if (sdhName) targets.push({ name: sdhName, sellerId: sdhId, positionRank: 'SDH' });
-      if (shName)  targets.push({ name: shName,  sellerId: shId,  positionRank: 'SH'  });
+      if (smId)  targets.push({ name: smName  ?? smId,  sellerId: smId,  positionRank: 'SM'  });
+      if (sdId)  targets.push({ name: sdName  ?? sdId,  sellerId: sdId,  positionRank: 'SD'  });
+      if (sdhId) targets.push({ name: sdhName ?? sdhId, sellerId: sdhId, positionRank: 'SDH' });
+      if (shId)  targets.push({ name: shName  ?? shId,  sellerId: shId,  positionRank: 'SH'  });
     } else if (rec.position_rank === 'SM') {
       targets.push({ name: rec.seller_name!, sellerId: rec.seller_id, positionRank: 'PS' });
-      if (sdName)  targets.push({ name: sdName,  sellerId: sdId,  positionRank: 'SD'  });
-      if (sdhName) targets.push({ name: sdhName, sellerId: sdhId, positionRank: 'SDH' });
-      if (shName)  targets.push({ name: shName,  sellerId: shId,  positionRank: 'SH'  });
+      if (sdId)  targets.push({ name: sdName  ?? sdId,  sellerId: sdId,  positionRank: 'SD'  });
+      if (sdhId) targets.push({ name: sdhName ?? sdhId, sellerId: sdhId, positionRank: 'SDH' });
+      if (shId)  targets.push({ name: shName  ?? shId,  sellerId: shId,  positionRank: 'SH'  });
     }
   } else {
-    // Broker: look up chain from Brokers table by Broker ID (resolved by commission RPC)
-    const { data: brokerRow } = await supabase
-      .from('Brokers')
-      .select('"Broker ID", "Broker Network Officer", "Broker Network Officer ID", "Sales Director", "Sales Director ID", "Sales Director Head", "Sales Director Head ID", "Sales Head", "Sales Head ID"')
-      .eq('"Broker ID"', rec.seller_id)
-      .maybeSingle();
+    const { data: rows, error: hierarchyError } = await supabase.rpc('get_broker_hierarchy', { p_broker_id: rec.seller_id });
+    if (hierarchyError) throw hierarchyError;
+    const h = (rows ?? [])[0] as any ?? null;
 
-    const smName  = (brokerRow as any)?.['Broker Network Officer']   as string | null ?? null;
-    const smId    = (brokerRow as any)?.['Broker Network Officer ID'] as string | null ?? null;
-    const sdName  = (brokerRow as any)?.['Sales Director']           as string | null ?? null;
-    const sdId    = (brokerRow as any)?.['Sales Director ID']        as string | null ?? null;
-    const sdhName = (brokerRow as any)?.['Sales Director Head']      as string | null ?? null;
-    const sdhId   = (brokerRow as any)?.['Sales Director Head ID']   as string | null ?? null;
-    const shName  = (brokerRow as any)?.['Sales Head']               as string | null ?? null;
-    const shId    = (brokerRow as any)?.['Sales Head ID']            as string | null ?? null;
+    const smName  = h?.broker_network_officer    as string | null ?? null;
+    const smId    = h?.broker_network_officer_id as string | null ?? null;
+    const sdName  = h?.sales_director            as string | null ?? null;
+    const sdId    = h?.sales_director_id         as string | null ?? null;
+    const sdhName = h?.sales_director_head       as string | null ?? null;
+    const sdhId   = h?.sales_director_head_id    as string | null ?? null;
+    const shName  = h?.sales_head                as string | null ?? null;
+    const shId    = h?.sales_head_id             as string | null ?? null;
 
     // Brokers are treated as PS in tranching
     targets.push({ name: rec.seller_name!, sellerId: rec.seller_id, positionRank: 'PS' });
-    if (smName)  targets.push({ name: smName,  sellerId: smId,  positionRank: 'SM'  });
-    if (sdName)  targets.push({ name: sdName,  sellerId: sdId,  positionRank: 'SD'  });
-    if (sdhName) targets.push({ name: sdhName, sellerId: sdhId, positionRank: 'SDH' });
-    if (shName)  targets.push({ name: shName,  sellerId: shId,  positionRank: 'SH'  });
+    if (smId)  targets.push({ name: smName  ?? smId,  sellerId: smId,  positionRank: 'SM'  });
+    if (sdId)  targets.push({ name: sdName  ?? sdId,  sellerId: sdId,  positionRank: 'SD'  });
+    if (sdhId) targets.push({ name: sdhName ?? sdhId, sellerId: sdhId, positionRank: 'SDH' });
+    if (shId)  targets.push({ name: shName  ?? shId,  sellerId: shId,  positionRank: 'SH'  });
   }
 
   if (targets.length === 0) return { ok: false, reason: 'missing-fields' };
+
+  // Resolve project_id once for the commission_schedule rows
+  const { data: projRow } = await supabase
+    .from('projects').select('project_id').eq('name', rec.project).maybeSingle();
+  const commProjectId = (projRow as any)?.project_id ?? null;
 
   // Use pre-HIC NLP as commission base (hic_discount was deducted from net_list_price)
   const nlp = (Number(rec.net_list_price) || 0) + hic_discount;
@@ -160,6 +159,7 @@ export async function generateCommissionSchedule(reservationId: string): Promise
 
     const tranches = await fetchCommissionTranches(
       rec.project, target.positionRank, rec.product_type, sellerType,
+      sellerType === 'Broker' ? (rec.seller_id ?? undefined) : undefined,
     );
     if (!tranches || tranches.length === 0) continue; // skip levels with no tranching configured
 
@@ -172,6 +172,7 @@ export async function generateCommissionSchedule(reservationId: string): Promise
         seller_name:             target.name,
         inventory_code:          rec.inventory_code,
         project:                 rec.project,
+        project_id:              commProjectId,
         tower:                   rec.tower,
         tranche:                 t.tranche,
         percentage_collection:   t.percentage_collection,
@@ -474,6 +475,15 @@ export async function regenerateCommissionSchedule(reservationId: string): Promi
 
   const nlp = (Number((res as any).net_list_price) || 0) + (Number((res as any).hic_discount) || 0);
 
+  // Resolve project_id from the first superseded line (all lines share the same project)
+  const regenProjectName = uniqueLines[0]?.project ?? null;
+  let regenProjectId: string | null = null;
+  if (regenProjectName) {
+    const { data: regenProjRow } = await supabase
+      .from('projects').select('project_id').eq('name', regenProjectName).maybeSingle();
+    regenProjectId = (regenProjRow as any)?.project_id ?? null;
+  }
+
   const allLines = uniqueLines.map(l => ({
     reservation_id:          reservationId,
     client_id:               l.client_id,
@@ -482,6 +492,7 @@ export async function regenerateCommissionSchedule(reservationId: string): Promi
     seller_name:             l.seller_name,
     inventory_code:          l.inventory_code,
     project:                 l.project,
+    project_id:              regenProjectId,
     tower:                   l.tower,
     tranche:                 l.tranche,
     percentage_collection:   l.percentage_collection,
@@ -502,13 +513,16 @@ export async function fetchCommissionTranches(
   positionRank: string,
   productType:  string,
   sellerType:   string,
+  brokerId?:    string,
 ): Promise<CommissionTranche[]> {
-  const { data, error } = await supabase.rpc('get_commission_tranching_schedule', {
+  const params: Record<string, string> = {
     p_project:       project,
     p_position_rank: positionRank,
     p_product_type:  productType,
     p_seller_type:   sellerType,
-  });
+  };
+  if (brokerId) params.p_broker_id = brokerId;
+  const { data, error } = await supabase.rpc('get_commission_tranching_schedule', params);
   if (error) throw error;
   return (data ?? []) as CommissionTranche[];
 }

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import PageShell from '@/components/layout/PageShell';
 import GlassCard from '@/components/ui/GlassCard';
 import GlassButton from '@/components/ui/GlassButton';
-import { fetchProjects, fetchTowers, fetchFloors, fetchFloorsByCategory, fetchUnitTypes, fetchInventoryUnits, InventoryUnit } from '@/lib/inventory';
+import { fetchProjects, fetchProjectsWithIds, fetchTowers, fetchFloors, fetchFloorsByCategory, fetchUnitTypes, fetchInventoryUnits, InventoryUnit } from '@/lib/inventory';
 import { fetchAllSalespersons, SalespersonRecord } from '@/lib/salesperson';
 import { fetchAllBrokers, fetchAllBrokerRecruits, BrokerRecord as BrokersTableRecord, BrokerRecruitRecord } from '@/lib/brokers';
 import { fetchAllClients, ClientRecord, saveClient } from '@/lib/clients';
@@ -473,7 +473,8 @@ export default function NewReservationPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Inventory data from DB
-  const [projects,       setProjects]       = useState<string[]>([]);
+  const [projects,         setProjects]         = useState<string[]>([]);
+  const [projectsWithIds,  setProjectsWithIds]  = useState<{ name: string; project_id: string }[]>([]);
   const [towers,         setTowers]         = useState<string[]>([]);
   const [floors,         setFloors]         = useState<string[]>([]);
   const [unitTypes,      setUnitTypes]      = useState<string[]>([]);
@@ -521,10 +522,13 @@ export default function NewReservationPage() {
 
   const visibleProjects = useMemo(() => {
     if (!userSalesperson) return projects;
-    if (!userSalesperson.focus_project) return [];
-    const allowed = userSalesperson.focus_project.split(' | ').map(p => p.trim()).filter(Boolean);
-    return projects.filter(p => allowed.includes(p));
-  }, [userSalesperson, projects]);
+    const focusIds = userSalesperson.focus_project_ids
+      ? new Set(userSalesperson.focus_project_ids.split(' | ').map(s => s.trim()).filter(Boolean))
+      : null;
+    if (!focusIds || focusIds.size === 0) return [];
+    const nameToId = new Map(projectsWithIds.map(p => [p.name, p.project_id]));
+    return projects.filter(name => { const id = nameToId.get(name); return id ? focusIds.has(id) : false; });
+  }, [userSalesperson, projects, projectsWithIds]);
 
   const SEE_ALL_ROLES_SELLER = ['All Access', 'Account Management'];
 
@@ -892,6 +896,11 @@ export default function NewReservationPage() {
         property_specialist:      sellerRecord?.seller_name    ?? undefined,
         sales_manager:            sellerRecord?.sales_manager  ?? undefined,
         sales_director:           sellerRecord?.sales_director ?? undefined,
+        seller_id:                sellerRecord?.seller_id             ?? null,
+        sales_manager_id:         sellerRecord?.sales_manager_id      ?? null,
+        sales_director_id:        sellerRecord?.sales_director_id     ?? null,
+        sales_division_head_id:   sellerRecord?.sales_division_head_id ?? null,
+        sales_head_id:            sellerRecord?.sales_head_id          ?? null,
       });
       // Fetch the newly created record so reservation gets the correct client_id
       // and the seller field stays locked if the user navigates back to Step 0
@@ -930,8 +939,9 @@ export default function NewReservationPage() {
     const loadProjects = async () => {
       try {
         setLoading(true);
-        const data = await fetchProjects();
+        const [data, withIds] = await Promise.all([fetchProjects(), fetchProjectsWithIds()]);
         setProjects(data);
+        setProjectsWithIds(withIds);
       } catch (err) {
         console.error('Failed to fetch projects:', err);
       } finally {

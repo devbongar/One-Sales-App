@@ -74,7 +74,10 @@ export interface ReservationPayload {
 }
 
 export async function saveReservation(payload: ReservationPayload): Promise<void> {
-  const { error } = await supabase.from('reservations').insert(payload);
+  const { data: projRow } = await supabase
+    .from('projects').select('project_id').eq('name', payload.project).maybeSingle();
+  const project_id = (projRow as any)?.project_id ?? null;
+  const { error } = await supabase.from('reservations').insert({ ...payload, project_id });
   if (error) throw error;
 }
 

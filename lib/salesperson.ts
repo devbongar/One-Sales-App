@@ -15,6 +15,7 @@ export interface SalespersonRecord {
   position_rank:          string | null;
   seller_group:           string | null;
   focus_project:          string | null;
+  focus_project_ids:      string | null;
   sales_manager:          string | null;
   sales_manager_id:       string | null;
   sales_director:         string | null;
@@ -104,9 +105,13 @@ export interface SellerRecruitRecord {
   business_units:         string | null;
   focus_project:          string | null;
   sales_manager:          string | null;
+  sales_manager_id:       string | null;
   sales_director:         string | null;
+  sales_director_id:      string | null;
   sales_division_head:    string | null;
+  sales_division_head_id: string | null;
   sales_head:             string | null;
+  sales_head_id:          string | null;
   sales_team:             string | null;
   payroll_code:           string | null;
   payroll_account_number: string | null;
@@ -132,6 +137,16 @@ export async function fetchAllSellerRecruits(): Promise<SellerRecruitRecord[]> {
   return rows;
 }
 
+async function syncSellerFocusProjects(sellerId: string, focusProject: string | null): Promise<void> {
+  await supabase.from('salesperson_focus_projects').delete().eq('seller_id', sellerId);
+  if (!focusProject) return;
+  const names = focusProject.split(' | ').map(s => s.trim()).filter(Boolean);
+  if (names.length === 0) return;
+  const { data: projRows } = await supabase.from('projects').select('project_id, name').in('name', names);
+  const rows = (projRows ?? []).map((p: any) => ({ seller_id: sellerId, project_id: p.project_id }));
+  if (rows.length > 0) await supabase.from('salesperson_focus_projects').insert(rows);
+}
+
 export async function addSellerRecruit(rec: SellerRecruitRecord): Promise<void> {
   const { error } = await supabase
     .from('Salesperson')
@@ -149,9 +164,13 @@ export async function addSellerRecruit(rec: SellerRecruitRecord): Promise<void> 
       'Business Units':         rec.business_units,
       'Focus Project':          rec.focus_project,
       'Sales Manager':          rec.sales_manager,
+      'Sales Manager ID':       rec.sales_manager_id,
       'Sales Director':         rec.sales_director,
+      'Sales Director ID':      rec.sales_director_id,
       'Sales Division Head':    rec.sales_division_head,
+      'Sales Division Head ID': rec.sales_division_head_id,
       'Sales Head':             rec.sales_head,
+      'Sales Head ID':          rec.sales_head_id,
       'Sales Team':             rec.sales_team,
       'Payroll Code':           rec.payroll_code,
       'Payroll Account Number': rec.payroll_account_number,
@@ -162,10 +181,11 @@ export async function addSellerRecruit(rec: SellerRecruitRecord): Promise<void> 
       'app_role_id':            rec.app_role_id,
     });
   if (error) throw error;
+  if (rec.seller_id) await syncSellerFocusProjects(rec.seller_id, rec.focus_project);
 }
 
 export async function updateSellerRecruit(
-  originalSellerName: string,
+  _originalSellerName: string,
   rec: SellerRecruitRecord,
 ): Promise<void> {
   const { error } = await supabase
@@ -184,9 +204,13 @@ export async function updateSellerRecruit(
       'Business Units':         rec.business_units,
       'Focus Project':          rec.focus_project,
       'Sales Manager':          rec.sales_manager,
+      'Sales Manager ID':       rec.sales_manager_id,
       'Sales Director':         rec.sales_director,
+      'Sales Director ID':      rec.sales_director_id,
       'Sales Division Head':    rec.sales_division_head,
+      'Sales Division Head ID': rec.sales_division_head_id,
       'Sales Head':             rec.sales_head,
+      'Sales Head ID':          rec.sales_head_id,
       'Sales Team':             rec.sales_team,
       'Payroll Code':           rec.payroll_code,
       'Payroll Account Number': rec.payroll_account_number,
@@ -196,8 +220,9 @@ export async function updateSellerRecruit(
       'BIR COR Address':        rec.bir_cor_address,
       'app_role_id':            rec.app_role_id,
     })
-    .eq('Seller Name', originalSellerName);
+    .eq('Seller Id', rec.seller_id);
   if (error) throw error;
+  if (rec.seller_id) await syncSellerFocusProjects(rec.seller_id, rec.focus_project);
 }
 
 export async function fetchSellerSignature(sellerName: string): Promise<string | null> {

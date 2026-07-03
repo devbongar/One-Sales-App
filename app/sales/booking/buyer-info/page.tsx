@@ -571,6 +571,18 @@ export default function BuyerInfoPage() {
           broker_network_officer: clientRecord.broker_network_officer ?? undefined,
           broker_bir_name: clientRecord.broker_bir_name ?? undefined,
           broker_network_associate: clientRecord.broker_network_associate ?? undefined,
+          // Preserve existing seller ID columns so idFields() doesn't wipe them to null
+          seller_id:                   clientRecord.seller_id                   ?? null,
+          sales_manager_id:            clientRecord.sales_manager_id            ?? null,
+          sales_director_id:           clientRecord.sales_director_id           ?? null,
+          sales_division_head_id:      clientRecord.sales_division_head_id      ?? null,
+          sales_head_id:               clientRecord.sales_head_id               ?? null,
+          broker_id:                   clientRecord.broker_id                   ?? null,
+          broker_network_associate_id: clientRecord.broker_network_associate_id ?? null,
+          broker_network_officer_id:   clientRecord.broker_network_officer_id   ?? null,
+          broker_sales_director_id:    clientRecord.broker_sales_director_id    ?? null,
+          broker_director_head_id:     clientRecord.broker_director_head_id     ?? null,
+          broker_sales_head_id:        clientRecord.broker_sales_head_id        ?? null,
         });
       }
       // Sync reservation: has_spouse + client_name (denormalized — keep in sync with name edits)

@@ -349,10 +349,14 @@ function DetailSheet({ seller, onClose, onSaved }: {
     const rec = name ? allPeople.find(p => p.seller_name === name) : null;
     setForm(f => ({
       ...f,
-      sales_manager:       name || null,
-      sales_director:      rec?.sales_director      ?? null,
-      sales_division_head: rec?.sales_division_head ?? null,
-      sales_head:          rec?.sales_head          ?? f.sales_head,
+      sales_manager:          name || null,
+      sales_manager_id:       rec?.seller_id              ?? null,
+      sales_director:         rec?.sales_director         ?? null,
+      sales_director_id:      rec?.sales_director_id      ?? null,
+      sales_division_head:    rec?.sales_division_head    ?? null,
+      sales_division_head_id: rec?.sales_division_head_id ?? null,
+      sales_head:             rec?.sales_head             ?? f.sales_head,
+      sales_head_id:          rec?.sales_head_id          ?? f.sales_head_id,
     }));
     setCascadeSource(name ? 'sm' : null);
   }
@@ -361,10 +365,14 @@ function DetailSheet({ seller, onClose, onSaved }: {
     const rec = name ? allPeople.find(p => p.seller_name === name) : null;
     setForm(f => ({
       ...f,
-      sales_director:      name || null,
-      sales_division_head: rec?.sales_division_head ?? null,
-      sales_head:          rec?.sales_head          ?? f.sales_head,
-      sales_team:          rec?.sales_team          ?? null,
+      sales_manager_id:       null,
+      sales_director:         name || null,
+      sales_director_id:      rec?.seller_id              ?? null,
+      sales_division_head:    rec?.sales_division_head    ?? null,
+      sales_division_head_id: rec?.sales_division_head_id ?? null,
+      sales_head:             rec?.sales_head             ?? f.sales_head,
+      sales_head_id:          rec?.sales_head_id          ?? f.sales_head_id,
+      sales_team:             rec?.sales_team             ?? null,
     }));
     setCascadeSource(name ? 'sd' : null);
   }
@@ -373,10 +381,19 @@ function DetailSheet({ seller, onClose, onSaved }: {
     const rec = name ? allPeople.find(p => p.seller_name === name) : null;
     setForm(f => ({
       ...f,
-      sales_division_head: name || null,
-      sales_head:          rec?.sales_head ?? f.sales_head,
+      sales_manager_id:       null,
+      sales_director_id:      null,
+      sales_division_head:    name || null,
+      sales_division_head_id: rec?.seller_id    ?? null,
+      sales_head:             rec?.sales_head    ?? f.sales_head,
+      sales_head_id:          rec?.sales_head_id ?? f.sales_head_id,
     }));
     setCascadeSource(name ? 'sdh' : null);
+  }
+
+  function onShChange(name: string) {
+    const rec = name ? allPeople.find(p => p.seller_name === name) : null;
+    setForm(f => ({ ...f, sales_head: name || null, sales_head_id: rec?.seller_id ?? null }));
   }
 
   // Canvas touch listeners for drawing
@@ -667,7 +684,7 @@ function DetailSheet({ seller, onClose, onSaved }: {
             {(['PS', 'SM', 'SD', 'SDH'] as string[]).includes(form.position_rank ?? '') && (
               <ERow label="Sales Head" icon={<User size={10} />}>
                 <ESelect value={form.sales_head ?? ''} options={shOptions}
-                  onChange={set('sales_head')} disabled={!editMode || cascadeSource === 'sm' || cascadeSource === 'sd' || cascadeSource === 'sdh'} />
+                  onChange={onShChange} disabled={!editMode || cascadeSource === 'sm' || cascadeSource === 'sd' || cascadeSource === 'sdh'} />
               </ERow>
             )}
             <ERow label="Sales Team" icon={<Users size={10} />} required>
@@ -820,8 +837,10 @@ const EMPTY_RECRUIT: SellerRecruitRecord = {
   seller_name: '', seller_id: null, position_code: null, position_rank: null,
   seller_status: null, first_name: null, middle_name: null, last_name: null,
   email_address: null, hired_date: null, business_units: null, focus_project: null,
-  sales_manager: null, sales_director: null, sales_division_head: null,
-  sales_head: null, sales_team: null, payroll_code: null,
+  sales_manager: null, sales_manager_id: null,
+  sales_director: null, sales_director_id: null,
+  sales_division_head: null, sales_division_head_id: null,
+  sales_head: null, sales_head_id: null, sales_team: null, payroll_code: null,
   payroll_account_number: null, vat_registration_type: null, tin: null,
   ewt_rate: null, bir_cor_address: null, signature_base64: null, app_role_id: null,
 };
@@ -871,10 +890,14 @@ function AddSheet({ onClose, onAdded }: {
     const rec = name ? allPeople.find(p => p.seller_name === name) : null;
     setForm(f => ({
       ...f,
-      sales_manager:       name || null,
-      sales_director:      rec?.sales_director      ?? null,
-      sales_division_head: rec?.sales_division_head ?? null,
-      sales_head:          rec?.sales_head          ?? f.sales_head,
+      sales_manager:          name || null,
+      sales_manager_id:       rec?.seller_id              ?? null,
+      sales_director:         rec?.sales_director         ?? null,
+      sales_director_id:      rec?.sales_director_id      ?? null,
+      sales_division_head:    rec?.sales_division_head    ?? null,
+      sales_division_head_id: rec?.sales_division_head_id ?? null,
+      sales_head:             rec?.sales_head             ?? f.sales_head,
+      sales_head_id:          rec?.sales_head_id          ?? f.sales_head_id,
     }));
     setCascadeSource(name ? 'sm' : null);
   }
@@ -883,10 +906,14 @@ function AddSheet({ onClose, onAdded }: {
     const rec = name ? allPeople.find(p => p.seller_name === name) : null;
     setForm(f => ({
       ...f,
-      sales_director:      name || null,
-      sales_division_head: rec?.sales_division_head ?? null,
-      sales_head:          rec?.sales_head          ?? f.sales_head,
-      sales_team:          rec?.sales_team          ?? null,
+      sales_manager_id:       null,
+      sales_director:         name || null,
+      sales_director_id:      rec?.seller_id              ?? null,
+      sales_division_head:    rec?.sales_division_head    ?? null,
+      sales_division_head_id: rec?.sales_division_head_id ?? null,
+      sales_head:             rec?.sales_head             ?? f.sales_head,
+      sales_head_id:          rec?.sales_head_id          ?? f.sales_head_id,
+      sales_team:             rec?.sales_team             ?? null,
     }));
     setCascadeSource(name ? 'sd' : null);
   }
@@ -895,10 +922,19 @@ function AddSheet({ onClose, onAdded }: {
     const rec = name ? allPeople.find(p => p.seller_name === name) : null;
     setForm(f => ({
       ...f,
-      sales_division_head: name || null,
-      sales_head:          rec?.sales_head ?? f.sales_head,
+      sales_manager_id:       null,
+      sales_director_id:      null,
+      sales_division_head:    name || null,
+      sales_division_head_id: rec?.seller_id    ?? null,
+      sales_head:             rec?.sales_head    ?? f.sales_head,
+      sales_head_id:          rec?.sales_head_id ?? f.sales_head_id,
     }));
     setCascadeSource(name ? 'sdh' : null);
+  }
+
+  function onShChange(name: string) {
+    const rec = name ? allPeople.find(p => p.seller_name === name) : null;
+    setForm(f => ({ ...f, sales_head: name || null, sales_head_id: rec?.seller_id ?? null }));
   }
 
   useEffect(() => {
@@ -1128,7 +1164,7 @@ function AddSheet({ onClose, onAdded }: {
           )}
           {(['PS', 'SM', 'SD', 'SDH'] as string[]).includes(form.position_rank ?? '') && (
             <ERow label="Sales Head" icon={<User size={10} />}>
-              <ESelect value={form.sales_head ?? ''} options={shOptions} onChange={set('sales_head')}
+              <ESelect value={form.sales_head ?? ''} options={shOptions} onChange={onShChange}
                 disabled={cascadeSource === 'sm' || cascadeSource === 'sd' || cascadeSource === 'sdh'} />
             </ERow>
           )}
