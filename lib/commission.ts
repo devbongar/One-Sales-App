@@ -219,6 +219,7 @@ export interface SellerCommissionSummary {
   commission_rate:      number | null;
   total_commission:     number;
   created_at:           string | null;
+  reservation_status:   string | null;
 }
 
 export async function fetchSellerCommissionSummaries(sellerId: string): Promise<SellerCommissionSummary[]> {
@@ -243,6 +244,7 @@ export async function fetchSellerCommissionSummaries(sellerId: string): Promise<
         commission_rate:      Number(l.commission_rate) || null,
         total_commission:     0,
         created_at:           l.created_at ?? null,
+        reservation_status:   null,
       };
     }
     map[l.reservation_id].total_commission += Number(l.gross_commission) || 0;
@@ -251,16 +253,17 @@ export async function fetchSellerCommissionSummaries(sellerId: string): Promise<
   const summaries = Object.values(map);
   if (summaries.length === 0) return [];
 
-  // Enrich with TCP / NLP from reservations
+  // Enrich with TCP / NLP / status from reservations
   const { data: resRows } = await supabase
     .from('reservations')
-    .select('reservation_id, total_contract_price, net_list_price')
+    .select('reservation_id, total_contract_price, net_list_price, status')
     .in('reservation_id', summaries.map(s => s.reservation_id));
 
   for (const res of (resRows ?? []) as any[]) {
     if (map[res.reservation_id]) {
       map[res.reservation_id].total_contract_price = Number(res.total_contract_price) || null;
       map[res.reservation_id].net_list_price       = Number(res.net_list_price) || null;
+      map[res.reservation_id].reservation_status   = res.status ?? null;
     }
   }
 
@@ -376,12 +379,28 @@ export async function fetchAllCollectedByReservation(): Promise<Record<string, n
 }
 
 export async function markPendingTranchesForRelease(
-  lines:          CommissionScheduleFullLine[],
-  collectionsMap: Record<string, number>,
-  nlpMap:         Record<string, number>,
+  lines:                CommissionScheduleFullLine[],
+  collectionsMap:       Record<string, number>,
+  nlpMap:               Record<string, number>,
+  reservationStatusMap: Record<string, string> = {},
 ): Promise<void> {
+  // Revert any "For Release" lines whose reservation is no longer / not yet Booked
+  const toRevert = lines.filter(line =>
+    line.status === 'For Release' &&
+    (reservationStatusMap[line.reservation_id] ?? '') !== 'Booked'
+  );
+  if (toRevert.length > 0) {
+    await Promise.all(toRevert.map(line =>
+      supabase.from('commission_schedule')
+        .update({ status: 'Pending', vat_amount: null, ewt_amount: null, net_commission: null })
+        .eq('id', line.id)
+    ));
+    toRevert.forEach(line => { line.status = 'Pending'; });
+  }
+
   const qualifying = lines.filter(line => {
     if (line.status !== 'Pending') return false;
+    if ((reservationStatusMap[line.reservation_id] ?? '') !== 'Booked') return false;
     const nlp          = nlpMap[line.reservation_id] ?? 0;
     const collected    = collectionsMap[line.reservation_id] ?? 0;
     const pctCollected = nlp > 0 ? (collected / nlp) * 100 : 0;

@@ -14,12 +14,13 @@ interface Props {
   disabled?: boolean;
 }
 
-function PartSelect({ value, placeholder, options, onSelect, onClear }: {
+function PartSelect({ value, placeholder, options, onSelect, onClear, alignRight }: {
   value: string;
   placeholder: string;
   options: { label: string; val: string }[];
   onSelect: (v: string) => void;
   onClear: () => void;
+  alignRight?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -44,7 +45,7 @@ function PartSelect({ value, placeholder, options, onSelect, onClear }: {
   const selectedLabel = options.find(o => o.val === value)?.label ?? '';
 
   return (
-    <div className="flex-1 min-w-0" data-datepicker-part>
+    <div className="flex-1 min-w-0 relative" data-datepicker-part>
       {/* Trigger */}
       <div
         role="button"
@@ -69,7 +70,7 @@ function PartSelect({ value, placeholder, options, onSelect, onClear }: {
         <div
           ref={ref}
           className="absolute z-50 mt-1 rounded-xl border border-black/[0.08] bg-white shadow-lg overflow-hidden"
-          style={{ minWidth: '100%', width: 'max-content', maxHeight: '220px', overflowY: 'auto' }}
+          style={{ minWidth: '100%', width: 'max-content', maxHeight: '220px', overflowY: 'auto', ...(alignRight ? { right: 0, left: 'auto' } : { left: 0 }) }}
         >
           {options.map(o => (
             <button
@@ -170,6 +171,7 @@ export default function DatePickerInput({ value, onChange, disabled }: Props) {
         options={dayOptions}
         onSelect={v => handleChange(y, m, v)}
         onClear={() => handleChange(y, m, '')}
+        alignRight
       />
       <PartSelect
         value={y}
@@ -177,6 +179,7 @@ export default function DatePickerInput({ value, onChange, disabled }: Props) {
         options={yearOptions}
         onSelect={v => handleChange(v, m, d)}
         onClear={() => handleChange('', m, d)}
+        alignRight
       />
     </div>
   );

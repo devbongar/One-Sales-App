@@ -8,6 +8,7 @@ import { fetchAttyInFact } from '@/lib/atty-in-fact';
 import { fetchCoOwnerSpouse } from '@/lib/co-owner-spouse';
 import { getBookingProgress } from '@/lib/booking-progress';
 import { supabase } from '@/lib/supabase';
+import { getSession } from '@/lib/auth';
 
 export interface ReservationSummary {
   reservation_id: string;
@@ -1447,6 +1448,7 @@ export interface ComparisonCard {
 export interface QuotationClientInfo {
   firstName: string; middleName: string; lastName: string;
   suffix: string; mobile: string; countryCode: string; email: string;
+  sellerName?: string;
 }
 
 /**
@@ -1481,16 +1483,13 @@ export async function generateQuotationPDF(
   const timeStr = now.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
 
   // Read seller from session
-  let sellerName = '';
+  let sellerName = clientInfo.sellerName ?? '';
   let sellerContact = '';
   let sellerMobile = '';
   try {
-    const raw = typeof window !== 'undefined' ? localStorage.getItem('osa_session') : null;
-    if (raw) {
-      const s = JSON.parse(raw);
-      sellerName    = s.full_name ?? '';
-      sellerContact = s.email     ?? '';
-    }
+    const s = await getSession();
+    if (!sellerName) sellerName = s?.full_name ?? '';
+    sellerContact = s?.email ?? '';
   } catch {}
   if (sellerContact) {
     try {

@@ -1,9 +1,13 @@
 import { supabase } from '@/lib/supabase';
 
 export async function generateReservationId(): Promise<string> {
-  const { data, error } = await supabase.rpc('generate_reservation_id');
-  if (error) throw error;
-  return data as string;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const { data, error } = await supabase.rpc('generate_reservation_id');
+    if (!error) return data as string;
+    if (attempt === 3) throw error;
+    await new Promise(r => setTimeout(r, 800 * attempt));
+  }
+  throw new Error('Failed to generate reservation ID');
 }
 
 export interface ReservationPayload {

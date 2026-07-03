@@ -35,8 +35,8 @@ export async function cancelReservation(
   if (inventoryCode) {
     await supabase
       .from('Inventory')
-      .update({ status: 'Available' })
-      .eq('inventory_code', inventoryCode);
+      .update({ Status: 'Available' })
+      .eq('"Inventory Code"', inventoryCode);
   }
 
   // 4. Void Unpaid receivable lines (leave Partial, Paid, Superseded)
@@ -70,10 +70,10 @@ export async function restoreReservation(
   if (inventoryCode) {
     const { data: unit } = await supabase
       .from('Inventory')
-      .select('status')
-      .eq('inventory_code', inventoryCode)
+      .select('Status')
+      .eq('"Inventory Code"', inventoryCode)
       .single();
-    const unitStatus = (unit as any)?.status ?? null;
+    const unitStatus = (unit as any)?.Status ?? null;
     if (unitStatus !== 'Available') {
       throw new Error(
         `Cannot restore — unit ${inventoryCode} is already reserved by another client.`
@@ -99,8 +99,8 @@ export async function restoreReservation(
   if (inventoryCode) {
     await supabase
       .from('Inventory')
-      .update({ status: 'Reserved' })
-      .eq('inventory_code', inventoryCode);
+      .update({ Status: 'Reserved' })
+      .eq('"Inventory Code"', inventoryCode);
   }
 
   // 5. Restore Cancelled receivable lines → Unpaid

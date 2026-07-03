@@ -10,7 +10,15 @@ import { fetchAllBrokers, BrokerRecord } from '@/lib/broker';
 import { User, Search, DollarSign, CalendarRange, X, Building2, Briefcase } from 'lucide-react';
 import FilterSelect from '@/components/ui/FilterSelect';
 
-const POSITION_RANKS = ['PS', 'SM', 'SD', 'SDH', 'SH'];
+const ALL_POSITION_RANKS = ['PS', 'SM', 'SD', 'SDH', 'SH'];
+
+// Ranks that can be subordinates of each rank
+const SUBORDINATE_RANKS: Record<string, string[]> = {
+  SM:  ['PS'],
+  SD:  ['SM', 'PS'],
+  SDH: ['SD', 'SM', 'PS'],
+  SH:  ['SDH', 'SD', 'SM', 'PS'],
+};
 
 function positionLabel(rank: string | null) {
   const map: Record<string, string> = {
@@ -39,7 +47,11 @@ export default function SalesCommissionPage() {
   const [selectedSeller, setSelectedSeller] = useState<SalespersonRecord | null>(null);
   const [selectedBroker, setSelectedBroker] = useState<BrokerRecord | null>(null);
 
-  const canSearch = role === 'All Access' || role === 'Sales Director';
+  const [userSellerId, setUserSellerId] = useState<string | null>(null);
+  const [userPositionRank, setUserPositionRank] = useState<string | null>(null);
+
+  const isAllAccess = role === 'All Access';
+  const canSearch = isAllAccess || (userPositionRank !== null && userPositionRank in SUBORDINATE_RANKS);
 
   // Restore UI state when coming back from schedule/slip page
   useEffect(() => {
@@ -71,6 +83,11 @@ export default function SalesCommissionPage() {
       const session = await getSession();
       if (!session) return;
       setRole(session.role_name);
+      setUserSellerId(session.seller_id);
+      if (salespersons.length > 0) {
+        const mySeller = salespersons.find(s => s.seller_id === session.seller_id);
+        setUserPositionRank(mySeller?.position_rank ?? null);
+      }
       if (mode !== 'my' || salespersons.length === 0 || selectedSeller) return;
       if (!session.seller_id) return;
       const inhouse = salespersons.find(s => s.seller_id === session.seller_id);
@@ -87,6 +104,19 @@ export default function SalesCommissionPage() {
 
   const filteredSalespersons = useMemo(() => {
     return salespersons.filter(s => {
+      // Hierarchy gate: non-All Access users only see their own subordinates
+      if (!isAllAccess && userSellerId && userPositionRank) {
+        const inChain = (() => {
+          switch (userPositionRank) {
+            case 'SM':  return s.sales_manager_id       === userSellerId;
+            case 'SD':  return s.sales_director_id      === userSellerId;
+            case 'SDH': return s.sales_division_head_id === userSellerId;
+            case 'SH':  return s.sales_head_id          === userSellerId;
+            default:    return false;
+          }
+        })();
+        if (!inChain) return false;
+      }
       if (positionRankFilter && s.position_rank !== positionRankFilter) return false;
       if (query) {
         const q = query.toLowerCase();
@@ -98,7 +128,7 @@ export default function SalesCommissionPage() {
       }
       return true;
     });
-  }, [salespersons, query, positionRankFilter]);
+  }, [salespersons, query, positionRankFilter, isAllAccess, userSellerId, userPositionRank]);
 
   const filteredBrokers = useMemo(() => {
     if (!query) return brokers;
@@ -123,6 +153,7 @@ export default function SalesCommissionPage() {
   }
 
   function switchMode(m: 'my' | 'search') {
+    if (mode === m) return;
     setMode(m);
     setSelectedSeller(null);
     setSelectedBroker(null);
@@ -171,7 +202,7 @@ export default function SalesCommissionPage() {
       {mode === 'search' && canSearch && (
         <GlassCard className="p-4 space-y-3">
 
-          {/* In-house | Broker sub-toggle */}
+          {/* In-house | Broker sub-toggle (broker only for All Access) */}
           <div className="flex gap-2">
             <button
               onClick={() => switchSellerType('inhouse')}
@@ -183,7 +214,7 @@ export default function SalesCommissionPage() {
             >
               In-house
             </button>
-            <button
+            {isAllAccess && <button
               onClick={() => switchSellerType('broker')}
               className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-all border ${
                 sellerType === 'broker'
@@ -192,7 +223,7 @@ export default function SalesCommissionPage() {
               }`}
             >
               Broker
-            </button>
+            </button>}
           </div>
 
           {/* Position Rank filter (In-house only) */}
@@ -200,7 +231,7 @@ export default function SalesCommissionPage() {
             <FilterSelect
               label="Position Rank"
               value={positionRankFilter}
-              options={POSITION_RANKS}
+              options={isAllAccess ? ALL_POSITION_RANKS : (SUBORDINATE_RANKS[userPositionRank ?? ''] ?? ALL_POSITION_RANKS)}
               onChange={setPositionRankFilter}
               icon={<Briefcase size={16} />}
             />

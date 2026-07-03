@@ -519,6 +519,7 @@ export default function ProofOfPaymentPage() {
   }
 
   const adaSelected = subsequentMode === 'Auto-Debit Arrangement (ADA)';
+  const needsEndUserFinancing = paymentScheme === 'spot_dp' || paymentScheme === 'stretched_dp';
 
   // canConfirm: in edit mode relax the "must have new files" — existing counts too
   const totalPaymentFiles = existingPaymentUrls.length + files.length;
@@ -528,7 +529,7 @@ export default function ProofOfPaymentPage() {
 
   const canConfirm = totalPaymentFiles > 0 && !!paymentDate
     && !!reservationPaymentMode && !!subsequentMode && (!adaSelected || !!adaBank)
-    && totalValidIdFiles > 0 && !!endUserFinancing
+    && totalValidIdFiles > 0 && (!needsEndUserFinancing || !!endUserFinancing)
     && (!firstPaymentAgreed || (totalFdpFiles > 0 && !!fdpPaymentDate));
 
   // Doc section helper
@@ -884,7 +885,7 @@ export default function ProofOfPaymentPage() {
           {(subsequentMode || endUserFinancing) && (
             <GlassCard className="px-4 py-1">
               {subsequentMode && (
-                <div className={`py-3 px-1 space-y-2 ${adaBank || endUserFinancing ? 'border-b border-black/[0.06]' : ''}`}>
+                <div className={`py-3 px-1 space-y-2 ${adaBank || (needsEndUserFinancing && endUserFinancing) ? 'border-b border-black/[0.06]' : ''}`}>
                   <p className="text-xs font-semibold text-[#8E8E93] flex items-center gap-1.5">
                     <CreditCard size={11} className="text-[#8E8E93]" />
                     Subsequent Mode of Payment
@@ -915,7 +916,7 @@ export default function ProofOfPaymentPage() {
                   </div>
                 </div>
               )}
-              {endUserFinancing && (
+              {needsEndUserFinancing && endUserFinancing && (
                 <div className="py-3 px-1 space-y-2">
                   <p className="text-xs font-semibold text-[#8E8E93] flex items-center gap-1.5">
                     <Landmark size={11} className="text-[#8E8E93]" />
@@ -1284,20 +1285,22 @@ export default function ProofOfPaymentPage() {
           <p className="text-[11px] text-[#8E8E93] leading-relaxed text-center px-2">
             Please ensure that you have selected the correct mode of payment for the reservation and subsequent payments, including the corresponding preferred bank of the client. All required documents must be uploaded before proceeding with the payment.
           </p>
-          <GlassCard className="px-4 py-3 space-y-2">
-            <div className="flex items-center gap-1.5">
-              <Landmark size={13} className="text-[#8E8E93] shrink-0" />
-              <span className="text-xs font-semibold text-[#8E8E93]">End User Financing</span>
-              <span className="text-[#C03D25] text-xs leading-none">*</span>
-            </div>
-            <SearchableSelect
-              value={endUserFinancing}
-              onChange={setEndUserFinancing}
-              options={['Bank', 'HDMF']}
-              placeholder="Select financing type"
-              dropUp
-            />
-          </GlassCard>
+          {needsEndUserFinancing && (
+            <GlassCard className="px-4 py-3 space-y-2">
+              <div className="flex items-center gap-1.5">
+                <Landmark size={13} className="text-[#8E8E93] shrink-0" />
+                <span className="text-xs font-semibold text-[#8E8E93]">End User Financing</span>
+                <span className="text-[#C03D25] text-xs leading-none">*</span>
+              </div>
+              <SearchableSelect
+                value={endUserFinancing}
+                onChange={setEndUserFinancing}
+                options={['Bank', 'HDMF']}
+                placeholder="Select financing type"
+                dropUp
+              />
+            </GlassCard>
+          )}
           <button
             type="button"
             disabled={!canConfirm || (editMode && rfCountdownExpired)}

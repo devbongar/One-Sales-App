@@ -162,12 +162,15 @@ export default function CommissionPayoutPage() {
       setError('');
       setLines([]);
       try {
-        const [allLines, collectionsMap, commRecords, { data: spRows }] = await Promise.all([
+        const [allLines, collectionsMap, commRecords, { data: spRows }, { data: resRows }] = await Promise.all([
           fetchAllCommissionScheduleLines(),
           fetchAllCollectedByReservation(),
           fetchCommissionRecords(),
           supabase.from('Salesperson').select('"Seller Name", "Seller Status", "Payroll Account Number"'),
+          supabase.from('reservations').select('reservation_id').eq('status', 'Booked').limit(5000),
         ]);
+        const reservationStatusMap: Record<string, string> = {};
+        (resRows ?? []).forEach((r: any) => { if (r.reservation_id) reservationStatusMap[r.reservation_id] = 'Booked'; });
 
         const nlpMap: Record<string, number>    = {};
         const rankMap: Record<string, string>   = {};
@@ -188,7 +191,7 @@ export default function CommissionPayoutPage() {
 
         setNlpMap(nlpMap);
         setRankMap(rankMap);
-        markPendingTranchesForRelease(allLines, collectionsMap, nlpMap).catch(console.error);
+        markPendingTranchesForRelease(allLines, collectionsMap, nlpMap, reservationStatusMap).catch(console.error);
 
         const result: ReportLine[] = [];
 
@@ -201,7 +204,8 @@ export default function CommissionPayoutPage() {
             const nlp          = nlpMap[line.reservation_id] ?? 0;
             const collected    = collectionsMap[line.reservation_id] ?? 0;
             const pctCollected = nlp > 0 ? (collected / nlp) * 100 : 0;
-            effectiveStatus    = (pctCollected >= line.percentage_collection || line.status === 'For Release')
+            const isBooked     = (reservationStatusMap[line.reservation_id] ?? '') === 'Booked';
+            effectiveStatus    = isBooked && (pctCollected >= line.percentage_collection || line.status === 'For Release')
               ? 'For Release'
               : 'Pending';
           }

@@ -124,12 +124,12 @@ export async function fetchInventoryUnits(projectName: string, tower: string): P
 
 export async function fetchUnitStatus(inventoryCode: string): Promise<string | null> {
   const { data, error } = await supabase
-    .from('inventory')
-    .select('status')
-    .eq('inventory_code', inventoryCode)
+    .from('Inventory')
+    .select('Status')
+    .eq('"Inventory Code"', inventoryCode)
     .maybeSingle();
   if (error) throw error;
-  return (data as any)?.status ?? null;
+  return (data as any)?.Status ?? null;
 }
 
 export async function updateInventoryUnitStatus(inventoryCode: string, status: string): Promise<void> {

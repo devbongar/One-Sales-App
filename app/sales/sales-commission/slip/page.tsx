@@ -300,6 +300,7 @@ export default function CommissionSlipPage() {
                           )}
                           {detail && !detail.loading && !detail.error && detail.lines.length > 0 && (() => {
                             const pctCollected = r.net_list_price ? (detail.collected / r.net_list_price) * 100 : 0;
+                            const isBooked = r.reservation_status === 'Booked';
                             const visibleLines = detail.lines
                               .map(line => ({
                                 ...line,
@@ -307,7 +308,7 @@ export default function CommissionSlipPage() {
                                   line.status === 'Released'    ? 'Released'    :
                                   line.status === 'Paid'        ? 'Paid'        :
                                   line.status === 'For Release' ? 'For Release' :
-                                  pctCollected >= line.percentage_collection ? 'For Release' : 'Pending',
+                                  isBooked && pctCollected >= line.percentage_collection ? 'For Release' : 'Pending',
                               }))
                               .filter(line => line.effectiveStatus !== 'Pending');
 
